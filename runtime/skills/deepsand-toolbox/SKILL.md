@@ -50,6 +50,14 @@ These are the ids. Anything not in this list does not exist as far as Deepsand i
 | `web-search` | DeepCode's own web search | needs the vendor's API, so it also opens that API in the network filter while it is on |
 | `wrangler` | Cloudflare's CLI | Workers, Pages, KV, R2 and D1 |
 
+**Reverse engineering** — for taking a shipped artifact apart:
+
+| id | what it is | notes |
+|---|---|---|
+| `rea` | REA, for reverse engineering shipped applications and binaries | a local analysis toolkit and MCP server for Electron/JavaScript bundles, .NET assemblies, Go and Rust binaries, archives and PE resources. Native decompilation still needs Ghidra/Hopper/IDA, which this image does not carry. When it is enabled, the `deepsand-rea` skill is installed with it |
+| `dejared` | Dejared, for inspecting and decompiling Java JARs | an MCP server with its own Java 17 runtime and decompiler JAR: list packages and resources, search classes and strings, read metadata, and decompile with CFR, Vineflower or Procyon. Ordinary JARs (classes at the root) work directly; a Spring Boot fat-jar, WAR/EAR or AAR stores classes behind a nested prefix and has to be unpacked first. When it is enabled, the `deepsand-dejared` skill is installed with it |
+| `ffdec` | FFDec, for Shockwave Flash (SWF) | an MCP server built from ffdec-mcp, plus the JPEXS FFDec CLI: inspect tags, classes, symbols and methods, decompile ActionScript, search source and P-code, patch classes/methods/constants, and save a copied SWF. The CLI covers the bulk exporters and SWF/XML conversion the MCP surface does not wrap. When it is enabled, the `deepsand-ffdec` skill is installed with it |
+
 **Available on request:**
 
 | id | what it is | notes |

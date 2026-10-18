@@ -513,6 +513,9 @@ pub fn run() {
             // act on the wrong machine.
             commands::reveal_project_dir,
             commands::reveal_grant_dir,
+            // Opens the tool's project page in the machine's browser, resolved from the
+            // catalogue by id. Desktop-only for the same reason as the two reveal commands.
+            commands::open_tool_homepage,
             commands::startup_error,
             // Ends every container on the machine, so it is desktop-only like the updater
             // commands and absent from the remote command table for the same reason: a

@@ -346,3 +346,406 @@ fn every_build_path_supplies_the_toolcache_context() {
         "and the context has to be named `toolcache`, which is what the Dockerfile asks for"
     );
 }
+
+/// A tool's skill is instructions the model may act on, so one shipped into an image that
+/// does not contain the tool is worse than no skill at all: the model reads a playbook for a
+/// capability it cannot use. The Dockerfile stages every skill, installs the always-on ones,
+/// and copies a tool's skill only inside that tool's `case`.
+#[test]
+fn a_tools_skill_is_installed_only_into_an_image_built_with_that_tool() {
+    let text = dockerfile();
+
+    // Staged, not installed at the discovery root. Installing the whole tree here is exactly
+    // the bug: every skill would be in every image.
+    assert!(
+        text.contains("COPY skills/ /usr/local/share/deepsand/skills/"),
+        "the skill tree has to be staged where the tool selection can still gate it"
+    );
+    assert!(
+        !text.contains("COPY skills/ /home/deepcode/.agents/skills/"),
+        "copying every skill straight into the discovery root bypasses the tool gate"
+    );
+
+    // The skills that describe the sandbox itself are installed unconditionally.
+    assert!(
+        text.contains("for skill in deepsand-permissions deepsand-toolbox"),
+        "the always-on skills have to be installed whatever the tool selection is"
+    );
+
+    // Every tool's skill copy is inside a case that matches that tool's id, and nowhere else.
+    for (tool, skill) in [
+        ("rea", "deepsand-rea"),
+        ("dejared", "deepsand-dejared"),
+        ("ffdec", "deepsand-ffdec"),
+    ] {
+        let copy_step = format!("cp -a /usr/local/share/deepsand/skills/{skill}");
+        let copy = text
+            .find(&copy_step)
+            .unwrap_or_else(|| panic!("{skill} has to be installed when {tool} is selected"));
+        let gate = format!("*,{tool},*)");
+        let gate_at = text[..copy]
+            .rfind(&gate)
+            .unwrap_or_else(|| panic!("{skill} has to be inside the {tool} case"));
+        let case_open = text[..copy]
+            .rfind("case \",$INSTALL_TOOLS,\" in")
+            .expect("and that case has to be gated on the tool selection");
+        assert!(
+            case_open < gate_at && copy - gate_at < 300,
+            "the copy must be the body of the {tool} case, not a step beside it:\n{}",
+            &text[gate_at..copy]
+        );
+        assert_eq!(
+            text.matches(&copy_step).count(),
+            1,
+            "one gated copy of {skill}, or it can leak into an image without the tool"
+        );
+    }
+
+    // The staging tree is not a discovery root, and it must not stay in the image.
+    assert!(
+        text.contains("rm -rf /usr/local/share/deepsand/skills"),
+        "the staged tree has to be reclaimed after the selected skills are installed"
+    );
+}
+
+/// The skill itself has to be discoverable and honest about what the image can do. DeepCode
+/// skips a skill without a name and description, and the model trusts what the body says --
+/// so the body must name the registered server and must not pretend a native provider exists.
+#[test]
+fn the_rea_skill_is_named_described_and_honest_about_the_image() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("runtime")
+        .join("skills")
+        .join("deepsand-rea")
+        .join("SKILL.md");
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("could not read {}: {err}", path.display()));
+
+    assert!(text.starts_with("---\n"), "frontmatter has to open on line 1");
+    assert!(
+        text.contains("\nname: deepsand-rea\n"),
+        "the name has to match the directory DeepCode discovers"
+    );
+    assert!(text.contains("\ndescription: "), "a skill without one is skipped");
+    assert!(
+        text.contains("mcp__rea__"),
+        "the model has to know how the server's tools are named"
+    );
+    assert!(
+        text.contains("host is not reachable"),
+        "the skill has to say that REA runs here and not on the operator's machine"
+    );
+    assert!(
+        text.contains("Ghidra") && text.contains("provider_unavailable"),
+        "native decompilation is not in this image, and the skill must say so rather than \
+         letting the model promise it"
+    );
+    assert!(
+        text.contains("rea setup") && text.contains("Do not run"),
+        "the model must not try to reconfigure the sandbox's generated settings"
+    );
+}
+
+/// `dejared-mcp` is a Node wrapper around a Java server, and on first run it downloads a
+/// ~25 MB JAR from GitHub. A sandbox may be in `none` or allowlisted mode, so that download
+/// must not happen at run time. The image has to write the JAR to the exact versioned path
+/// the wrapper derives from `XDG_CACHE_HOME`, and the settings have to point at the same
+/// cache root. This is the claim that those two halves agree.
+#[test]
+fn the_dejared_jar_is_pre_cached_where_the_server_looks_for_it() {
+    let text = dockerfile();
+    let cache = deepsand_core::tools::DEJARED_CACHE_HOME;
+
+    assert!(
+        text.contains("*,dejared,*)"),
+        "the Java/JAR step has to be gated on the dejared tool"
+    );
+    assert!(
+        text.contains("openjdk-17-jre-headless unzip zip"),
+        "the server needs a Java 17 runtime, and the skill's nested-layout workaround needs \
+         unzip and zip"
+    );
+    assert!(
+        text.contains("releases/download/v${DEJARED_VERSION}/dejared-mcp-${DEJARED_VERSION}.jar"),
+        "the JAR release has to be derived from the installed package's version"
+    );
+    let expected = format!("{cache}/dejared-mcp/dejared-mcp-${{DEJARED_VERSION}}.jar");
+    assert!(
+        text.contains(&expected),
+        "the wrapper computes <XDG_CACHE_HOME>/dejared-mcp/dejared-mcp-<version>.jar, so the \
+         image has to put it at {expected}"
+    );
+    assert!(
+        text.contains("unzip -t \"$DEJARED_JAR\""),
+        "a truncated or non-JAR download has to fail the build, not the first MCP call"
+    );
+    assert!(
+        text.contains("command -v dejared-mcp"),
+        "the npm global has to produce the launcher the settings name"
+    );
+}
+
+/// The skill has to be discoverable and must steer the model to the cheap tools before the
+/// expensive one. It also must not tell the model to install or download anything: the image
+/// already has the runtime and the one JAR version the server expects.
+#[test]
+fn the_dejared_skill_is_named_described_and_keeps_the_servers_rules() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("runtime")
+        .join("skills")
+        .join("deepsand-dejared")
+        .join("SKILL.md");
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("could not read {}: {err}", path.display()));
+
+    assert!(text.starts_with("---\n"), "frontmatter has to open on line 1");
+    assert!(
+        text.contains("\nname: deepsand-dejared\n"),
+        "the name has to match the directory DeepCode discovers"
+    );
+    assert!(text.contains("\ndescription: "), "a skill without one is skipped");
+    assert!(
+        text.contains("mcp__dejared__"),
+        "the model has to know how the server's tools are named"
+    );
+    assert!(
+        text.contains("absolute path"),
+        "every dejared call takes an absolute path to the archive"
+    );
+    for engine in ["CFR", "Vineflower", "Procyon"] {
+        assert!(text.contains(engine), "the skill has to describe {engine}");
+    }
+    assert!(
+        text.contains("do not run `npx"),
+        "the model must use the installed server, not download another one"
+    );
+    assert!(
+        text.contains("host path is not a path"),
+        "the skill has to say that the sandbox does not see host paths"
+    );
+}
+
+/// ffdec-mcp has neither a package nor a release asset: the image builds it from the pinned
+/// tag. The build is gated on the tool, verifies both halves (the MCP server and the upstream
+/// CLI), and removes the JDK, Maven and source so the image keeps only the JRE and the tools.
+#[test]
+fn the_ffdec_build_is_pinned_verified_and_gated() {
+    let text = dockerfile();
+
+    assert!(
+        text.contains("*,ffdec,*)"),
+        "the ffdec build has to be gated on the ffdec tool"
+    );
+    assert!(
+        text.contains("ffdec-mcp/archive/refs/tags/v1.0.0.tar.gz"),
+        "the server is built from a pinned tag, not from main"
+    );
+    assert!(
+        text.contains("ffdec_lib_25.1.3.zip"),
+        "the pom is written against ffdec_lib 25.1.3"
+    );
+    assert!(
+        text.contains("-Dversion=1.0.0"),
+        "the pom asks for ffdec_lib 1.0.0; installing it as 25.1.3 is the upstream \
+         Dockerfile's bug and the dependency would not resolve"
+    );
+    assert!(
+        text.contains("ffdec-mcp-server-1.0.0.jar"),
+        "the shaded server JAR is the build's output"
+    );
+
+    // The server is compiled for release 25, so the image needs a JDK 25 to build it and a
+    // JRE 25 to run it. Neither is the Debian Java the rest of the image may carry.
+    assert!(
+        text.contains("OpenJDK25U-jdk_x64_linux_hotspot_25.0.4.1_1.tar.gz"),
+        "the build needs a pinned JDK 25"
+    );
+    assert!(
+        text.contains("OpenJDK25U-jre_x64_linux_hotspot_25.0.4.1_1.tar.gz"),
+        "the runtime needs a pinned JRE 25"
+    );
+    assert!(
+        text.contains("/opt/java25/bin/java -version"),
+        "the build has to prove the runtime starts before the image is declared built"
+    );
+
+    // The upstream CLI is included because the MCP surface does not wrap every exporter.
+    assert!(
+        text.contains("ffdec_26.3.0.zip"),
+        "the original JPEXS FFDec CLI is installed beside the server"
+    );
+    assert!(
+        text.contains("ffdec-cli.jar"),
+        "the CLI JAR is what the ffdec wrapper runs"
+    );
+    assert!(
+        text.contains("ffdec -help >/dev/null"),
+        "a CLI that cannot start has to fail the build, not the first session"
+    );
+    assert!(
+        text.contains("META-INF/MANIFEST.MF") && text.contains("Main-Class:"),
+        "the server JAR has to carry the Main-Class the launcher relies on"
+    );
+
+    assert!(
+        text.contains("rm -rf \"$FFDEC_TMP\""),
+        "the JDK, Maven and source are build inputs, not part of the shipped image"
+    );
+    assert!(
+        text.contains("rm -rf /tmp/ffdec-home /home/deepcode/.deepcode/ffdec-tmp"),
+        "the CLI's build-time home and Jansi library are run-time state, not image content"
+    );
+    assert!(
+        text.contains("--mount=type=cache,target=/root/.m2"),
+        "Maven's downloads are cached across builds"
+    );
+}
+
+/// The skill has to name the MCP tools, describe the session model, and make two things
+/// explicit: modifications are saved to a copy, and the bundled CLI is the fallback for the
+/// exporters the MCP surface does not wrap. It must not send the model looking for a download.
+#[test]
+fn the_ffdec_skill_is_named_described_and_covers_both_surfaces() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("runtime")
+        .join("skills")
+        .join("deepsand-ffdec")
+        .join("SKILL.md");
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("could not read {}: {err}", path.display()));
+
+    assert!(text.starts_with("---\n"), "frontmatter has to open on line 1");
+    assert!(
+        text.contains("\nname: deepsand-ffdec\n"),
+        "the name has to match the directory DeepCode discovers"
+    );
+    assert!(text.contains("\ndescription: "), "a skill without one is skipped");
+    assert!(
+        text.contains("mcp__ffdec__"),
+        "the model has to know how the server's tools are named"
+    );
+    assert!(
+        text.contains("open_swf") && text.contains("close_swf"),
+        "the session starts with open_swf and ends with close_swf"
+    );
+    assert!(
+        text.contains("save_swf") && text.contains("output_path"),
+        "the model has to be told to pass an explicit output path"
+    );
+    assert!(
+        text.contains("overwrites the original"),
+        "the skill has to warn that save_swf without output_path overwrites the input"
+    );
+    assert!(
+        text.contains("ffdec -help") && text.contains("-export"),
+        "the bundled CLI is the fallback for the exporters the MCP surface does not wrap"
+    );
+    assert!(
+        text.contains("Do not download"),
+        "the CLI is already installed; the model must not fetch another copy"
+    );
+    assert!(
+        text.contains("P-code"),
+        "bytecode is the closer-to-the-file evidence"
+    );
+    assert!(
+        text.contains("host path is not a path"),
+        "the skill has to say that the sandbox does not see host paths"
+    );
+}
+
+/// The `ffdec` on PATH is a wrapper, not the upstream shell script. It has to run the
+/// Java 25 runtime the image keeps, work without a display, and put FFDec's own writes
+/// somewhere other than the operator's project. The shell script is shipped into the
+/// image by the Dockerfile, so this checks the actual file the agent will run.
+#[test]
+fn the_ffdec_wrapper_is_headless_and_writes_outside_the_project() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("runtime")
+        .join("bin")
+        .join("ffdec.sh");
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("could not read {}: {err}", path.display()));
+
+    assert!(text.starts_with("#!/usr/bin/env bash"), "the shebang is checked at build time");
+    assert!(text.contains("/opt/java25/bin/java"), "the CLI needs the Java 25 runtime");
+    assert!(
+        text.contains("/usr/local/share/ffdec/ffdec-cli.jar"),
+        "the CLI's launcher JAR is beside the rest of the upstream distribution"
+    );
+    assert!(
+        text.contains("-Djava.awt.headless=true"),
+        "the CLI has to run without a screen"
+    );
+    assert!(
+        text.contains("cd \"$home\""),
+        "FFDec writes ./logs relative to the working directory; it must not be /workspace"
+    );
+    assert!(
+        text.contains("jansi.tmpdir"),
+        "/tmp is noexec, and Jansi's native library needs an executable directory"
+    );
+    assert!(
+        text.contains("enable the 'ffdec' tool"),
+        "a wrapper in an image without the tool has to say what to switch on"
+    );
+}
+
+/// The toolbox skill tells the model which capabilities it may ask for. It says "anything
+/// not in this list does not exist as far as Deepsand is concerned", so a tool added to the
+/// catalogue but omitted here is a tool the model will never request -- the operator sees no
+/// prompt and the capability stays invisible. This keeps the two lists together.
+#[test]
+fn the_toolbox_skill_names_every_tool_in_the_catalogue() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("runtime")
+        .join("skills")
+        .join("deepsand-toolbox")
+        .join("SKILL.md");
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("could not read {}: {err}", path.display()));
+
+    for tool in deepsand_core::tools::CATALOG {
+        assert!(
+            text.contains(&format!("`{}`", tool.id)),
+            "the catalogue offers `{}`, but the toolbox skill does not name it; the model \
+             reads that skill to decide what to ask for",
+            tool.id
+        );
+    }
+}
+
+/// A directory under `runtime/skills` that the Dockerfile never copies is dead weight: the
+/// author believed they had installed a skill, and the model never sees it. Every skill has
+/// to be either in the always-on list or inside a tool's case.
+#[test]
+fn every_skill_on_disk_is_installed_by_the_dockerfile() {
+    let skills = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("runtime")
+        .join("skills");
+    let text = dockerfile();
+
+    for entry in std::fs::read_dir(&skills).expect("the skills directory").flatten() {
+        if !entry.path().is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        assert!(
+            text.contains(&name),
+            "runtime/skills/{name} is never copied by the Dockerfile, so it is a playbook \
+             nobody can load"
+        );
+    }
+}

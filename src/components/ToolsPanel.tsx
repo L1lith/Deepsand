@@ -392,6 +392,27 @@ function ToolRow(props: {
       <div class="tool-body">
         <div class="tool-head">
           <span class="tool-name">{props.tool.label}</span>
+          <Show when={props.tool.homepage}>
+            {(homepage) => (
+              <button
+                type="button"
+                class="tool-home"
+                title={`Open ${homepage()} in your browser`}
+                aria-label={`Open the ${props.tool.label} project page`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void api
+                    .openToolHomepage(props.tool.id)
+                    .catch((error) =>
+                      toast("error", "Could not open the project page", describeError(error)),
+                    );
+                }}
+              >
+                project page ↗
+              </button>
+            )}
+          </Show>
           <Show when={props.tool.defaultOn && !locked()}>
             <span class="chip chip-quiet" title="On for a new project unless switched off">
               default

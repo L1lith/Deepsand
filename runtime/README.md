@@ -10,10 +10,19 @@ runtime/
 ├─ bin/
 │  ├─ entrypoint.sh              settings, egress rules, privilege drop, exec
 │  ├─ netfilter.sh               the network policy, installed as root
+│  ├─ ffdec.sh                   the JPEXS FFDec CLI, for exports MCP does not wrap
 │  └─ deepsand-mcp-bridge.mjs    the API DeepCode asks permission through
 ├─ skills/
-│  └─ deepsand-permissions/
-│     └─ SKILL.md                playbook DeepCode loads when it needs access
+│  ├─ deepsand-permissions/
+│  │  └─ SKILL.md                playbook DeepCode loads when it needs access
+│  ├─ deepsand-toolbox/
+│  │  └─ SKILL.md                what tools this sandbox has and how to ask for one
+│  ├─ deepsand-rea/
+│  │  └─ SKILL.md                REA's playbook, installed only when rea is selected
+│  ├─ deepsand-dejared/
+│  │  └─ SKILL.md                Dejared's playbook, installed only when dejared is selected
+│  └─ deepsand-ffdec/
+│     └─ SKILL.md                FFDec's playbook, installed only when ffdec is selected
 ├─ seccomp-hardened.json         opt-in additive seccomp profile
 └─ scripts/
    ├─ build-image.mjs            docker build with the configured tag
@@ -107,10 +116,22 @@ answers `PENDING` with a request id rather than failing the call.
 
 ## Agent Skills
 
-The sandbox ships one Agent Skill, `deepsand-permissions`, installed at
-`/home/deepcode/.agents/skills/deepsand-permissions/SKILL.md` by the Dockerfile.
-It is the detailed playbook for asking for access: which of the two request tools
-to use, how to read an approval reply, and how to handle `PENDING`.
+The sandbox ships two always-on Agent Skills, `deepsand-permissions` and
+`deepsand-toolbox`, installed under `/home/deepcode/.agents/skills/` by the
+Dockerfile. The first is the playbook for asking for access: which request tool to
+use, how to read an approval reply, and how to handle `PENDING`. The second is what
+tools this sandbox has, what each one costs, and how to ask for one.
+
+A tool that carries its own skill gets it only when that tool was selected for the
+image. The Dockerfile stages `skills/` outside the discovery roots, installs the
+always-on skills, copies a tool's skill (`deepsand-rea`, `deepsand-dejared` or
+`deepsand-ffdec`) inside the `case` that matches that tool's id, and then removes the
+staging tree. A skill is
+instructions the model may act on, so shipping one for a tool the image does not
+contain is worse than shipping none: the model reads a playbook for a capability it
+cannot use. That is the same rule as the image's `deepsand.tools` label, and
+`runtime/skills/deepsand-toolbox` is kept up to date with the catalogue so the model
+can request a tool it does not have yet.
 
 **Why a skill and not just `AGENTS.md`.** DeepCode teaches the sandbox about its
 permissions through three channels, and they are not equally reliable:

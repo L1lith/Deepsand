@@ -132,6 +132,8 @@ export interface ToolView {
   label: string;
   description: string;
   category: string;
+  /** The project's own page, opened in the machine's browser from the tool row. */
+  homepage: string | null;
   provider: string;
   defaultOn: boolean;
   enabled: boolean;

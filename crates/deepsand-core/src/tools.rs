@@ -51,6 +51,9 @@ pub enum Provider {
     Apk,
     /// Already in the base image; enabling only asserts a minimum version.
     BuiltIn,
+    /// Built by a dedicated step in the Dockerfile, because there is no package to install.
+    /// The plan records the id; the image step is what fetches the source and its dependencies.
+    Source,
 }
 
 impl Provider {
@@ -66,6 +69,7 @@ impl Provider {
             Provider::Nix => "nix",
             Provider::Apk => "apk",
             Provider::BuiltIn => "built in",
+            Provider::Source => "source build",
         }
     }
 }
@@ -114,6 +118,11 @@ pub enum ToolCategory {
     /// Something the agent gains the ability to do, rather than a tool it runs to do
     /// something else: connectivity it can use, or a screen it can draw on.
     Capability,
+    /// Tools whose job is to take an artifact apart: decompilers and reverse-engineering
+    /// workbenches. Kept as its own group because they are chosen for a different reason
+    /// from the utilities and capabilities around them, and an operator looking for one
+    /// should not have to scan the package managers to find it.
+    ReverseEngineering,
 }
 
 impl ToolCategory {
@@ -123,6 +132,7 @@ impl ToolCategory {
             ToolCategory::Language => "Languages",
             ToolCategory::PackageManager => "Package managers",
             ToolCategory::Capability => "Capabilities",
+            ToolCategory::ReverseEngineering => "Reverse Engineering",
         }
     }
 }
@@ -155,6 +165,110 @@ pub struct Tool {
     /// one is that it appears only where somebody would have wanted to know first.
     pub cost: Option<&'static str>,
     pub base: Base,
+}
+
+/// An MCP server a tool ships, described the way DeepCode's `settings.json` wants it.
+///
+/// This is deliberately attached to the tool rather than to the settings writer: whether a
+/// server exists and whether the image contains it are the same question, and the catalogue is
+/// where that question is already answered. A tool with a server registered but not installed
+/// turns into a startup error inside the sandbox, which is exactly the kind of claim-about-the-
+/// image this project has learned to keep checkable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct McpServer {
+    pub name: &'static str,
+    pub command: &'static str,
+    pub args: &'static [&'static str],
+    /// Environment the server needs inside the sandbox. Kept with the server rather than in the
+    /// settings writer, because a path the image pre-populates and a path the server reads have to
+    /// be the same string; `runtime/Dockerfile` and the test beside it is what keeps them so.
+    pub env: &'static [(&'static str, &'static str)],
+}
+
+/// Where the image pre-populates the JAR that the `dejared-mcp` wrapper looks for.
+///
+/// The wrapper computes `$XDG_CACHE_HOME/dejared-mcp/dejared-mcp-<version>.jar` on first run and
+/// downloads it from GitHub if it is absent. In this sandbox that download would have to happen at
+/// startup, under an egress policy that may have no route to GitHub at all -- so the build writes
+/// the file here instead, and the sandbox only reads it.
+pub const DEJARED_CACHE_HOME: &str = "/usr/local/share/dejared-mcp/cache";
+/// A writable directory for the decompiler's own file log. `/tmp` is writable even when the
+/// sandbox's root filesystem is read-only, and a log written there cannot touch the project.
+pub const DEJARED_LOG_DIR: &str = "/tmp/dejared-mcp-logs";
+
+/// The Java runtime the ffdec image build unpacks. It is not the system `java`: ffdec-mcp is
+/// compiled for release 25, and the Debian package is older.
+pub const FFDEC_JAVA: &str = "/opt/java25/bin/java";
+/// The shaded ffdec-mcp server JAR the image build produces.
+pub const FFDEC_MCP_JAR: &str = "/usr/local/share/ffdec-mcp/ffdec-mcp.jar";
+/// The JPEXS FFDec command-line JAR, installed beside the MCP server for the operations the
+/// MCP surface does not expose (bulk exports, SWF/XML conversion).
+pub const FFDEC_CLI_JAR: &str = "/usr/local/share/ffdec/ffdec-cli.jar";
+
+impl Tool {
+    /// The MCP server this tool provides, or `None` when it only installs a program.
+    ///
+    /// None of the commands is `npx` or a fresh download: the image already carries one exact
+    /// version of each server, and a server that pulls "latest" on every sandbox start would be
+    /// a different version from the one the tools label names.
+    pub fn mcp_server(&self) -> Option<McpServer> {
+        match self.id {
+            "rea" => Some(McpServer {
+                name: "rea",
+                command: "rea",
+                args: &["mcp"],
+                env: &[],
+            }),
+            "dejared" => Some(McpServer {
+                name: "dejared",
+                command: "dejared-mcp",
+                args: &[],
+                env: &[
+                    ("XDG_CACHE_HOME", DEJARED_CACHE_HOME),
+                    ("DEJARED_LOG_DIR", DEJARED_LOG_DIR),
+                ],
+            }),
+            "ffdec" => Some(McpServer {
+                name: "ffdec",
+                command: FFDEC_JAVA,
+                args: &["-Djava.awt.headless=true", "-jar", FFDEC_MCP_JAR],
+                env: &[],
+            }),
+            _ => None,
+        }
+    }
+
+    /// The project page the Tools panel links to, or `None` when there is nowhere useful to
+    /// send an operator. This is a table rather than a field on every entry because the URL is
+    /// presentation, not an installation input -- and one list is easier to keep correct than
+    /// twenty scattered string literals. A test asserts every catalogue entry has one.
+    pub fn homepage(&self) -> Option<&'static str> {
+        match self.id {
+            "jq" => Some("https://jqlang.github.io/jq/"),
+            "ripgrep" => Some("https://github.com/BurntSushi/ripgrep"),
+            "curl" => Some("https://curl.se/"),
+            "zip" => Some("https://infozip.sourceforge.net/"),
+            "htmlq" => Some("https://github.com/mgdm/htmlq"),
+            "git" => Some("https://git-scm.com/"),
+            "web-search" => Some("https://www.deepcodeplus.com/"),
+            "rea" => Some("https://github.com/morluto/rea"),
+            "dejared" => Some("https://github.com/hqkh4nh/dejared-mcp"),
+            "ffdec" => Some("https://github.com/Xeleron/ffdec-mcp"),
+            "node" => Some("https://nodejs.org/"),
+            "npm" => Some("https://www.npmjs.com/"),
+            "xvfb" => Some("https://www.x.org/"),
+            "puppeteer" => Some("https://pptr.dev/"),
+            "wrangler" => Some("https://developers.cloudflare.com/workers/wrangler/"),
+            "python" => Some("https://www.python.org/"),
+            "cargo" => Some("https://doc.rust-lang.org/cargo/"),
+            "go" => Some("https://go.dev/"),
+            "apt" => Some("https://wiki.debian.org/Apt"),
+            "apk" => Some("https://wiki.alpinelinux.org/wiki/Alpine_Package_Keeper"),
+            "brew" => Some("https://brew.sh/"),
+            "nix" => Some("https://nixos.org/"),
+            _ => None,
+        }
+    }
 }
 
 /// The base image Deepsand builds against. Changing this changes what is available.
@@ -234,6 +348,52 @@ pub const CATALOG: &[Tool] = &[
         default_on: true,
         hosts: &[],
         cost: None,
+        base: Base::Debian,
+    },
+    /* --- reverse engineering --------------------------------------------- */
+    Tool {
+        id: "rea",
+        label: "REA (reverse engineering)",
+        description: "Reverse-engineering analysis for shipped applications and binaries: Electron and JavaScript bundles, .NET assemblies, Go and Rust binaries, archives and PE resources. All analysis runs inside this sandbox.",
+        category: ToolCategory::ReverseEngineering,
+        provider: Provider::Npm,
+        package: "rea-agents",
+        default_on: false,
+        // Deliberately empty. REA reads local files; enabling it must not open a network path,
+        // and the agent's existing egress policy is what governs a target that needs one.
+        hosts: &[],
+        cost: Some("Adds about 330 MB and a minute to the next build. Native decompilation needs Ghidra, Hopper or IDA, which this image does not carry."),
+        base: Base::Debian,
+    },
+    Tool {
+        id: "dejared",
+        label: "Dejared (Java decompiler)",
+        description: "Explore and decompile Java `.jar` archives: list packages and resources, search classes and strings, read class metadata, and decompile to Java with CFR, Vineflower or Procyon. Runs inside this sandbox with its own Java 17 runtime. A Spring Boot fat-jar, WAR, EAR or AAR stores classes under a nested prefix and should be unpacked first.",
+        category: ToolCategory::ReverseEngineering,
+        provider: Provider::Npm,
+        package: "dejared-mcp",
+        default_on: false,
+        // Deliberately empty. The JAR is pre-downloaded during the image build, so a sandbox with
+        // this tool never needs a route to GitHub at run time. A target JAR is a local file.
+        hosts: &[],
+        cost: Some("Adds a Java 17 runtime and about 25 MB of decompiler JAR, and a minute to the next build."),
+        base: Base::Debian,
+    },
+    Tool {
+        id: "ffdec",
+        label: "FFDec (Flash decompiler)",
+        description: "Analyze, decompile and patch Shockwave Flash (SWF) files: tags, classes, symbols, ActionScript, bytecode, constants and traits, then save the modified SWF. The JPEXS FFDec CLI is included for exports the MCP surface does not cover.",
+        category: ToolCategory::ReverseEngineering,
+        // No package manager carries ffdec-mcp. The image builds it from source and also installs
+        // the upstream JPEXS FFDec CLI, which is why the plan records an id and the Dockerfile
+        // owns the install.
+        provider: Provider::Source,
+        package: "",
+        default_on: false,
+        // Deliberately empty. The build downloads what it needs; at run time the server only
+        // reads local SWF files and writes the output paths the operator asks for.
+        hosts: &[],
+        cost: Some("Adds a Java 25 runtime, the FFDec MCP server and the JPEXS FFDec CLI: about 230 MB and a minute to the next build."),
         base: Base::Debian,
     },
     /* --- capabilities ----------------------------------------------------- */
@@ -556,6 +716,10 @@ pub fn install_plan(selection: Option<&[String]>) -> InstallPlan {
             // Already in the image: enabling it only documents the intent, which the
             // label records. Nothing is installed.
             Provider::BuiltIn => {}
+            // A source build is a dedicated Dockerfile step gated on the tool id. The plan
+            // records the id and contributes no package list; the step fetches and verifies
+            // the source, then removes its build toolchain from the image.
+            Provider::Source => {}
         }
     }
     plan.apt.sort();
@@ -697,9 +861,162 @@ mod tests {
     fn every_tool_the_operator_asked_for_exists() {
         for id in [
             "git", "npm", "node", "python", "cargo", "go", "brew", "nix", "apt", "apk", "wrangler",
-            "xvfb", "puppeteer",
+            "xvfb", "puppeteer", "rea", "dejared", "ffdec",
         ] {
             assert!(find(id).is_some(), "{id} is missing from the catalogue");
+        }
+    }
+
+    /// The reverse-engineering tools are one group, not scattered through the capabilities.
+    /// The Tools panel groups by category, so this is what makes the section the operator
+    /// asked for exist at all.
+    #[test]
+    fn the_reverse_engineering_tools_share_one_group() {
+        let ids: Vec<&str> = CATALOG
+            .iter()
+            .filter(|tool| tool.category == ToolCategory::ReverseEngineering)
+            .map(|tool| tool.id)
+            .collect();
+        assert_eq!(ids, ["rea", "dejared", "ffdec"]);
+        assert_eq!(ToolCategory::ReverseEngineering.label(), "Reverse Engineering");
+    }
+
+    /// REA is a reverse-engineering toolkit, and the whole point of putting it in this
+    /// catalogue is that it is installed into the sandbox image and nowhere else. Two
+    /// properties make that true rather than aspirational: it is an npm global (so the
+    /// tools layer installs it), and it contributes no hosts (so enabling it cannot be
+    /// mistaken for permission to reach a network).
+    #[test]
+    fn rea_is_a_local_reverse_engineering_tool_that_installs_into_the_image() {
+        let tool = find("rea").expect("rea is in the catalogue");
+        assert_eq!(tool.provider, Provider::Npm);
+        assert_eq!(tool.package, "rea-agents");
+        assert!(!tool.default_on, "a reverse-engineering suite is a choice");
+        assert!(
+            tool.hosts.is_empty(),
+            "REA analyses local files; enabling it must not widen the sandbox's egress"
+        );
+        assert_eq!(tool.category, ToolCategory::ReverseEngineering);
+        assert_eq!(tool.base, Base::Debian);
+    }
+
+    /// Dejared is the same shape as REA: an npm global that is installed into the image,
+    /// needs no runtime egress, and is off until the operator asks for it. Its Java runtime
+    /// and decompiler JAR are added by the image build, not by the agent.
+    #[test]
+    fn dejared_is_a_local_java_reverse_engineering_tool() {
+        let tool = find("dejared").expect("dejared is in the catalogue");
+        assert_eq!(tool.provider, Provider::Npm);
+        assert_eq!(tool.package, "dejared-mcp");
+        assert!(!tool.default_on, "a decompiler is a choice");
+        assert!(
+            tool.hosts.is_empty(),
+            "the JAR is pre-downloaded at build time; enabling the tool must not widen egress"
+        );
+        assert_eq!(tool.category, ToolCategory::ReverseEngineering);
+        assert_eq!(tool.base, Base::Debian);
+    }
+
+    /// FFDec has no package to install: the image builds ffdec-mcp from source and installs
+    /// the upstream JPEXS CLI beside it. It is still a local reverse-engineering tool, and
+    /// the agent gets it only when the operator selects it.
+    #[test]
+    fn ffdec_is_a_source_built_reverse_engineering_tool() {
+        let tool = find("ffdec").expect("ffdec is in the catalogue");
+        assert_eq!(tool.provider, Provider::Source);
+        assert_eq!(tool.package, "", "the source step owns the install, not a provider");
+        assert!(!tool.default_on, "a decompiler is a choice");
+        assert!(
+            tool.hosts.is_empty(),
+            "the build downloads the source; the running sandbox needs no network"
+        );
+        assert_eq!(tool.category, ToolCategory::ReverseEngineering);
+        assert_eq!(tool.base, Base::Debian);
+
+        let server = tool.mcp_server().expect("ffdec is an MCP server");
+        assert_eq!(server.name, "ffdec");
+        assert_eq!(server.command, FFDEC_JAVA);
+        assert_eq!(
+            server.args,
+            ["-Djava.awt.headless=true", "-jar", FFDEC_MCP_JAR]
+        );
+    }
+
+    /// Every tool has a project page, because the Tools panel puts a link beside every name.
+    /// A missing entry would render as a row with no link, which is the one thing the operator
+    /// asked not to have.
+    #[test]
+    fn every_tool_links_to_its_project_page() {
+        for tool in CATALOG {
+            let homepage = tool
+                .homepage()
+                .unwrap_or_else(|| panic!("{} has no project page", tool.id));
+            assert!(
+                homepage.starts_with("https://"),
+                "{}'s project page is not an https URL: {homepage}",
+                tool.id
+            );
+        }
+        assert_eq!(
+            find("ffdec").and_then(Tool::homepage),
+            Some("https://github.com/Xeleron/ffdec-mcp")
+        );
+    }
+
+    /// A tool's MCP server is part of the tool, not a second list that can fall behind it.
+    /// The settings writer asks the catalogue, so a server cannot be registered for an image
+    /// that was not built with it.
+    #[test]
+    fn only_tools_that_ship_a_server_advertise_one() {
+        let rea = find("rea").expect("rea is in the catalogue");
+        let server = rea
+            .mcp_server()
+            .expect("rea is an MCP server as well as a CLI");
+        assert_eq!(server.name, "rea");
+        assert_eq!(server.command, "rea");
+        assert_eq!(server.args, ["mcp"]);
+        assert!(server.env.is_empty(), "rea needs no special environment here");
+
+        let dejared = find("dejared").expect("dejared is in the catalogue");
+        let server = dejared
+            .mcp_server()
+            .expect("dejared is an MCP server");
+        assert_eq!(server.name, "dejared");
+        assert_eq!(server.command, "dejared-mcp");
+        assert!(server.args.is_empty(), "dejared-mcp takes no arguments");
+        assert!(
+            server
+                .env
+                .iter()
+                .any(|(key, value)| *key == "XDG_CACHE_HOME" && *value == DEJARED_CACHE_HOME),
+            "the wrapper has to read the JAR from the path the image populated"
+        );
+        assert!(
+            server
+                .env
+                .iter()
+                .any(|(key, value)| *key == "DEJARED_LOG_DIR" && *value == DEJARED_LOG_DIR),
+            "the wrapper writes a log, so it needs a writable directory"
+        );
+
+        for id in ["jq", "puppeteer", "git", "python"] {
+            assert!(
+                find(id).and_then(Tool::mcp_server).is_none(),
+                "{id} does not ship an MCP server and must not claim to"
+            );
+        }
+
+        // The permission bridge is always called `deepsand`; a tool that used that name
+        // would replace it in the settings map and silently take the request tools away.
+        for tool in CATALOG {
+            if let Some(server) = tool.mcp_server() {
+                assert_ne!(
+                    server.name, "deepsand",
+                    "{} must not shadow the permission bridge",
+                    tool.id
+                );
+                assert!(!server.command.is_empty(), "{} has no server command", tool.id);
+            }
         }
     }
 

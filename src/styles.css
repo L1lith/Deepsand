@@ -1330,6 +1330,24 @@ pre.output {
   font-size: 0.94rem;
 }
 
+/* The project page beside a tool's name. Quiet until hovered: it is a reference, not an
+   action the operator is being pushed toward. */
+.tool-home {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-text);
+  font: inherit;
+  font-size: 0.76rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.tool-home:hover {
+  color: var(--accent);
+}
+
 .tool-desc {
   margin: 0.25rem 0 0;
   font-size: 0.84rem;

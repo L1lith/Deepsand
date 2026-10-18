@@ -167,6 +167,35 @@ pub fn build_deepcode_settings(
             "env": serde_json::Value::Object(bridge_env),
         }),
     );
+
+    // A tool that ships its own MCP server contributes it here, and only while it is in the
+    // project's resolved selection. That is the same rule as its skill: the image is built
+    // with the tools the project asked for, so registering a server for a tool that was not
+    // selected would point DeepCode at a binary the sandbox does not have. Going through the
+    // catalogue rather than a second hand-written list is what keeps the two from drifting.
+    for tool in crate::tools::resolve(project.tools.as_deref()) {
+        let Some(server) = tool.mcp_server() else {
+            continue;
+        };
+        let mut config = serde_json::Map::new();
+        config.insert(
+            "command".into(),
+            serde_json::Value::String(server.command.into()),
+        );
+        config.insert("args".into(), serde_json::json!(server.args));
+        if !server.env.is_empty() {
+            let mut env = serde_json::Map::new();
+            for (key, value) in server.env {
+                env.insert(
+                    (*key).into(),
+                    serde_json::Value::String((*value).into()),
+                );
+            }
+            config.insert("env".into(), serde_json::Value::Object(env));
+        }
+        servers.insert(server.name.into(), serde_json::Value::Object(config));
+    }
+
     root.insert("mcpServers".into(), serde_json::Value::Object(servers));
 
     serde_json::Value::Object(root)
@@ -818,5 +847,136 @@ mod project_settings_tests {
         let none = settings_for_project(&base, None);
         assert_ne!(one.image, two.image);
         assert_ne!(one.image, none.image);
+    }
+}
+
+#[cfg(test)]
+mod mcp_server_tests {
+    use super::*;
+
+    fn project_with_tools(tools: Option<Vec<String>>) -> Project {
+        let mut project: Project = serde_json::from_str(
+            r#"{"id":"p1","name":"n","slug":"s","root_dir":"/tmp","created_at_ms":0}"#,
+        )
+        .unwrap();
+        project.tools = tools;
+        project
+    }
+
+    /// The rule the sandbox depends on: a tool's MCP server is in `settings.json` exactly when
+    /// that tool is in the selection its image was built from. The reverse is the failure worth
+    /// avoiding -- a server named in settings while the image has no binary to run, which turns
+    /// a tool the operator did not choose into a startup error inside the sandbox.
+    #[test]
+    fn a_tools_mcp_server_is_registered_only_while_that_tool_is_selected() {
+        let creds = ResolvedCredentials::default();
+
+        let selected = build_deepcode_settings(
+            &project_with_tools(Some(vec!["rea".to_string()])),
+            &[],
+            &creds,
+            45_000,
+        );
+        let rea = &selected["mcpServers"]["rea"];
+        assert_eq!(rea["command"], "rea", "the server is the installed binary");
+        assert_eq!(rea["args"], serde_json::json!(["mcp"]));
+        assert_eq!(
+            selected["mcpServers"]["deepsand"]["command"], "node",
+            "the permission bridge is not a tool and is always registered"
+        );
+
+        let other = build_deepcode_settings(
+            &project_with_tools(Some(vec!["jq".to_string()])),
+            &[],
+            &creds,
+            45_000,
+        );
+        assert!(
+            other["mcpServers"].get("rea").is_none(),
+            "a project that did not select rea must not start its server"
+        );
+
+        // A project from before the tool system resolves to the legacy selection, which does
+        // not contain rea. Its image has no rea either, so neither list may name it.
+        let legacy = build_deepcode_settings(&project_with_tools(None), &[], &creds, 45_000);
+        assert!(legacy["mcpServers"].get("rea").is_none());
+    }
+
+    /// `dejared-mcp` is a Node wrapper around a Java server. Its two paths have to survive the
+    /// trip into `settings.json`: the JAR cache the image pre-populated, and a writable log
+    /// directory. Losing either produces a server that starts and then fails for a reason the
+    /// model cannot diagnose.
+    #[test]
+    fn dejareds_server_carries_the_cache_and_log_environment() {
+        let creds = ResolvedCredentials::default();
+        let selected = build_deepcode_settings(
+            &project_with_tools(Some(vec!["dejared".to_string()])),
+            &[],
+            &creds,
+            45_000,
+        );
+        let server = &selected["mcpServers"]["dejared"];
+        assert_eq!(server["command"], "dejared-mcp");
+        assert_eq!(server["args"], serde_json::json!([]));
+        assert_eq!(
+            server["env"]["XDG_CACHE_HOME"],
+            crate::tools::DEJARED_CACHE_HOME,
+            "the wrapper reads its JAR from this cache, which the image fills at build time"
+        );
+        assert_eq!(
+            server["env"]["DEJARED_LOG_DIR"],
+            crate::tools::DEJARED_LOG_DIR,
+            "the wrapper writes a log at startup, so the directory has to be writable"
+        );
+
+        let other = build_deepcode_settings(
+            &project_with_tools(Some(vec!["rea".to_string()])),
+            &[],
+            &creds,
+            45_000,
+        );
+        assert!(
+            other["mcpServers"].get("dejared").is_none(),
+            "a project that did not select dejared must not start its server"
+        );
+    }
+
+    /// ffdec-mcp is a Java server, not a launcher on `PATH`: it has to name the Java 25
+    /// runtime and the shaded JAR the image build produced. Neither path is the system Java,
+    /// and losing either produces a server that cannot start at all.
+    #[test]
+    fn ffdecs_server_uses_the_java25_runtime_and_the_shaded_jar() {
+        let creds = ResolvedCredentials::default();
+        let selected = build_deepcode_settings(
+            &project_with_tools(Some(vec!["ffdec".to_string()])),
+            &[],
+            &creds,
+            45_000,
+        );
+        let server = &selected["mcpServers"]["ffdec"];
+        assert_eq!(server["command"], crate::tools::FFDEC_JAVA);
+        assert_eq!(
+            server["args"],
+            serde_json::json!([
+                "-Djava.awt.headless=true",
+                "-jar",
+                crate::tools::FFDEC_MCP_JAR
+            ])
+        );
+        assert!(
+            server.get("env").is_none(),
+            "ffdec-mcp needs no environment beyond the paths it is given"
+        );
+
+        let other = build_deepcode_settings(
+            &project_with_tools(Some(vec!["dejared".to_string()])),
+            &[],
+            &creds,
+            45_000,
+        );
+        assert!(
+            other["mcpServers"].get("ffdec").is_none(),
+            "a project that did not select ffdec must not start its server"
+        );
     }
 }

@@ -294,8 +294,11 @@ pub struct ToolView {
     pub id: String,
     pub label: String,
     pub description: String,
-    /// "Utilities", "Languages", "Package managers", "Capabilities".
+    /// "Utilities", "Languages", "Package managers", "Capabilities", "Reverse Engineering".
     pub category: String,
+    /// The project's own home page, for the link beside the tool. `None` would hide the link;
+    /// a test asserts every catalogue entry has one, so it should not happen.
+    pub homepage: Option<String>,
     pub provider: String,
     /// On for a new project unless switched off.
     pub default_on: bool,

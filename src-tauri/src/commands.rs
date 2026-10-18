@@ -3344,6 +3344,7 @@ fn tool_view(tool: &deepsand_core::tools::Tool, selected: &[String]) -> ToolView
         label: tool.label.to_string(),
         description: tool.description.to_string(),
         category: tool.category.label().to_string(),
+        homepage: tool.homepage().map(str::to_string),
         provider: tool.provider.label().to_string(),
         default_on: tool.default_on,
         enabled: selected.iter().any(|id| id == tool.id),
@@ -5310,6 +5311,31 @@ fn open_in_file_manager(app: &AppHandle, path: &str) -> CmdResult<()> {
     app.opener()
         .open_path(path, None::<&str>)
         .map_err(|err| format!("could not open {} in the file manager: {err}", path))
+}
+
+/// Open a catalogue tool's project page in the machine's browser.
+///
+/// The window passes an id, never a URL. The catalogue is the list of destinations, and a view
+/// should not be handed a general "open any URL on the host" primitive -- the same reason
+/// `reveal_project_dir` resolves a path from a project id. Desktop-only: a browser window on the
+/// host is meaningless to a remote client, so this is absent from the remote command table.
+#[tauri::command]
+pub fn open_tool_homepage(app: AppHandle, tool_id: String) -> CmdResult<()> {
+    let tool = deepsand_core::tools::find(&tool_id)
+        .ok_or_else(|| format!("'{tool_id}' is not a tool Deepsand knows about."))?;
+    let url = tool
+        .homepage()
+        .ok_or_else(|| format!("{} does not have a project page.", tool.label))?;
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err(format!(
+            "{}'s project page is not an http(s) URL.",
+            tool.label
+        ));
+    }
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|err| format!("could not open {url} in the browser: {err}"))
 }
 
 #[tauri::command]

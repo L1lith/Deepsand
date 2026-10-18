@@ -35,6 +35,7 @@ const SHIPPED: &[(&str, &[u8])] = &[
         include_bytes!("../../../runtime/bin/deepsand-display.sh"),
     ),
     ("bin/entrypoint.sh", include_bytes!("../../../runtime/bin/entrypoint.sh")),
+    ("bin/ffdec.sh", include_bytes!("../../../runtime/bin/ffdec.sh")),
     ("bin/netfilter.sh", include_bytes!("../../../runtime/bin/netfilter.sh")),
     ("gitconfig", include_bytes!("../../../runtime/gitconfig")),
     ("scripts/build-image.mjs", include_bytes!("../../../runtime/scripts/build-image.mjs")),
@@ -54,6 +55,18 @@ const SHIPPED: &[(&str, &[u8])] = &[
     (
         "skills/deepsand-toolbox/SKILL.md",
         include_bytes!("../../../runtime/skills/deepsand-toolbox/SKILL.md"),
+    ),
+    (
+        "skills/deepsand-rea/SKILL.md",
+        include_bytes!("../../../runtime/skills/deepsand-rea/SKILL.md"),
+    ),
+    (
+        "skills/deepsand-dejared/SKILL.md",
+        include_bytes!("../../../runtime/skills/deepsand-dejared/SKILL.md"),
+    ),
+    (
+        "skills/deepsand-ffdec/SKILL.md",
+        include_bytes!("../../../runtime/skills/deepsand-ffdec/SKILL.md"),
     ),
 ];
 

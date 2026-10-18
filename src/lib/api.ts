@@ -175,6 +175,15 @@ export const listTools = (projectId: string) =>
 export const setProjectTools = (projectId: string, ids: string[]) =>
   call<ToolCatalogView>("set_project_tools", { projectId, ids });
 
+/**
+ * Open a tool's project page in the machine's browser.
+ *
+ * Only the tool id crosses the boundary: the backend resolves the URL from the catalogue, so
+ * the window cannot use this as a general "open any URL on the host" button.
+ */
+export const openToolHomepage = (toolId: string) =>
+  call<void>("open_tool_homepage", { toolId });
+
 /** How hard the model should think. Applied without a separate save step. */
 export const getEffort = (projectId: string) => call<EffortView>("get_effort", { projectId });
 export const setEffort = (projectId: string, value: string) =>

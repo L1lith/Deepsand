@@ -138,10 +138,12 @@ RUN set -eux; \
     chmod 0644 /usr/local/lib/deepsand/seccomp-hardened.sha256; \
     ln -sf /usr/local/lib/deepsand/entrypoint.sh /usr/local/bin/deepsand-entrypoint; \
     ln -sf /usr/local/lib/deepsand/deepsand-mcp-bridge.mjs /usr/local/bin/deepsand-mcp-bridge; \
+    ln -sf /usr/local/lib/deepsand/ffdec.sh /usr/local/bin/ffdec; \
     # Fail the build rather than ship a broken shebang.
     head -n 1 /usr/local/lib/deepsand/entrypoint.sh | grep -qx '#!/usr/bin/env bash'; \
     head -n 1 /usr/local/lib/deepsand/netfilter.sh | grep -qx '#!/usr/bin/env bash'; \
-    head -n 1 /usr/local/lib/deepsand/deepsand-display.sh | grep -qx '#!/usr/bin/env bash'
+    head -n 1 /usr/local/lib/deepsand/deepsand-display.sh | grep -qx '#!/usr/bin/env bash'; \
+    head -n 1 /usr/local/lib/deepsand/ffdec.sh | grep -qx '#!/usr/bin/env bash'
 
 # ---------------------------------------------------------------------------
 # Agent Skills.
@@ -163,20 +165,11 @@ RUN set -eux; \
 #
 # Installing at the user level (~/.agents/skills) rather than in the project
 # keeps it out of the operator's repository, which must stay untouched.
-COPY skills/ /home/deepcode/.agents/skills/
-RUN set -eux; \
-    # Same CR caveat as the shell scripts: a stray CR inside a frontmatter line
-    # or a fence would corrupt the skill body.
-    find /home/deepcode/.agents/skills -type f -exec sed -i 's/\r$$//' {} +; \
-    chown -R 1000:1000 /home/deepcode/.agents; \
-    chmod -R a+rX /home/deepcode/.agents; \
-    # Every skill must be a directory containing a readable SKILL.md with a name,
-    # or DeepCode will silently skip it.
-    for skill in /home/deepcode/.agents/skills/*/; do \
-        test -f "$skill/SKILL.md"; \
-        grep -q '^name:' "$skill/SKILL.md"; \
-        grep -q '^description:' "$skill/SKILL.md"; \
-    done
+#
+# The tree is staged and installed after the "Selected tools" step, not here. Which
+# skills a sandbox gets depends on the tools its image was built with; putting the COPY
+# here would also make a skill edit invalidate the tool install layer below it, which is
+# minutes of work for a text change.
 
 # ---------------------------------------------------------------------------
 # Git defaults.
@@ -228,6 +221,7 @@ ARG WITH_NIX=0
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     --mount=type=cache,target=/root/.npm,sharing=locked \
+    --mount=type=cache,target=/root/.m2,sharing=locked \
     --mount=type=bind,from=toolcache,target=/toolcache \
     set -eux; \
     # The app passes these three as comma-separated lists, because a build argument is one
@@ -307,6 +301,145 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         fi; \
       done; \
     fi; \
+    # The REA tool is an MCP server as well as a CLI, and the generated DeepCode
+    # settings name `rea` as its command whenever it is selected. An image labelled
+    # `rea` without the binary is therefore not just a thinner image: it is a sandbox
+    # whose settings point at a program that is not there. Check the two things the
+    # npm install cannot guarantee on its own -- that the Node runtime is one REA
+    # supports, and that the executable is actually on PATH -- and fail the build
+    # rather than ship the claim.
+    case ",$INSTALL_TOOLS," in \
+      *,rea,*) \
+        echo "deepsand: checking the REA install"; \
+        node -e 'const [major, minor] = process.versions.node.split(".").map(Number); const ok = (major === 22 && minor >= 19) || (major === 24 && minor >= 11) || major >= 26; if (!ok) { console.error("deepsand: rea needs Node 22.19+, 24.11+ or 26+, but this image has " + process.versions.node); process.exit(1); }'; \
+        if ! command -v rea >/dev/null 2>&1; then \
+          echo "deepsand: rea was selected but is not on PATH; the npm global install did not produce its launcher" >&2; \
+          exit 1; \
+        fi; \
+        rea --version; \
+        ;; \
+    esac; \
+    # The Java half of the `dejared` tool. The npm package is only a wrapper: on first run it
+    # downloads a ~25 MB JAR from GitHub Releases into a cache directory and then spawns
+    # `java -jar`. Two things the base image does not have, and one thing the sandbox must not
+    # do at run time:
+    #
+    #   * Java 17+. Installed here, because the wrapper needs a JRE on PATH.
+    #   * The JAR itself. Fetched during the build, into the exact versioned path the wrapper
+    #     computes from the installed package and `XDG_CACHE_HOME` (settings.json sets that to
+    #     the cache root below). Without this the first MCP start would need a route to GitHub,
+    #     which a `none` or allowlisted sandbox does not have.
+    #   * `unzip` only for the integrity check below; it is not needed at run time.
+    #
+    # The JAR is versioned by the npm package that was just installed, not by a constant here,
+    # so the two cannot disagree about which release the wrapper is expecting.
+    case ",$INSTALL_TOOLS," in \
+      *,dejared,*) \
+        echo "deepsand: installing the Java runtime for dejared"; \
+        apt-get update; \
+        apt-get install -y --no-install-recommends openjdk-17-jre-headless unzip zip; \
+        DEJARED_PACKAGE=/usr/local/lib/node_modules/dejared-mcp/package.json; \
+        if [ ! -f "$DEJARED_PACKAGE" ]; then \
+          echo "deepsand: dejared was selected but its npm package is not installed" >&2; \
+          exit 1; \
+        fi; \
+        DEJARED_VERSION=$(node -p "require('$DEJARED_PACKAGE').version"); \
+        DEJARED_JAR="/usr/local/share/dejared-mcp/cache/dejared-mcp/dejared-mcp-${DEJARED_VERSION}.jar"; \
+        mkdir -p "$(dirname "$DEJARED_JAR")"; \
+        echo "deepsand: fetching dejared-mcp v${DEJARED_VERSION}"; \
+        if ! curl -fsSL --retry 2 --retry-delay 2 --max-time 180 \
+             "https://github.com/hqkh4nh/dejared-mcp/releases/download/v${DEJARED_VERSION}/dejared-mcp-${DEJARED_VERSION}.jar" \
+             -o "$DEJARED_JAR"; then \
+          echo "deepsand: could not download dejared-mcp ${DEJARED_VERSION} from GitHub Releases" >&2; \
+          exit 1; \
+        fi; \
+        test -s "$DEJARED_JAR"; \
+        unzip -t "$DEJARED_JAR" >/dev/null; \
+        unzip -p "$DEJARED_JAR" META-INF/MANIFEST.MF | grep -q '^Main-Class:'; \
+        java -version; \
+        if ! command -v dejared-mcp >/dev/null 2>&1; then \
+          echo "deepsand: dejared was selected but its launcher is not on PATH" >&2; \
+          exit 1; \
+        fi; \
+        chmod -R a+rX /usr/local/share/dejared-mcp; \
+        ;; \
+    esac; \
+    # The `ffdec` tool is a source build, not a package. ffdec-mcp is compiled against the
+    # JPEXS `ffdec_lib` and has no published package or release asset; the image therefore
+    # downloads the pinned source, builds it with a JDK 25, keeps a JRE 25 to run it, and
+    # removes the JDK, Maven and source afterwards. The same step installs the upstream
+    # JPEXS FFDec CLI, because the MCP surface does not wrap every exporter the original
+    # application has (images, sounds, shapes, SWF/XML, tag dumps). That CLI is what
+    # `/usr/local/bin/ffdec` runs; it is not a second install the agent has to arrange.
+    #
+    # Everything is pinned: the ffdec-mcp tag, the ffdec_lib release the pom is written
+    # against, the JPEXS CLI release, Maven and the Temurin 25 builds. A moving tag here
+    # would make two builds of the same image disagree about what the tool is.
+    case ",$INSTALL_TOOLS," in \
+      *,ffdec,*) \
+        echo "deepsand: building ffdec-mcp and installing the JPEXS FFDec CLI"; \
+        apt-get update; \
+        apt-get install -y --no-install-recommends unzip; \
+        FFDEC_TMP=/tmp/ffdec-build; \
+        rm -rf "$FFDEC_TMP"; \
+        mkdir -p "$FFDEC_TMP/jdk" "$FFDEC_TMP/maven" "$FFDEC_TMP/src" "$FFDEC_TMP/ffdec_lib"; \
+        echo "deepsand: fetching JDK 25 for the ffdec-mcp build"; \
+        curl -fsSL --retry 2 --retry-delay 2 --max-time 600 \
+          "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.4.1%2B1/OpenJDK25U-jdk_x64_linux_hotspot_25.0.4.1_1.tar.gz" \
+          -o "$FFDEC_TMP/jdk25.tar.gz"; \
+        tar -xzf "$FFDEC_TMP/jdk25.tar.gz" -C "$FFDEC_TMP/jdk" --strip-components=1; \
+        echo "deepsand: fetching JRE 25 for the runtime"; \
+        curl -fsSL --retry 2 --retry-delay 2 --max-time 600 \
+          "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.4.1%2B1/OpenJDK25U-jre_x64_linux_hotspot_25.0.4.1_1.tar.gz" \
+          -o "$FFDEC_TMP/jre25.tar.gz"; \
+        mkdir -p /opt/java25; \
+        tar -xzf "$FFDEC_TMP/jre25.tar.gz" -C /opt/java25 --strip-components=1; \
+        echo "deepsand: fetching Maven"; \
+        curl -fsSL --retry 2 --retry-delay 2 --max-time 120 \
+          "https://archive.apache.org/dist/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.tar.gz" \
+          -o "$FFDEC_TMP/maven.tar.gz"; \
+        tar -xzf "$FFDEC_TMP/maven.tar.gz" -C "$FFDEC_TMP/maven" --strip-components=1; \
+        echo "deepsand: fetching ffdec-mcp v1.0.0"; \
+        curl -fsSL --retry 2 --retry-delay 2 --max-time 120 \
+          "https://github.com/Xeleron/ffdec-mcp/archive/refs/tags/v1.0.0.tar.gz" \
+          -o "$FFDEC_TMP/ffdec-mcp.tar.gz"; \
+        tar -xzf "$FFDEC_TMP/ffdec-mcp.tar.gz" -C "$FFDEC_TMP/src" --strip-components=1; \
+        echo "deepsand: fetching ffdec_lib 25.1.3"; \
+        curl -fsSL --retry 2 --retry-delay 2 --max-time 300 \
+          "https://github.com/jindrapetrik/jpexs-decompiler/releases/download/version25.1.3/ffdec_lib_25.1.3.zip" \
+          -o "$FFDEC_TMP/ffdec_lib.zip"; \
+        unzip -q "$FFDEC_TMP/ffdec_lib.zip" -d "$FFDEC_TMP/ffdec_lib"; \
+        # The pom declares ffdec_lib 1.0.0. The upstream Dockerfile installs the same JAR
+        # as 25.1.3, which does not satisfy that dependency; install it under the version
+        # the pom actually asks for.
+        JAVA_HOME="$FFDEC_TMP/jdk" "$FFDEC_TMP/maven/bin/mvn" -B install:install-file \
+          -Dfile="$FFDEC_TMP/ffdec_lib/ffdec_lib.jar" \
+          -DgroupId=com.jpexs -DartifactId=ffdec_lib -Dversion=1.0.0 -Dpackaging=jar; \
+        (cd "$FFDEC_TMP/src" && JAVA_HOME="$FFDEC_TMP/jdk" "$FFDEC_TMP/maven/bin/mvn" -B -DskipTests package); \
+        mkdir -p /usr/local/share/ffdec-mcp; \
+        cp "$FFDEC_TMP/src/target/ffdec-mcp-server-1.0.0.jar" /usr/local/share/ffdec-mcp/ffdec-mcp.jar; \
+        test -s /usr/local/share/ffdec-mcp/ffdec-mcp.jar; \
+        echo "deepsand: fetching the JPEXS FFDec CLI"; \
+        curl -fsSL --retry 2 --retry-delay 2 --max-time 300 \
+          "https://github.com/jindrapetrik/jpexs-decompiler/releases/download/version26.3.0/ffdec_26.3.0.zip" \
+          -o "$FFDEC_TMP/ffdec.zip"; \
+        mkdir -p /usr/local/share/ffdec; \
+        unzip -q "$FFDEC_TMP/ffdec.zip" -d /usr/local/share/ffdec; \
+        test -s /usr/local/share/ffdec/ffdec-cli.jar; \
+        # Both halves are checked before the image is declared built: a JAR with no
+        # Main-Class and a CLI that cannot start are the failures this step exists to
+        # catch, and neither would show up until the first sandbox session.
+        /opt/java25/bin/java -version; \
+        ffdec -help >/dev/null; \
+        unzip -p /usr/local/share/ffdec-mcp/ffdec-mcp.jar META-INF/MANIFEST.MF | grep -q '^Main-Class:'; \
+        # The `ffdec -help` check creates the CLI's writable home and its Jansi library
+        # under it. They are run-time state, not image content; the wrapper recreates them
+        # on first use. Remove them so the check leaves nothing in the image.
+        rm -rf /tmp/ffdec-home /home/deepcode/.deepcode/ffdec-tmp; \
+        rm -rf "$FFDEC_TMP"; \
+        chmod -R a+rX /opt/java25 /usr/local/share/ffdec /usr/local/share/ffdec-mcp; \
+        ;; \
+    esac; \
     # The browser half of the `puppeteer` tool, which is two things the base image does not have.
     #
     # The npm package is the driver, not the browser: it installs in seconds and leaves puppeteer
@@ -412,6 +545,89 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       curl -L https://nixos.org/nix/install -o /tmp/nix-install.sh; \
       sh /tmp/nix-install.sh --no-daemon --yes; \
     fi
+
+# ---------------------------------------------------------------------------
+# Skills for the tools this image actually carries
+#
+# A skill is not documentation sitting in a folder; DeepCode offers it to the model by
+# name and description, and the model may act on it. Installing a playbook for a tool
+# that is not in the image is therefore worse than installing nothing: the model reads
+# a capability it cannot use and reports the sandbox as broken. The always-on skills
+# explain the sandbox itself; a tool's skill is copied only when that tool is part of
+# this image's selection, which is the same value the install plan above used.
+#
+# The staged tree is removed afterwards. It is not a discovery root, and leaving it
+# behind would keep the playbook of an unselected tool inside the image even though no
+# scan can see it.
+#
+# The COPY sits here, after the tools layer, so editing a skill does not invalidate the
+# tool install above it. A skill is text; re-running a multi-minute install for it would
+# be the same mistake the ARG placement earlier in this file exists to avoid.
+# ---------------------------------------------------------------------------
+COPY skills/ /usr/local/share/deepsand/skills/
+RUN set -eux; \
+    # Same CR caveat as the shell scripts: a stray CR inside a frontmatter line
+    # or a fence would corrupt the skill body.
+    find /usr/local/share/deepsand/skills -type f -exec sed -i 's/\r$$//' {} +; \
+    # Every skill must be a directory containing a readable SKILL.md with a name,
+    # or DeepCode will silently skip it.
+    for skill in /usr/local/share/deepsand/skills/*/; do \
+        test -f "$skill/SKILL.md"; \
+        grep -q '^name:' "$skill/SKILL.md"; \
+        grep -q '^description:' "$skill/SKILL.md"; \
+    done
+
+RUN set -eux; \
+    mkdir -p /home/deepcode/.agents/skills; \
+    for skill in deepsand-permissions deepsand-toolbox; do \
+        cp -a "/usr/local/share/deepsand/skills/$skill" /home/deepcode/.agents/skills/; \
+    done; \
+    case ",$INSTALL_TOOLS," in \
+      *,rea,*) \
+        cp -a /usr/local/share/deepsand/skills/deepsand-rea /home/deepcode/.agents/skills/; \
+        ;; \
+    esac; \
+    case ",$INSTALL_TOOLS," in \
+      *,dejared,*) \
+        cp -a /usr/local/share/deepsand/skills/deepsand-dejared /home/deepcode/.agents/skills/; \
+        ;; \
+    esac; \
+    case ",$INSTALL_TOOLS," in \
+      *,ffdec,*) \
+        cp -a /usr/local/share/deepsand/skills/deepsand-ffdec /home/deepcode/.agents/skills/; \
+        ;; \
+    esac; \
+    # Every installed skill has to be discoverable: a directory with a SKILL.md whose
+    # frontmatter carries a name and a description. This asserts the installed tree,
+    # because that is the tree the CLI scans.
+    for skill in /home/deepcode/.agents/skills/*/; do \
+        test -f "$skill/SKILL.md"; \
+        grep -q '^name:' "$skill/SKILL.md"; \
+        grep -q '^description:' "$skill/SKILL.md"; \
+    done; \
+    # A tool's skill must not survive into an image without the tool. The copy is gated
+    # above; this is the assertion that the gate is the only way in.
+    if [ -d /home/deepcode/.agents/skills/deepsand-rea ]; then \
+      case ",$INSTALL_TOOLS," in \
+        *,rea,*) ;; \
+        *) echo "deepsand: the rea skill is present but the rea tool is not selected" >&2; exit 1 ;; \
+      esac; \
+    fi; \
+    if [ -d /home/deepcode/.agents/skills/deepsand-dejared ]; then \
+      case ",$INSTALL_TOOLS," in \
+        *,dejared,*) ;; \
+        *) echo "deepsand: the dejared skill is present but the dejared tool is not selected" >&2; exit 1 ;; \
+      esac; \
+    fi; \
+    if [ -d /home/deepcode/.agents/skills/deepsand-ffdec ]; then \
+      case ",$INSTALL_TOOLS," in \
+        *,ffdec,*) ;; \
+        *) echo "deepsand: the ffdec skill is present but the ffdec tool is not selected" >&2; exit 1 ;; \
+      esac; \
+    fi; \
+    chown -R 1000:1000 /home/deepcode/.agents; \
+    chmod -R a+rX /home/deepcode/.agents; \
+    rm -rf /usr/local/share/deepsand/skills
 
 # The system git config, applied after the tools so `git` exists when it was selected.
 # A project without git still gets the file -- harmless -- but there is nothing to
