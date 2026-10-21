@@ -7,21 +7,24 @@ type Messages = (typeof messages)["en"];
 function themeFor(code: LocaleCode): DefaultTheme.Config {
   const text: Messages = messages[code];
   const base = baseFor(code);
-  const apiKeyNav = [{ text: text.navApiKey, link: `${base}guide/deepseek-api` }];
   const apiKeySidebar = [{ text: text.navApiKey, link: `${base}guide/deepseek-api` }];
   const terminalSidebar = [
     { text: text.sidebarTerminal, link: `${base}guide/deepcode-terminal` },
   ];
-  const downloadNav = [{ text: text.navDownload, link: `${base}download` }];
   return {
     nav: [
-      ...downloadNav,
-      { text: text.navWhatIs, link: `${base}guide/what-is-deepsand` },
-      ...apiKeyNav,
+      { text: text.navDownload, link: `${base}download` },
       { text: text.navGuide, link: `${base}guide/getting-started` },
-      { text: text.navSecurity, link: `${base}guide/security` },
-      { text: text.navDevelopers, link: `${base}guide/for-developers` },
-      { text: text.navFaq, link: `${base}guide/faq` },
+      {
+        text: text.navMore,
+        items: [
+          { text: text.navWhatIs, link: `${base}guide/what-is-deepsand` },
+          { text: text.navApiKey, link: `${base}guide/deepseek-api` },
+          { text: text.navSecurity, link: `${base}guide/security` },
+          { text: text.navDevelopers, link: `${base}guide/for-developers` },
+          { text: text.navFaq, link: `${base}guide/faq` },
+        ],
+      },
     ],
     sidebar: [
       { text: text.whatIsDeepsand, link: `${base}guide/what-is-deepsand` },

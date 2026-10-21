@@ -68,6 +68,7 @@ const labels = {
   navSecurity: "Security",
   navDevelopers: "Under the hood",
   navFaq: "FAQ",
+  navMore: "More",
   whatIsDeepsand: "What is Deepsand?",
   gettingStarted: "Getting started",
   sidebarTerminal: "Using the DeepCode terminal",

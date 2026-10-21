@@ -37,6 +37,19 @@ html[dir="rtl"] pre {
   display: none !important;
 }
 
+/* Let the menu shrink before the right-hand controls are pushed off-screen. */
+.VPNavBar .content,
+.VPNavBar .content-body,
+.VPNavBarMenu {
+  min-width: 0;
+}
+
+.VPNavBarExtra,
+.VPNavBarHamburger,
+.ds-language {
+  flex: 0 0 auto;
+}
+
 .ds-language {
   position: relative;
   display: flex;
@@ -75,9 +88,13 @@ html[dir="rtl"] pre {
 }
 
 .ds-language-name {
+  max-width: 10rem;
+  overflow: hidden;
   font-size: 13px;
   font-weight: 600;
   line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ds-language-chevron {
@@ -137,19 +154,30 @@ html[dir="rtl"] pre {
     margin-inline-start: 4px;
   }
 
-  .ds-language-name,
+  .ds-language-name {
+    display: block;
+    max-width: 6.5rem;
+    font-size: 12px;
+  }
+
   .ds-language-chevron {
     display: none;
   }
 
   .ds-language-button {
-    width: 36px;
+    width: auto;
     justify-content: center;
-    padding: 0;
+    padding: 0 8px;
   }
 
   .ds-language-menu {
-    inset-inline-end: -4px;
+    inset-inline-end: 0;
+  }
+}
+
+@media (max-width: 359px) {
+  .ds-language-name {
+    max-width: 5.25rem;
   }
 }
 
