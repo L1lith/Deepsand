@@ -73,6 +73,13 @@ files. Keep the specific `deepsand.webslc.com/*` route beside the custom-domain
 entry: the zone also has a `*.webslc.com/*` route on another Worker, which
 otherwise shadows this subdomain.
 
+Language routing is handled in `docs-site/worker.mjs`. A first visit to an
+English page uses Cloudflare's `request.cf.country` to choose a translated
+page when that country has an unambiguous language. The top-right language menu
+sets `deepsand_docs_lang` for one year; the Worker honors that cookie ahead of
+the IP country, including choosing English. A localized URL entered directly
+without a cookie is left alone rather than redirected away.
+
 Required repository secrets:
 
 | Secret | Where to get it |

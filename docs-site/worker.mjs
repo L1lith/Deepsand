@@ -201,6 +201,16 @@ export default {
     const redirect = await languageRedirect(request, env, url, pathname);
     if (redirect) return redirect;
 
+    // `/zh` is the locale root written without its trailing slash; make it
+    // canonical so the assets binding can find `zh/index.html`.
+    const bare = pathLocale(pathname);
+    if (bare.locale !== "en" && bare.rest === "/" && !pathname.endsWith("/")) {
+      return new Response(null, {
+        status: 308,
+        headers: { Location: `/${bare.locale}/${url.search}` },
+      });
+    }
+
     const assetUrl = new URL(assetPath(pathname), url);
     const response = await env.ASSETS.fetch(new Request(assetUrl, request));
     if (response.status !== 404) return response;
