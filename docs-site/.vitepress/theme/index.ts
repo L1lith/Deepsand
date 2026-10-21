@@ -1,6 +1,7 @@
 import { h, watchEffect } from "vue";
-import { useData } from "vitepress";
+import { useRoute } from "vitepress";
 import DefaultTheme from "vitepress/theme";
+import { DOCS_LOCALES } from "../locales";
 import DownloadPicker from "./DownloadPicker.vue";
 import LanguageSwitcher from "./LanguageSwitcher.vue";
 import "./custom.css";
@@ -13,11 +14,14 @@ export default {
     app.component("DownloadPicker", DownloadPicker);
   },
   Layout() {
-    const { lang } = useData();
+    const route = useRoute();
     watchEffect(() => {
       if (typeof document === "undefined") return;
-      document.documentElement.lang = lang.value;
-      document.documentElement.dir = lang.value === "ar" ? "rtl" : "ltr";
+      const first = route.path.split("/")[1];
+      const locale =
+        DOCS_LOCALES.find((candidate) => candidate.code === first) ?? DOCS_LOCALES[0];
+      document.documentElement.lang = locale.lang;
+      document.documentElement.dir = locale.code === "ar" ? "rtl" : "ltr";
     });
     return h(DefaultTheme.Layout, null, {
       "nav-bar-content-after": () => h(LanguageSwitcher),
