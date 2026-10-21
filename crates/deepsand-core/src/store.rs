@@ -15,6 +15,21 @@ use std::path::{Path, PathBuf};
 /// costs review attention.
 pub const MAX_GRANTS_PER_PROJECT: usize = 64;
 
+/// The rules for a project's display name, shared by create and rename.
+///
+/// The name is not the slug: container, volume and network names are derived once, when the
+/// project is created, and must not move when the operator renames the sidebar entry.
+fn checked_project_name(name: &str) -> Result<&str> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(SandboxError::path("the project needs a name"));
+    }
+    if name.len() > 120 {
+        return Err(SandboxError::path("the project name is too long"));
+    }
+    Ok(name)
+}
+
 #[derive(Debug)]
 pub struct Store {
     /// Set when `state.json` could not be read and the rolling backup was used instead.
@@ -387,13 +402,7 @@ fn migrate(state: &mut StoreDocument) {
     }
 
     pub fn create_project(&mut self, name: &str, root_dir: &str) -> Result<Project> {
-        let name = name.trim();
-        if name.is_empty() {
-            return Err(SandboxError::path("the project needs a name"));
-        }
-        if name.len() > 120 {
-            return Err(SandboxError::path("the project name is too long"));
-        }
+        let name = checked_project_name(name)?;
 
         let root = paths::canonical_existing_dir(root_dir)?;
         paths::guard_mountable(&root, &self.guards)?;
@@ -464,6 +473,22 @@ fn migrate(state: &mut StoreDocument) {
             .ok_or_else(|| SandboxError::ProjectNotFound(project.id.clone()))?;
         self.state.projects[index] = project;
         self.save()
+    }
+
+    /// Change only what the sidebar calls a project.
+    ///
+    /// The slug, root, grants and conversation volume stay put: they are the project's
+    /// identity to Docker and to DeepCode, and renaming a label must not strand a running
+    /// sandbox or a saved session. Returns the updated project so the window can redraw
+    /// without re-implementing the name rules.
+    pub fn rename_project(&mut self, id: &str, name: &str) -> Result<Project> {
+        let name = checked_project_name(name)?;
+        {
+            let project = self.project_mut(id)?;
+            project.name = name.to_string();
+        }
+        self.save()?;
+        Ok(self.project(id)?.clone())
     }
 
     pub fn delete_project(&mut self, id: &str) -> Result<()> {
@@ -1446,6 +1471,81 @@ mod order_tests {
 
         store.move_project(&a.id, 0).expect("move");
         assert_eq!(ids(&store), vec![a.id, b.id]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// A rename is a label change, not a new project. These assertions are what keep it from
+/// becoming one: the slug names the container, the volume and the network, and a changed
+/// slug would strand every one of them.
+#[cfg(test)]
+mod rename_tests {
+    use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("deepsand-rename-{name}-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        dir
+    }
+
+    fn workspace(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "deepsand-rename-ws-{name}-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).expect("workspace");
+        dir
+    }
+
+    #[test]
+    fn renaming_changes_only_the_display_name_and_survives_a_reload() {
+        let dir = scratch("round-trip");
+        let mut store = Store::load(&dir).expect("store");
+        let project = store
+            .create_project("before", &workspace("before").to_string_lossy())
+            .expect("create");
+
+        let renamed = store
+            .rename_project(&project.id, "  after  ")
+            .expect("rename");
+        assert_eq!(renamed.name, "after", "the stored name is the trimmed one");
+        assert_eq!(renamed.id, project.id, "a rename is not a new project");
+        assert_eq!(renamed.slug, project.slug, "container and volume names must stay put");
+        assert_eq!(renamed.root_dir, project.root_dir, "the working directory must stay put");
+
+        let reloaded = Store::load(&dir).expect("reload");
+        assert_eq!(
+            reloaded.project(&project.id).expect("project").name,
+            "after",
+            "a rename has to survive the store being read again"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_blank_or_overlong_name_is_refused_and_the_old_name_stays() {
+        let dir = scratch("rules");
+        let mut store = Store::load(&dir).expect("store");
+        let project = store
+            .create_project("kept", &workspace("kept").to_string_lossy())
+            .expect("create");
+
+        assert!(store.rename_project(&project.id, "   ").is_err());
+        assert!(store.rename_project(&project.id, &"x".repeat(121)).is_err());
+        assert_eq!(
+            store.project(&project.id).expect("project").name,
+            "kept",
+            "a refused rename must not have written anything"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn renaming_an_unknown_project_is_refused() {
+        let dir = scratch("unknown");
+        let mut store = Store::load(&dir).expect("store");
+        assert!(store.rename_project("no-such-project", "name").is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

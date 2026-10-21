@@ -452,6 +452,9 @@ pub fn run() {
             commands::project_disk_usage,
             commands::create_project,
             commands::move_project,
+            // Changes the sidebar label only; the slug, volumes and sessions keep their names.
+            // Desktop-only and absent from the remote command table.
+            commands::rename_project,
             // Clones onto the host's filesystem and can take a credential, so it is desktop-only
             // and absent from the remote command table.
             commands::import_git_project,

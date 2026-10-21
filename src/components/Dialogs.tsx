@@ -35,10 +35,13 @@ import {
   dismissToast,
   refreshProjects,
   refreshSettings,
+  renameProject,
   selectedProject,
   store,
   toast,
 } from "../store";
+import { t } from "../i18n";
+import { LanguageSettingsSection } from "./LanguagePicker";
 
 /* ------------------------------------------------------------------------- */
 /* Shared chrome                                                              */
@@ -76,6 +79,29 @@ export function Modal(props: {
 /* ------------------------------------------------------------------------- */
 /* Permission request dialog                                                  */
 /* ------------------------------------------------------------------------- */
+
+/**
+ * The request's title.
+ *
+ * The backend writes these in English because it has no notion of an interface
+ * language. The pieces it interpolates -- a path, a host, a tool name -- are
+ * data and stay as they are; only the sentence around them is translated.
+ */
+function requestTitle(request: PermissionRequestView): string {
+  const target = request.claimedPath ?? request.description;
+  switch (request.kind) {
+    case "directory_access":
+      return t("request.title.directory", { target });
+    case "locate_resource":
+      return t("request.title.locate", { target });
+    case "network_access":
+      return t("request.title.network", { target });
+    case "tool_install":
+      return t("request.title.tool", { target });
+    default:
+      return request.title;
+  }
+}
 
 export function PermissionDialog(props: { request: PermissionRequestView; queued: number }) {
   const request = () => props.request;
@@ -119,8 +145,8 @@ export function PermissionDialog(props: { request: PermissionRequestView; queued
       const result = await api.pathCheck(candidate);
       setCheck(
         result.allowed
-          ? { ok: true, text: `Allowed. It will appear inside the sandbox as ${"/grants/<name>"}.` }
-          : { ok: false, text: result.reason ?? "This path cannot be shared." },
+          ? { ok: true, text: t("request.pathAllowed") }
+          : { ok: false, text: result.reason ?? t("request.pathCannotBeShared") },
       );
     } catch (error) {
       setCheck({ ok: false, text: describeError(error) });
@@ -131,7 +157,7 @@ export function PermissionDialog(props: { request: PermissionRequestView; queued
     const chosen = await open({
       directory: request().requestedKind !== "file",
       multiple: false,
-      title: `Find ${request().description}`,
+      title: t("request.find", { target: request().description }),
     });
     if (typeof chosen === "string") {
       setPath(chosen);
@@ -157,14 +183,14 @@ export function PermissionDialog(props: { request: PermissionRequestView; queued
       if (decision === "allow" && allowed) {
         toast(
           "ok",
-          "Shared, and the sandbox is restarting",
-          `${baseName(path())} is now visible to DeepCode.`,
+          t("request.sharedTitle"),
+          t("request.sharedBody", { name: baseName(path()) }),
         );
       } else if (decision === "deny") {
-        toast("info", "Denied", "DeepCode was told the decision is final.");
+        toast("info", t("request.deniedTitle"), t("request.deniedBody"));
       }
     } catch (error) {
-      toast("error", "Could not deliver the decision", describeError(error));
+      toast("error", t("request.couldNotDeliver"), describeError(error));
     } finally {
       setBusy(false);
     }
@@ -183,11 +209,11 @@ export function PermissionDialog(props: { request: PermissionRequestView; queued
       await api.setRequestsEnabled(request().projectId, false);
       toast(
         "info",
-        "DeepCode will not ask again",
-        `${request().projectName} cannot request permissions until you turn it back on, in Permissions.`,
+        t("request.requestsOffTitle"),
+        t("request.requestsOffBody", { name: request().projectName }),
       );
     } catch (error) {
-      toast("error", "Could not turn requests off", describeError(error));
+      toast("error", t("request.couldNotTurnOff"), describeError(error));
     } finally {
       setBusy(false);
     }
@@ -205,14 +231,17 @@ export function PermissionDialog(props: { request: PermissionRequestView; queued
 
   return (
     <Modal
-      title={request().title}
-      subtitle={`Project: ${request().projectName}`}
+      title={requestTitle(request())}
+      subtitle={t("request.project", { name: request().projectName })}
       onClose={() => void decide("deny")}
       footer={
         <>
           <span class="left">
             <Show when={props.queued > 1}>
-              {props.queued - 1} more request{props.queued - 1 === 1 ? "" : "s"} waiting.
+              {t(
+                props.queued - 1 === 1 ? "request.moreWaitingOne" : "request.moreWaiting",
+                { count: props.queued - 1 },
+              )}
             </Show>
             {/* Deliberately quiet, and in the footer's spare space: it is the right answer
                 to a flood and the wrong answer to the one request you are about to grant. */}
@@ -220,17 +249,14 @@ export function PermissionDialog(props: { request: PermissionRequestView; queued
               class="btn btn-ghost btn-sm"
               style={{ "margin-left": props.queued > 1 ? "0.6rem" : "0" }}
               disabled={busy()}
-              title={
-                `Stop ${request().projectName} from asking for permissions at all. ` +
-                "Anything already waiting is refused, and this request is refused too."
-              }
+              title={t("request.stopAskingTitle", { name: request().projectName })}
               onClick={() => void stopAsking()}
             >
-              Stop asking
+              {t("request.stopAsking")}
             </button>
           </span>
           <button class="btn btn-danger" disabled={busy()} onClick={() => void decide("deny")}>
-            Deny
+            {t("request.deny")}
           </button>
           <button
             class="btn btn-primary"
@@ -240,34 +266,28 @@ export function PermissionDialog(props: { request: PermissionRequestView; queued
             disabled={busy() || blocked() || (isDirectoryKind() && !path().trim())}
             onClick={() => void decide("allow")}
           >
-            Grant access
+            {t("request.grant")}
           </button>
         </>
       }
     >
       <div class="stack">
         <Show when={heldSandbox()}>
-          <div class="callout callout-warn">
-            Nothing is running in the sandbox while this is open, so the agent cannot work ahead of
-            your decision. If you take more than a minute, the call it was waiting on ends in a
-            timeout — it collects your decision afterwards rather than guessing.
-          </div>
+          <div class="callout callout-warn">{t("request.frozen")}</div>
         </Show>
         <Show when={request().purpose}>
           {(purpose) => (
             <div class="callout callout-info">
-              <strong>What it says it needs it for:</strong> {purpose()}
+              <strong>{t("request.purpose")}</strong> {purpose()}
             </div>
           )}
         </Show>
 
         <Show when={isDirectoryKind() && request().kind === "directory_access" && request().claimedPath}>
           <div class="field">
-            <label>Path DeepCode named</label>
+            <label>{t("request.claimedPath")}</label>
             <div class="request-path">{request().claimedPath}</div>
-            <span class="hint">
-              Deepsand re-checks this path itself. A path it refuses cannot be granted even if you allow it.
-            </span>
+            <span class="hint">{t("request.pathRecheck")}</span>
           </div>
         </Show>
 
@@ -276,7 +296,9 @@ export function PermissionDialog(props: { request: PermissionRequestView; queued
         <Show when={isDirectoryKind()}>
         <div class="field">
           <label for="perm-path">
-            {request().kind === "locate_resource" ? "The directory on this machine" : "Directory to share"}
+            {request().kind === "locate_resource"
+              ? t("request.directoryOnMachine")
+              : t("request.directoryToShare")}
           </label>
           <div class="row-inline">
             <input
@@ -289,7 +311,7 @@ export function PermissionDialog(props: { request: PermissionRequestView; queued
               onChange={(event) => void verify(event.currentTarget.value)}
             />
             <button class="btn" onClick={() => void locate()}>
-              Locate…
+              {t("request.locate")}
             </button>
           </div>
           <Show when={check()}>
@@ -304,61 +326,57 @@ export function PermissionDialog(props: { request: PermissionRequestView; queued
 
         <Show when={!isDirectoryKind()}>
           <div class="field">
-            <label>{request().kind === "network_access" ? "Destinations requested" : "Tools requested"}</label>
+            <label>
+              {request().kind === "network_access"
+                ? t("request.destinationsRequested")
+                : t("request.toolsRequested")}
+            </label>
             <div class="request-path mono">{request().description}</div>
             <Show when={request().kind === "network_access"}>
-              <span class="hint">
-                Allowing adds these to <strong>this project's</strong> allowlist only. A DENY entry in the
-                global list still wins, so a host banned app-wide cannot be opened here.
-              </span>
+              <span class="hint">{t("request.networkHint")}</span>
             </Show>
             <Show when={request().kind === "tool_install"}>
-              <span class="hint">
-                A tool is baked into the project's image, so it is not usable until the image is rebuilt
-                and the sandbox restarted. DeepCode is told this, so it will not try to install it itself.
-              </span>
+              <span class="hint">{t("request.toolHint")}</span>
             </Show>
           </div>
         </Show>
 
         <Show when={isDirectoryKind()}>
         <div class="field">
-          <label>Access to grant</label>
+          <label>{t("request.accessToGrant")}</label>
           <div class="access-choice">
             <button
               class="access-option"
               aria-pressed={access() === "read"}
               onClick={() => setAccess("read")}
             >
-              <strong>Read-only</strong>
-              <span>It can read the files but cannot change or delete anything.</span>
+              <strong>{t("access.readOnly")}</strong>
+              <span>{t("request.readOnlyDetail")}</span>
             </button>
             <button
               class="access-option"
               aria-pressed={access() === "write"}
               onClick={() => setAccess("write")}
             >
-              <strong>Read-write</strong>
-              <span>It can create, modify and delete files in this directory.</span>
+              <strong>{t("access.readWrite")}</strong>
+              <span>{t("request.readWriteDetail")}</span>
             </button>
           </div>
         </div>
         </Show>
 
         <div class="field">
-          <label for="perm-note">Reply to DeepCode (optional)</label>
+          <label for="perm-note">{t("request.replyOptional")}</label>
           <input
             id="perm-note"
             type="text"
-            placeholder="Only the theme folder, please"
+            placeholder={t("request.replyPlaceholder")}
             value={note()}
             onInput={(event) => setNote(event.currentTarget.value)}
           />
         </div>
 
-        <div class="callout callout-info">
-          Deepsand cannot verify the agent is being honest, please use your best judgment.
-        </div>
+        <div class="callout callout-info">{t("request.judgment")}</div>
       </div>
     </Modal>
   );
@@ -385,8 +403,8 @@ export function NewProjectDialog(props: { onClose: () => void }) {
       const result = await api.pathCheck(candidate);
       setCheck(
         result.allowed
-          ? { ok: true, text: `Usable. It becomes /workspace inside the sandbox.` }
-          : { ok: false, text: result.reason ?? "This directory cannot be used." },
+          ? { ok: true, text: t("newProject.pathUsable") }
+          : { ok: false, text: result.reason ?? t("newProject.pathUnusable") },
       );
     } catch (error) {
       setCheck({ ok: false, text: describeError(error) });
@@ -394,7 +412,7 @@ export function NewProjectDialog(props: { onClose: () => void }) {
   }
 
   async function browse() {
-    const chosen = await open({ directory: true, multiple: false, title: "Choose the working directory" });
+    const chosen = await open({ directory: true, multiple: false, title: t("newProject.browseTitle") });
     if (typeof chosen === "string") {
       setRoot(chosen);
       await verify(chosen);
@@ -406,10 +424,10 @@ export function NewProjectDialog(props: { onClose: () => void }) {
     try {
       const project = await api.createProject(name(), root());
       await refreshProjects();
-      toast("ok", `Created ${project.name}`, "Run it when you are ready.");
+      toast("ok", t("newProject.created", { name: project.name }), t("newProject.createdBody"));
       props.onClose();
     } catch (error) {
-      toast("error", "Could not create the project", describeError(error));
+      toast("error", t("newProject.couldNotCreate"), describeError(error));
     } finally {
       setBusy(false);
     }
@@ -439,7 +457,7 @@ export function NewProjectDialog(props: { onClose: () => void }) {
     const chosen = await open({
       directory: true,
       multiple: false,
-      title: "Choose the directory to clone into",
+      title: t("newProject.browseCloneTitle"),
     });
     if (typeof chosen === "string") setGitParent(chosen);
   }
@@ -468,15 +486,15 @@ export function NewProjectDialog(props: { onClose: () => void }) {
         await refreshProjects();
         toast(
           "ok",
-          `Imported ${result.project.name}`,
-          "The cloned folder is the project's working directory.",
+          t("newProject.imported", { name: result.project.name }),
+          t("newProject.importedBody"),
         );
         props.onClose();
         return;
       }
-      toast("error", "Could not import the repository", result.detail);
+      toast("error", t("newProject.couldNotImport"), result.detail);
     } catch (error) {
-      toast("error", "Could not import the repository", describeError(error));
+      toast("error", t("newProject.couldNotImport"), describeError(error));
     } finally {
       setBusy(false);
     }
@@ -490,8 +508,8 @@ export function NewProjectDialog(props: { onClose: () => void }) {
 
   return (
     <Modal
-      title={mode() === "git" ? "Import with Git" : "New project"}
-      subtitle="A project is a working directory plus the permissions DeepCode has inside it."
+      title={mode() === "git" ? t("newProject.importGit") : t("app.newProject")}
+      subtitle={t("newProject.subtitle")}
       onClose={props.onClose}
       footer={
         mode() === "git" ? (
@@ -504,23 +522,27 @@ export function NewProjectDialog(props: { onClose: () => void }) {
                 setMode("manual");
               }}
             >
-              Back
+              {t("common.back")}
             </button>
             <button class="btn btn-primary" disabled={!gitReady()} onClick={() => void importGit(needsLogin())}>
-              {busy() ? "Cloning…" : needsLogin() ? "Sign in and import" : "Import"}
+              {busy()
+                ? t("common.cloning")
+                : needsLogin()
+                  ? t("newProject.signInImport")
+                  : t("newProject.import")}
             </button>
           </>
         ) : (
           <>
             <button class="btn btn-ghost" onClick={props.onClose}>
-              Cancel
+              {t("common.cancel")}
             </button>
             <button
               class="btn btn-primary"
               disabled={busy() || !name().trim() || !root().trim() || check()?.ok === false}
               onClick={() => void create()}
             >
-              Create project
+              {t("newProject.create")}
             </button>
           </>
         )
@@ -532,12 +554,12 @@ export function NewProjectDialog(props: { onClose: () => void }) {
           <div class="stack">
             <div class="row-inline">
               <button class="btn" onClick={() => setMode("git")}>
-                Import with Git
+                {t("newProject.importGit")}
               </button>
-              <span class="faint small">Clone a repository and use the clone as the project.</span>
+              <span class="faint small">{t("newProject.cloneHint")}</span>
             </div>
             <div class="field">
-              <label for="np-name">Name</label>
+              <label for="np-name">{t("newProject.name")}</label>
               <input
                 id="np-name"
                 type="text"
@@ -547,7 +569,7 @@ export function NewProjectDialog(props: { onClose: () => void }) {
               />
             </div>
             <div class="field">
-              <label for="np-root">Primary working directory</label>
+              <label for="np-root">{t("newProject.primaryDir")}</label>
               <div class="row-inline">
                 <input
                   id="np-root"
@@ -559,7 +581,7 @@ export function NewProjectDialog(props: { onClose: () => void }) {
                   onChange={(event) => void verify(event.currentTarget.value)}
                 />
                 <button class="btn" onClick={() => void browse()}>
-                  Browse…
+                  {t("common.browse")}
                 </button>
               </div>
               <Show when={check()}>
@@ -570,16 +592,13 @@ export function NewProjectDialog(props: { onClose: () => void }) {
                 )}
               </Show>
             </div>
-            <div class="callout callout-info">
-              The sandbox sees this directory at <span class="mono">/workspace</span>. It sees nothing else until you
-              share something — not your home folder, not your other projects, and never a container-runtime socket.
-            </div>
+            <div class="callout callout-info">{t("newProject.sandboxSees")}</div>
           </div>
         }
       >
         <div class="stack">
           <div class="field">
-            <label for="np-git-url">Repository URL</label>
+            <label for="np-git-url">{t("newProject.repoUrl")}</label>
             <input
               id="np-git-url"
               type="text"
@@ -593,7 +612,7 @@ export function NewProjectDialog(props: { onClose: () => void }) {
             />
           </div>
           <div class="field">
-            <label for="np-git-parent">Directory to clone into</label>
+            <label for="np-git-parent">{t("newProject.cloneInto")}</label>
             <div class="row-inline">
               <input
                 id="np-git-parent"
@@ -604,40 +623,31 @@ export function NewProjectDialog(props: { onClose: () => void }) {
                 onInput={(event) => setGitParent(event.currentTarget.value)}
               />
               <button class="btn" onClick={() => void browseParent()}>
-                Browse…
+                {t("common.browse")}
               </button>
             </div>
-            <p class="faint small">
-              The repository is cloned into a new folder inside this directory. That cloned folder — not the
-              directory you choose — becomes the project's working directory.
-            </p>
+            <p class="faint small">{t("newProject.cloneHintLong")}</p>
           </div>
           <div class="field">
-            <label for="np-git-name">Name (optional)</label>
+            <label for="np-git-name">{t("newProject.nameOptional")}</label>
             <input
               id="np-git-name"
               type="text"
-              placeholder="defaults to the repository's folder name"
+              placeholder={t("newProject.namePlaceholder")}
               value={gitName()}
               onInput={(event) => setGitName(event.currentTarget.value)}
             />
           </div>
           <Show when={needsLogin()}>
             <div class="callout callout-warn">
-              <p>
-                The credentials already on this machine were tried first — git's stored credentials and its SSH
-                keys — and the repository refused them.
-              </p>
+              <p>{t("newProject.credentialsTried")}</p>
               <Show when={loginDetail()}>
                 <pre class="output">{loginDetail()}</pre>
               </Show>
-              <p>
-                Enter a username and a personal access token for this host. They are used for this one clone and
-                are not saved.
-              </p>
+              <p>{t("newProject.enterCredentials")}</p>
             </div>
             <div class="field">
-              <label for="np-git-user">Username</label>
+              <label for="np-git-user">{t("newProject.username")}</label>
               <input
                 id="np-git-user"
                 type="text"
@@ -647,7 +657,7 @@ export function NewProjectDialog(props: { onClose: () => void }) {
               />
             </div>
             <div class="field">
-              <label for="np-git-token">Token or password</label>
+              <label for="np-git-token">{t("newProject.token")}</label>
               <input
                 id="np-git-token"
                 type="password"
@@ -659,6 +669,74 @@ export function NewProjectDialog(props: { onClose: () => void }) {
           </Show>
         </div>
       </Show>
+    </Modal>
+  );
+}
+
+/* ------------------------------------------------------------------------- */
+/* Rename project                                                             */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * Change a project's sidebar label.
+ *
+ * Separate from Project settings on purpose: this is a one-field action reachable from the
+ * sidebar's context menu, and it changes nothing about what the sandbox can reach. The hint
+ * says what does not move, because an operator renaming a project may reasonably expect the
+ * container and saved sessions to follow the new name.
+ */
+export function RenameProjectDialog(props: { project: ProjectView; onClose: () => void }) {
+  const [name, setName] = createSignal(props.project.name);
+  const [busy, setBusy] = createSignal(false);
+  const trimmed = () => name().trim();
+  const canSave = () => !busy() && trimmed().length > 0 && trimmed() !== props.project.name;
+
+  async function save() {
+    if (!canSave()) return;
+    setBusy(true);
+    try {
+      const renamed = await renameProject(props.project.id, trimmed());
+      toast("ok", t("projectRename.renamed", { name: renamed.name }), t("projectRename.renamedBody"));
+      props.onClose();
+    } catch (error) {
+      toast("error", t("projectRename.couldNotRename"), describeError(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      title={t("projectRename.title")}
+      subtitle={t("projectRename.subtitle")}
+      onClose={props.onClose}
+      footer={
+        <>
+          <button class="btn btn-ghost" onClick={props.onClose}>
+            {t("common.cancel")}
+          </button>
+          <button class="btn btn-primary" disabled={!canSave()} onClick={() => void save()}>
+            {busy() ? t("common.renaming") : t("common.rename")}
+          </button>
+        </>
+      }
+    >
+      <div class="field">
+        <label for="rename-project-name">{t("projectRename.name")}</label>
+        <input
+          id="rename-project-name"
+          type="text"
+          maxlength={120}
+          autofocus
+          value={name()}
+          onFocus={(event) => event.currentTarget.select()}
+          onInput={(event) => setName(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") void save();
+          }}
+        />
+        <span class="hint">{t("projectRename.hint")}</span>
+      </div>
     </Modal>
   );
 }
@@ -711,10 +789,10 @@ export function ProjectSettingsDialog(props: { project: ProjectView; onClose: ()
             },
       });
       await refreshProjects();
-      toast("ok", "Project settings saved", "They apply the next time the sandbox starts.");
+      toast("ok", t("projectSettings.saved"), t("projectSettings.savedBody"));
       props.onClose();
     } catch (error) {
-      toast("error", "Could not save", describeError(error));
+      toast("error", t("projectSettings.couldNotSave"), describeError(error));
     } finally {
       setBusy(false);
     }
@@ -725,10 +803,10 @@ export function ProjectSettingsDialog(props: { project: ProjectView; onClose: ()
     try {
       await api.deleteProject(props.project.id);
       await refreshProjects();
-      toast("info", `Removed ${props.project.name}`);
+      toast("info", t("projectSettings.removed", { name: props.project.name }));
       props.onClose();
     } catch (error) {
-      toast("error", "Could not remove the project", describeError(error));
+      toast("error", t("projectSettings.couldNotRemove"), describeError(error));
     } finally {
       setBusy(false);
     }
@@ -749,12 +827,12 @@ export function ProjectSettingsDialog(props: { project: ProjectView; onClose: ()
       await refreshProjects();
       toast(
         "ok",
-        "DeepCode data wiped",
-        `The sandbox was stopped and its conversation history was removed. ${props.project.rootDir} was not touched.`,
+        t("projectSettings.wiped"),
+        t("projectSettings.wipedBody", { path: props.project.rootDir }),
       );
       props.onClose();
     } catch (error) {
-      toast("error", "Could not wipe the DeepCode data", describeError(error));
+      toast("error", t("projectSettings.couldNotWipe"), describeError(error));
     } finally {
       setWiping(false);
     }
@@ -762,7 +840,7 @@ export function ProjectSettingsDialog(props: { project: ProjectView; onClose: ()
 
   return (
     <Modal
-      title={`${props.project.name} settings`}
+      title={t("projectSettings.title", { name: props.project.name })}
       subtitle={props.project.rootDir}
       wide
       onClose={props.onClose}
@@ -773,24 +851,24 @@ export function ProjectSettingsDialog(props: { project: ProjectView; onClose: ()
             disabled={busy() || wiping()}
             onClick={() => void remove()}
           >
-            Remove project
+            {t("projectSettings.removeProject")}
           </button>
           <button class="btn btn-ghost" onClick={props.onClose}>
-            Cancel
+            {t("common.cancel")}
           </button>
           <button
             class="btn btn-primary"
             disabled={busy() || wiping()}
             onClick={() => void save()}
           >
-            Save
+            {t("common.save")}
           </button>
         </>
       }
     >
       <div class="stack">
         <div class="field">
-          <label>DeepCode's own permission prompts inside the sandbox</label>
+          <label>{t("projectSettings.deepcodePrompts")}</label>
           <div class="row-inline">
             <button
               class="btn btn-sm"
@@ -802,7 +880,7 @@ export function ProjectSettingsDialog(props: { project: ProjectView; onClose: ()
               }
               onClick={() => setMode("allow_all")}
             >
-              Quiet (recommended)
+              {t("projectSettings.quiet")}
             </button>
             <button
               class="btn btn-sm"
@@ -814,39 +892,31 @@ export function ProjectSettingsDialog(props: { project: ProjectView; onClose: ()
               }
               onClick={() => setMode("strict")}
             >
-              Strict
+              {t("projectSettings.strict")}
             </button>
           </div>
-          <span class="hint">
-            The container is the real boundary. Strict mode additionally makes DeepCode prompt for network, MCP and
-            out-of-workspace access, with the prompts appearing in the terminal.
-          </span>
+          <span class="hint">{t("projectSettings.modeHint")}</span>
         </div>
 
         <div class="field">
-          <label>Instructions for the agent (user prompt)</label>
+          <label>{t("projectSettings.instructions")}</label>
           <SegmentedSlider
-            ariaLabel="User prompt"
+            ariaLabel={t("projectSettings.userPrompt")}
             value={promptMode()}
             onChange={setPromptMode}
             options={[
-              { value: "global", label: "Global", title: "The app-wide prompt, from Settings." },
-              { value: "custom", label: "Custom", title: "This project's own prompt, typed below." },
-              { value: "off", label: "Off", title: "Send no standing instructions in this project." },
+              { value: "global", label: t("projectSettings.global"), title: t("projectSettings.globalTitle") },
+              { value: "custom", label: t("projectSettings.custom"), title: t("projectSettings.customTitle") },
+              { value: "off", label: t("projectSettings.off"), title: t("projectSettings.offTitle") },
             ]}
           />
           <Show when={promptMode() === "global"}>
             <Show
               when={globalPrompt()}
-              fallback={
-                <span class="hint">
-                  No app-wide prompt is set, so nothing is sent. Write one in Settings and it applies here and in every
-                  other project that is on Global.
-                </span>
-              }
+              fallback={<span class="hint">{t("projectSettings.noGlobal")}</span>}
             >
               {(text) => (
-                <div class="prompt-preview" title="The app-wide prompt, from Settings">
+                <div class="prompt-preview" title={t("projectSettings.globalTitle")}>
                   {text()}
                 </div>
               )}
@@ -855,20 +925,16 @@ export function ProjectSettingsDialog(props: { project: ProjectView; onClose: ()
           <Show when={promptMode() === "custom"}>
             <textarea
                             rows="6"
-              placeholder="For example: this repository is TypeScript only, and nothing is finished until npm test passes."
+              placeholder={t("projectSettings.customPlaceholder")}
               value={prompt()}
               onInput={(event) => setPrompt(event.currentTarget.value)}
             />
           </Show>
-          <span class="hint">
-            The model is given this before anybody types anything, in every session of this project. It cannot widen
-            what the sandbox reaches — an instruction that assumes more access is a reason to ask for it, not a
-            permission — and it arrives whether or not your project has an AGENTS.md of its own.
-          </span>
+          <span class="hint">{t("projectSettings.promptHint")}</span>
         </div>
 
         <div class="field">
-          <label>Model credentials</label>
+          <label>{t("projectSettings.modelCredentials")}</label>
           <div class="row-inline">
             <button
               class="btn btn-sm"
@@ -878,7 +944,7 @@ export function ProjectSettingsDialog(props: { project: ProjectView; onClose: ()
               }
               onClick={() => setInherit(true)}
             >
-              Inherit from this machine
+              {t("projectSettings.inherit")}
             </button>
             <button
               class="btn btn-sm"
@@ -886,33 +952,35 @@ export function ProjectSettingsDialog(props: { project: ProjectView; onClose: ()
               style={!inherit() ? { "border-color": "var(--accent)", background: "var(--accent-soft)" } : undefined}
               onClick={() => setInherit(false)}
             >
-              Override for this project
+              {t("projectSettings.override")}
             </button>
           </div>
           <Show when={inherit()}>
             <span class="hint">
-              Reads <span class="mono">{store.info?.hostConfig.path}</span> at every start. Model:{" "}
-              <span class="mono">{store.info?.hostConfig.model}</span>, key{" "}
-              <span class="mono">{store.info?.hostConfig.apiKey}</span>.
+              {t("projectSettings.inheritHint", {
+                path: store.info?.hostConfig.path ?? "",
+                model: store.info?.hostConfig.model ?? "",
+                key: store.info?.hostConfig.apiKey ?? "",
+              })}
             </span>
           </Show>
           <Show when={!inherit()}>
             <div class="stack" style={{ "margin-top": "0.5rem" }}>
               <input
                 type="text"
-                placeholder="model, e.g. deepseek-v4-flash"
+                placeholder={t("projectSettings.modelPlaceholder")}
                 value={model()}
                 onInput={(event) => setModel(event.currentTarget.value)}
               />
               <input
                 type="text"
-                placeholder="base URL, e.g. https://api.deepseek.com"
+                placeholder={t("projectSettings.baseUrlPlaceholder")}
                 value={baseUrl()}
                 onInput={(event) => setBaseUrl(event.currentTarget.value)}
               />
               <input
                 type="password"
-                placeholder="API key (leave blank to keep the current one)"
+                placeholder={t("projectSettings.apiKeyPlaceholder")}
                 value={apiKey()}
                 onInput={(event) => setApiKey(event.currentTarget.value)}
               />
@@ -921,10 +989,10 @@ export function ProjectSettingsDialog(props: { project: ProjectView; onClose: ()
         </div>
 
         <div class="field">
-          <label>Resource limits</label>
+          <label>{t("projectSettings.resourceLimits")}</label>
           <div class="row-inline" style={{ "flex-wrap": "wrap" }}>
             <label class="small muted">
-              Memory (MiB)
+              {t("projectSettings.memory")}
               <input
                 type="number"
                 min="256"
@@ -935,7 +1003,7 @@ export function ProjectSettingsDialog(props: { project: ProjectView; onClose: ()
               />
             </label>
             <label class="small muted">
-              CPUs
+              {t("projectSettings.cpus")}
               <input
                 type="number"
                 min="0.25"
@@ -945,7 +1013,7 @@ export function ProjectSettingsDialog(props: { project: ProjectView; onClose: ()
               />
             </label>
             <label class="small muted">
-              Processes
+              {t("projectSettings.processes")}
               <input
                 type="number"
                 min="32"
@@ -956,7 +1024,7 @@ export function ProjectSettingsDialog(props: { project: ProjectView; onClose: ()
               />
             </label>
             <label class="small muted">
-              /tmp (MiB)
+              {t("projectSettings.tmp")}
               <input
                 type="number"
                 min="64"
@@ -968,38 +1036,29 @@ export function ProjectSettingsDialog(props: { project: ProjectView; onClose: ()
         </div>
 
         <div class="field">
-          <label>DeepCode data</label>
+          <label>{t("projectSettings.deepcodeData")}</label>
           <Show
             when={!confirmWipe()}
             fallback={
               <div class="callout callout-danger">
                 <p>
-                  <strong>
-                    This permanently deletes this project's DeepCode conversation history and
-                    session data.
-                  </strong>
+                  <strong>{t("projectSettings.wipeTitle")}</strong>
                 </p>
-                <p>
-                  DeepCode sessions, conversation history, attachments and skills stored in the
-                  sandbox will be removed. The sandbox is stopped first. The project folder{" "}
-                  <span class="mono">{props.project.rootDir}</span> is <strong>not</strong>{" "}
-                  touched; the next start recreates DeepCode's settings and credentials from this
-                  machine.
-                </p>
+                <p>{t("projectSettings.wipeDetail", { path: props.project.rootDir })}</p>
                 <div class="row-inline">
                   <button
                     class="btn btn-danger"
                     disabled={wiping()}
                     onClick={() => void wipeDeepcodeData()}
                   >
-                    {wiping() ? "Wiping…" : "Yes, wipe DeepCode data"}
+                    {wiping() ? t("common.wiping") : t("projectSettings.yesWipe")}
                   </button>
                   <button
                     class="btn btn-ghost"
                     disabled={wiping()}
                     onClick={() => setConfirmWipe(false)}
                   >
-                    Cancel
+                    {t("common.cancel")}
                   </button>
                 </div>
               </div>
@@ -1010,13 +1069,9 @@ export function ProjectSettingsDialog(props: { project: ProjectView; onClose: ()
               disabled={busy() || wiping()}
               onClick={() => setConfirmWipe(true)}
             >
-              Wipe DeepCode data…
+              {t("projectSettings.wipeButton")}
             </button>
-            <span class="hint">
-              Deletes the sandbox's conversation history, sessions, attachments and skills. Your
-              project folder on disk is not touched. The sandbox is stopped first; DeepCode's
-              settings and credentials are reinstalled on the next start.
-            </span>
+            <span class="hint">{t("projectSettings.wipeHint")}</span>
           </Show>
         </div>
       </div>
@@ -1078,14 +1133,11 @@ function AutostartSection() {
 
   return (
     <div class="field">
-      <label>Starting up</label>
+      <label>{t("settings.startup")}</label>
       <div class="row-inline">
         <span class="grow">
-          Start Deepsand when I sign in.
-          <span class="hint">
-            In the background it starts with no window at all — the tray icon opens it, and it is
-            running so your sandboxes can be.
-          </span>
+          {t("settings.startAtSignIn")}
+          <span class="hint">{t("settings.startupBackgroundHint")}</span>
         </span>
         <select
           class="select-compact"
@@ -1093,23 +1145,18 @@ function AutostartSection() {
           disabled={busy() || mode() === null}
           onChange={(event) => void choose(event.currentTarget.value as StartupMode)}
         >
-          <option value="off">Off</option>
-          <option value="background">In the background</option>
-          <option value="foreground">With the window</option>
+          <option value="off">{t("settings.startupOff")}</option>
+          <option value="background">{t("settings.startupBackground")}</option>
+          <option value="foreground">{t("settings.startupForeground")}</option>
         </select>
       </div>
       <Show when={mode() === null}>
-        <span class="hint">
-          The startup state could not be read on this system, so it cannot be changed from here.
-        </span>
+        <span class="hint">{t("settings.startupUnreadable")}</span>
       </Show>
       <Show when={problem()}>
         {(message) => <div class="callout callout-danger">{message()}</div>}
       </Show>
-      <span class="hint">
-        Sandboxes still only start when you run them; a project set to run on its own is not
-        affected by this.
-      </span>
+      <span class="hint">{t("settings.startupHint")}</span>
     </div>
   );
 }
@@ -1171,7 +1218,10 @@ function RemoteAccessSection() {
           // The backend only needs an id that is stable; it does not have to be a
           // uuid, and the token is generated server-side when this is saved.
           id: `srv-${Date.now().toString(36)}`,
-          label: current.servers.length === 0 ? "Remote access" : `Server ${current.servers.length + 1}`,
+          label:
+            current.servers.length === 0
+              ? t("settings.addServerLabel")
+              : t("settings.serverN", { count: current.servers.length + 1 }),
           scope: selectedProject() ? { kind: "project", projectId: selectedProject()!.id } : { kind: "app" },
           bind: "127.0.0.1",
           port: 47821 + current.servers.length,
@@ -1202,10 +1252,13 @@ function RemoteAccessSection() {
       });
       toast(
         "ok",
-        current.enabled ? "Remote access updated" : "Remote access off",
+        current.enabled ? t("settings.remoteUpdated") : t("settings.remoteOff"),
         current.enabled
-          ? `${saved.servers.filter((server) => server.running).length} of ${saved.servers.length} servers listening.`
-          : "Every listener was stopped.",
+          ? t("settings.remoteListening", {
+              running: saved.servers.filter((server) => server.running).length,
+              total: saved.servers.length,
+            })
+          : t("settings.listenersStopped"),
       );
     } catch (caught) {
       // The backend refuses rather than silently downgrading, for example when TLS
@@ -1219,21 +1272,18 @@ function RemoteAccessSection() {
   async function copyToken(token: string) {
     try {
       await navigator.clipboard.writeText(token);
-      toast("ok", "Token copied", "Treat it like a password.");
+      toast("ok", t("settings.tokenCopied"), t("settings.tokenCopiedBody"));
     } catch {
-      toast("error", "Could not copy", "Select the token and copy it manually.");
+      toast("error", t("common.couldNotCopy"), t("settings.copyManually"));
     }
   }
 
   return (
     <div class="field">
-      <label>Remote access</label>
-      <span class="hint">
-        Serve this GUI over HTTP so another device can reach it. Off by default, and the settings
-        below only appear when it is on.
-      </span>
+      <label>{t("settings.remoteAccess")}</label>
+      <span class="hint">{t("settings.remoteAccessHint")}</span>
 
-      <Show when={draft()} fallback={<span class="hint">Loading…</span>}>
+      <Show when={draft()} fallback={<span class="hint">{t("common.loading")}</span>}>
         {(current) => (
           <>
             <label class="row-inline small" style={{ "margin-top": "0.5rem" }}>
@@ -1244,7 +1294,7 @@ function RemoteAccessSection() {
                   edit((state) => ({ ...state, enabled: event.currentTarget.checked }))
                 }
               />
-              Enable remote access
+              {t("settings.remoteEnable")}
             </label>
 
             <Show when={current().enabled}>
@@ -1256,20 +1306,17 @@ function RemoteAccessSection() {
                     edit((state) => ({ ...state, persistAcrossRestarts: event.currentTarget.checked }))
                   }
                 />
-                Keep servers running across restarts
+                {t("settings.remotePersist")}
               </label>
-              <span class="hint">
-                Left off, the port closes when Deepsand exits. That is the safer default: a window
-                opened for one afternoon should not still be open next month.
-              </span>
+              <span class="hint">{t("settings.remotePersistHint")}</span>
 
               <label class="row-inline small" style={{ "margin-top": "0.5rem" }}>
-                Lock out an address after
+                {t("settings.lockoutAfter")}
                 <input
                   type="number"
                   min={0}
                   style={{ width: "4rem" }}
-                  aria-label="Failed attempts before lockout"
+                  aria-label={t("settings.lockoutAria")}
                   value={current().lockoutAfterFailures}
                   onInput={(event) =>
                     edit((state) => ({
@@ -1278,18 +1325,12 @@ function RemoteAccessSection() {
                     }))
                   }
                 />
-                failed attempts
+                {t("settings.failedAttempts")}
               </label>
-              <span class="hint">
-                A locked-out address gets a "try again shortly" for five minutes; a correct token
-                clears the count. Zero disables the limit, which is reasonable on a loopback-only
-                server where the token is a formality.
-              </span>
+              <span class="hint">{t("settings.lockoutHint")}</span>
 
               <div class="callout callout-warn" style={{ "margin-top": "0.7rem" }}>
-                Plain HTTP, so the access token crosses the network in clear text. Bind to{" "}
-                <span class="mono">127.0.0.1</span> and put a reverse proxy in front for TLS and real
-                authentication; that is also why every server defaults to loopback.
+                {t("settings.plainHttpWarning")}
               </div>
 
               <For each={current().servers}>
@@ -1300,7 +1341,7 @@ function RemoteAccessSection() {
                       <div class="row-inline" style={{ "justify-content": "space-between" }}>
                         <input
                           value={server.label}
-                          aria-label="Server label"
+                          aria-label={t("settings.serverLabel")}
                           onInput={(event) => patchServer(server.id, (s) => ({ ...s, label: event.currentTarget.value }))}
                         />
                         <button
@@ -1312,29 +1353,29 @@ function RemoteAccessSection() {
                             }))
                           }
                         >
-                          Remove
+                          {t("common.remove")}
                         </button>
                       </div>
 
                       <div class="row-inline" style={{ "margin-top": "0.4rem", "flex-wrap": "wrap" }}>
                         <span class="small muted">
                           {status()?.running
-                            ? `Listening on ${status()?.boundAddr}`
+                            ? t("settings.listeningOn", { address: status()?.boundAddr ?? "" })
                             : current().enabled
-                              ? "Not listening"
-                              : "Stopped"}
+                              ? t("settings.notListening")
+                              : t("settings.stopped")}
                         </span>
                         <span class="mono small">{status()?.displayUrl ?? ""}</span>
                         <Show when={!status()?.loopbackOnly}>
                           <span class="small" style={{ color: "var(--danger)" }}>
-                            Reachable from the network
+                            {t("settings.reachableNetwork")}
                           </span>
                         </Show>
                       </div>
 
                       <div class="row-inline" style={{ "margin-top": "0.5rem", "flex-wrap": "wrap" }}>
                         <label class="small">
-                          Scope
+                          {t("settings.scope")}
                           <select
                             value={server.scope.kind === "project" ? server.scope.projectId : ""}
                             onChange={(event) => {
@@ -1345,33 +1386,37 @@ function RemoteAccessSection() {
                               }));
                             }}
                           >
-                            <option value="">Every project</option>
+                            <option value="">{t("settings.everyProject")}</option>
                             <For each={store.projects}>
-                              {(project) => <option value={project.id}>{project.name} only</option>}
+                              {(project) => (
+                                <option value={project.id}>
+                                  {t("settings.projectOnly", { name: project.name })}
+                                </option>
+                              )}
                             </For>
                           </select>
                         </label>
                         <label class="small">
-                          Bind
+                          {t("settings.bind")}
                           <input
                             value={server.bind}
-                            aria-label="Bind address"
+                            aria-label={t("settings.bindAria")}
                             onInput={(event) => patchServer(server.id, (s) => ({ ...s, bind: event.currentTarget.value }))}
                           />
                         </label>
                         <label class="small">
-                          Port
+                          {t("settings.port")}
                           <input
                             type="number"
                             value={server.port}
-                            aria-label="Port"
+                            aria-label={t("settings.port")}
                             onInput={(event) =>
                               patchServer(server.id, (s) => ({ ...s, port: Number(event.currentTarget.value) || 0 }))
                             }
                           />
                         </label>
                         <label class="small">
-                          TLS
+                          {t("settings.tls")}
                           <select
                             value={server.tls}
                             onChange={(event) =>
@@ -1381,14 +1426,14 @@ function RemoteAccessSection() {
                               }))
                             }
                           >
-                            <option value="off">Off (behind a proxy)</option>
-                            <option value="selfSigned">Self-signed</option>
+                            <option value="off">{t("settings.tlsOff")}</option>
+                            <option value="selfSigned">{t("settings.tlsSelfSigned")}</option>
                           </select>
                         </label>
                       </div>
 
                       <div class="small" style={{ "margin-top": "0.5rem" }}>
-                        <strong>What this client may do</strong>
+                        <strong>{t("settings.clientMay")}</strong>
                         <label class="row-inline small">
                           <input
                             type="checkbox"
@@ -1400,7 +1445,7 @@ function RemoteAccessSection() {
                               }))
                             }
                           />
-                          Run and stop sandboxes, type into the terminal
+                          {t("settings.capControl")}
                         </label>
                         <label class="row-inline small">
                           <input
@@ -1413,7 +1458,7 @@ function RemoteAccessSection() {
                               }))
                             }
                           />
-                          Grant permissions: answer requests, mount directories, edit allowlists
+                          {t("settings.capGrant")}
                         </label>
                         <label class="row-inline small">
                           <input
@@ -1426,7 +1471,7 @@ function RemoteAccessSection() {
                               }))
                             }
                           />
-                          Create and delete projects
+                          {t("settings.capProjects")}
                         </label>
                         <label class="row-inline small">
                           <input
@@ -1439,16 +1484,13 @@ function RemoteAccessSection() {
                               }))
                             }
                           />
-                          Change security settings
+                          {t("settings.capSecurity")}
                         </label>
-                        <span class="hint">
-                          Granting permissions is what widens the sandbox boundary, so it is separate
-                          from simply driving an existing one.
-                        </span>
+                        <span class="hint">{t("settings.capHint")}</span>
                       </div>
 
                       <div class="field" style={{ "margin-top": "0.5rem" }}>
-                        <label for={`token-${server.id}`}>Access token</label>
+                        <label for={`token-${server.id}`}>{t("settings.accessToken")}</label>
                         <div class="row-inline">
                           <input
                             id={`token-${server.id}`}
@@ -1462,25 +1504,22 @@ function RemoteAccessSection() {
                               setRevealed((state) => ({ ...state, [server.id]: !state[server.id] }))
                             }
                           >
-                            {revealed()[server.id] ? "Hide" : "Reveal"}
+                            {revealed()[server.id] ? t("common.hide") : t("common.reveal")}
                           </button>
                           <button class="btn btn-sm" onClick={() => void copyToken(server.token)}>
-                            Copy
+                            {t("common.copy")}
                           </button>
                           <button
                             class="btn btn-sm"
-                            title="Issues a new token. Anything using the old one is cut off."
+                            title={t("settings.regenerateTitle")}
                             onClick={() =>
                               patchServer(server.id, (s) => ({ ...s, token: generateTokenPlaceholder() }))
                             }
                           >
-                            Regenerate
+                            {t("settings.regenerate")}
                           </button>
                         </div>
-                        <span class="hint">
-                          Changing or regenerating a token takes effect when you apply, and cuts off
-                          anything still using the old one.
-                        </span>
+                        <span class="hint">{t("settings.tokenHint")}</span>
                       </div>
                     </div>
                   );
@@ -1489,10 +1528,10 @@ function RemoteAccessSection() {
 
               <div class="row-inline" style={{ "margin-top": "0.6rem" }}>
                 <button class="btn btn-sm" onClick={addServer}>
-                  Add a server
+                  {t("settings.addServer")}
                 </button>
                 <button class="btn btn-primary btn-sm" disabled={busy()} onClick={() => void apply()}>
-                  {busy() ? "Applying…" : "Apply remote access"}
+                  {busy() ? t("common.applying") : t("settings.applyRemote")}
                 </button>
               </div>
 
@@ -1506,8 +1545,7 @@ function RemoteAccessSection() {
 
               <Show when={view() && !view()!.uiDir}>
                 <div class="callout callout-warn" style={{ "margin-top": "0.5rem" }}>
-                  The built frontend was not found, so the servers will answer the API but have no UI
-                  to serve. Run <span class="mono">npm run build</span> and rebuild the app.
+                  {t("settings.uiMissing")}
                 </div>
               </Show>
             </Show>
@@ -1553,7 +1591,7 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
       await refreshSettings();
     } catch (error) {
       setDraft({ ...draft(), close_to_tray: previous });
-      toast("error", "Could not change the closing behaviour", describeError(error));
+      toast("error", t("settings.couldNotChangeClosing"), describeError(error));
     }
   }
 
@@ -1568,12 +1606,11 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
       setToolReport(notes);
       toast(
         notes.length ? "info" : "ok",
-        notes.length ? "Cached tools have moved on" : "Cached tools are current",
-        notes.join(" ") ||
-          "Nothing in the cache has a newer version published.",
+        notes.length ? t("settings.toolsMoved") : t("settings.toolsCurrent"),
+        notes.join(" ") || t("settings.nothingNewer"),
       );
     } catch (error) {
-      toast("error", "Could not check the cached tools", describeError(error));
+      toast("error", t("settings.couldNotCheckTools"), describeError(error));
     } finally {
       setToolBusy(false);
     }
@@ -1585,7 +1622,7 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
       setUpdateCheck(await api.checkForUpdates());
     } catch (error) {
       setUpdateCheck({
-        currentVersion: store.info?.version ?? "unknown",
+        currentVersion: store.info?.version ?? t("common.unknown"),
         update: null,
         error: describeError(error),
       });
@@ -1607,7 +1644,7 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
     try {
       await api.installUpdate();
     } catch (error) {
-      toast("error", "Could not install the update", describeError(error));
+      toast("error", t("settings.couldNotInstallUpdate"), describeError(error));
       setInstalling(false);
       setProgress(null);
     }
@@ -1625,11 +1662,11 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
   const downloadLine = () => {
     const current = progress();
     if (!current) return "";
-    if (current.phase === "installing") return "Downloaded. Installing…";
+    if (current.phase === "installing") return t("settings.downloadedInstalling");
     const mb = (bytes: number) => (bytes / (1024 * 1024)).toFixed(1);
     return current.total
-      ? `Downloading… ${mb(current.downloaded)} of ${mb(current.total)} MB`
-      : `Downloading… ${mb(current.downloaded)} MB`;
+      ? t("settings.downloadingOf", { done: mb(current.downloaded), total: mb(current.total) })
+      : t("settings.downloading", { done: mb(current.downloaded) });
   };
 
   /** Which entries were dropped as unparseable, so the hint can say so rather than be silent. */
@@ -1691,7 +1728,7 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
     timer = undefined;
     // The dialog may be going away, so this says nothing to the screen: only the api calls run.
     void persist(draft(), allowlist()).catch((error) => {
-      toast("error", "Could not save settings", describeError(error));
+      toast("error", t("settings.couldNotSave"), describeError(error));
     });
   }
 
@@ -1724,7 +1761,7 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
       setIgnored(dropped);
       setSaved(true);
     } catch (error) {
-      toast("error", "Could not save settings", describeError(error));
+      toast("error", t("settings.couldNotSave"), describeError(error));
       setSaved(false);
     } finally {
       setSaving(false);
@@ -1734,34 +1771,40 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
   async function buildImage() {
     try {
       await api.buildRuntimeImage(false);
-      toast("info", "Building the runtime image", "Watch progress in the Activity tab.");
+      toast("info", t("settings.buildingImage"), t("settings.watchActivity"));
     } catch (error) {
-      toast("error", "Could not start the build", describeError(error));
+      toast("error", t("settings.couldNotStartBuild"), describeError(error));
     }
     props.onClose();
   }
 
   return (
     <Modal
-      title="Settings"
+      title={t("settings.title")}
       onClose={props.onClose}
       wide
       footer={
         <>
-          <span class="left">Data: {store.info?.dataDir}</span>
+          <span class="left">{t("settings.data", { path: store.info?.dataDir ?? "" })}</span>
           <button class="btn btn-ghost" onClick={props.onClose}>
-            Cancel
+            {t("common.cancel")}
           </button>
           <span class="hint">
-            {saving() ? "Saving…" : saved() ? "Saved" : ""}
-            {ignored() > 0 ? ` — ${ignored()} entr${ignored() === 1 ? "y" : "ies"} ignored` : ""}
+            {saving() ? t("common.saving") : saved() ? t("common.saved") : ""}
+            {ignored() > 0
+              ? ` — ${t(ignored() === 1 ? "settings.entryIgnored" : "settings.entriesIgnored", {
+                  count: ignored(),
+                })}`
+              : ""}
           </span>
         </>
       }
     >
       <div class="stack">
+        <LanguageSettingsSection />
+
         <div class="field">
-          <label for="set-image">Runtime image</label>
+          <label for="set-image">{t("settings.runtimeImage")}</label>
           <div class="row-inline">
             <input
               id="set-image"
@@ -1771,21 +1814,21 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
               onInput={(event) => setDraft({ ...draft(), image: event.currentTarget.value })}
             />
             <button class="btn" onClick={() => void buildImage()}>
-              Build now
+              {t("settings.buildNow")}
             </button>
           </div>
           <span class="hint">
-            Built from <span class="mono">runtime/Dockerfile</span>.{" "}
+            {t("settings.builtFrom")}{" "}
             <Show
               when={store.info?.docker}
-              fallback={<span class="badge">checking…</span>}
+              fallback={<span class="badge">{t("common.checking")}</span>}
             >
               {(docker) => (
                 <Show
                   when={docker().image_present}
-                  fallback={<span class="badge badge-warn">not built yet</span>}
+                  fallback={<span class="badge badge-warn">{t("settings.notBuiltYet")}</span>}
                 >
-                  <span class="badge badge-ok">present</span>
+                  <span class="badge badge-ok">{t("settings.present")}</span>
                 </Show>
               )}
             </Show>
@@ -1793,11 +1836,11 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
         </div>
 
         <div class="field">
-          <label for="set-user-prompt">User prompt</label>
+          <label for="set-user-prompt">{t("settings.userPrompt")}</label>
           <textarea
             id="set-user-prompt"
             rows="6"
-            placeholder="For example: explain the reasoning before the change, and never commit anything without asking."
+            placeholder={t("settings.userPromptPlaceholder")}
             /* `?? ""`: the backend omits this field while it is empty, and a text area bound to
                `undefined` renders the word "undefined" -- which the operator would then edit. */
             value={draft().user_prompt ?? ""}
@@ -1806,16 +1849,11 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
                state file, not a reason to lose the last sentence somebody typed. */
             onBlur={flush}
           />
-          <span class="hint">
-            Standing instructions the model is given before anybody types anything, in every project
-            that has not set its own. Each project chooses between this, its own prompt, and none,
-            in its settings. Saved as you type; a sandbox that is already running keeps the prompt it
-            started with.
-          </span>
+          <span class="hint">{t("settings.userPromptHint")}</span>
         </div>
 
         <div class="field">
-          <label>Network for new projects</label>
+          <label>{t("settings.networkNewProjects")}</label>
           <NetworkSlider
             value={draft().default_network.mode}
             disabled={busy()}
@@ -1829,22 +1867,14 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
               })
             }
           />
-          <span class="hint">
-            The mode every project you create from now on starts in. <strong>Allowlisted</strong> is
-            the default and means default-deny: the model endpoint, the package registries in the
-            global list, and whatever a project's tools need. Existing projects keep the mode they
-            already have.
-          </span>
+          <span class="hint">{t("settings.networkHint")}</span>
           <Show when={draft().default_network.mode === "full"}>
-            <div class="callout callout-warn">
-              Full egress removes the local-network block as well as the allowlist. Only choose this
-              if the sandbox genuinely needs to reach machines on your own network.
-            </div>
+            <div class="callout callout-warn">{t("settings.fullWarning")}</div>
           </Show>
         </div>
 
         <div class="field">
-          <label>Default credentials</label>
+          <label>{t("settings.defaultCredentials")}</label>
           <div class="row-inline">
             <input
               class="grow"
@@ -1862,13 +1892,12 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
             />
           </div>
           <span class="hint">
-            Used only when the host configuration and the project both say nothing. API keys are never stored here;
-            they come from <span class="mono">{store.info?.hostConfig.path}</span> or a project override.
+            {t("settings.defaultCredentialsHint", { path: store.info?.hostConfig.path ?? "" })}
           </span>
         </div>
 
         <div class="field">
-          <label for="set-allow">Egress allowlist (one host per line)</label>
+          <label for="set-allow">{t("settings.egressAllowlist")}</label>
           <textarea
             id="set-allow"
             value={allowlist()}
@@ -1877,14 +1906,11 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
                last line somebody typed into it. */
             onBlur={flush}
           />
-          <span class="hint">
-            Only used by the allowlisted network mode. A blanket <span class="mono">*</span> is ignored: use{" "}
-            <span class="mono">*.example.com</span> to include subdomains. Ports 80 and 443 only.
-          </span>
+          <span class="hint">{t("settings.egressHint")}</span>
         </div>
 
         <div class="field">
-          <label>Behaviour</label>
+          <label>{t("settings.behaviour")}</label>
           <label class="row-inline small">
             <input
               type="checkbox"
@@ -1893,7 +1919,7 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
                 setDraft({ ...draft(), auto_restart_on_grant: event.currentTarget.checked })
               }
             />
-            Restart the sandbox automatically when a permission is granted
+            {t("settings.autoRestart")}
           </label>
         </div>
 
@@ -1902,7 +1928,7 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
         <RemoteAccessSection />
 
         <div class="field">
-          <label>Hardening</label>
+          <label>{t("settings.hardening")}</label>
           <label class="row-inline small">
             <input
               type="checkbox"
@@ -1914,7 +1940,7 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
                 })
               }
             />
-            Read-only container filesystem
+            {t("settings.readOnlyRoot")}
           </label>
           <label class="row-inline small">
             <input
@@ -1927,7 +1953,7 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
                 })
               }
             />
-            Block privilege escalation inside the container
+            {t("settings.noNewPrivileges")}
           </label>
           <label class="row-inline small">
             <input
@@ -1940,7 +1966,7 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
                 })
               }
             />
-            Refuse to start if the network policy cannot be enforced
+            {t("settings.netfilterRequired")}
           </label>
           <label class="row-inline small">
             <input
@@ -1956,58 +1982,51 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
                 })
               }
             />
-            Use Deepsand's hardened seccomp profile
+            {t("settings.hardenedSeccomp")}
           </label>
-          <span class="hint">
-            Docker Desktop runs the daemon inside a VM, so the hardened profile and AppArmor cannot be applied
-            there. Deepsand says so in the plan preview rather than pretending otherwise.
-          </span>
+          <span class="hint">{t("settings.hardeningHint")}</span>
         </div>
 
         <div class="field">
-          <label>Closing</label>
+          <label>{t("settings.closing")}</label>
           <label class="check">
             <input
               type="checkbox"
               checked={draft().close_to_tray}
               onChange={(event) => void toggleCloseToTray(event.currentTarget.checked)}
             />
-            The close button hides Deepsand in the tray instead of stopping it
+            {t("settings.closeToTray")}
           </label>
-          <span class="hint">
-            Off, closing does what it has always done: the sandboxes stop and Deepsand quits. On, the
-            window disappears and everything keeps running — the tray icon opens it again, and its
-            Quit stops the sandboxes.
-          </span>
+          <span class="hint">{t("settings.closeHint")}</span>
         </div>
 
         <div class="field">
-          <label>Updates</label>
+          <label>{t("settings.updates")}</label>
           <div class="row-inline">
             <span class="grow">
-              This build is <span class="mono">{store.info?.version ?? "unknown"}</span>.{" "}
-              <Show when={updateCheck()} fallback={<span class="hint">Checking…</span>}>
+              {t("settings.buildIs", { version: store.info?.version ?? t("common.unknown") })}{" "}
+              <Show when={updateCheck()} fallback={<span class="hint">{t("common.checking")}</span>}>
                 {(result) => (
                   <Show
                     when={result().update}
                     fallback={
                       <Show
                         when={result().error}
-                        fallback={<span class="badge badge-ok">up to date</span>}
+                        fallback={<span class="badge badge-ok">{t("settings.upToDate")}</span>}
                       >
                         {(reason) => <span class="badge badge-warn">{reason()}</span>}
                       </Show>
                     }
                   >
                     {(available) => (
-                      <span class="badge badge-warn">{available().version} is available</span>
+                      <span class="badge badge-warn">{t("settings.available", { version: available().version })}</span>
                     )}
                   </Show>
                 )}
               </Show>
             </span>
             <button class="btn" disabled={updateBusy() || installing()} onClick={() => void checkUpdates()}>
-              {updateBusy() ? "Checking…" : "Check for updates"}
+              {updateBusy() ? t("common.checking") : t("settings.checkUpdates")}
             </button>
           </div>
 
@@ -2020,18 +2039,16 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
                   setDraft({ ...draft(), check_tool_updates: event.currentTarget.checked })
                 }
               />
-              Check the cached tools for newer versions at startup, and every six hours
+              {t("settings.checkToolUpdates")}
             </label>
             <button class="btn" disabled={toolBusy()} onClick={() => void checkToolsNow()}>
-              {toolBusy() ? "Checking…" : "Check now"}
+              {toolBusy() ? t("common.checking") : t("settings.checkNow")}
             </button>
           </div>
           <Show when={toolReport()}>
             {(notes) => (
               <span class="hint">
-                {notes().length === 0
-                  ? "Every cached tool is current."
-                  : notes().join(" ")}
+                {notes().length === 0 ? t("settings.allToolsCurrent") : notes().join(" ")}
               </span>
             )}
           </Show>
@@ -2048,14 +2065,19 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
                     sandbox down with it. Said before the click, not after. */}
                 <Show when={runningCount() > 0}>
                   <div class="callout callout-warn" style={{ "margin-top": "0.5rem" }}>
-                    Installing restarts Deepsand, which stops{" "}
-                    {runningCount() === 1 ? "the running sandbox" : `all ${runningCount()} running sandboxes`}.
-                    Anything the agent has not written to disk is lost, and the session has to be started again.
+                    {t("settings.installWarning", {
+                      target:
+                        runningCount() === 1
+                          ? t("settings.theRunningSandbox")
+                          : t("settings.allRunningSandboxes", { count: runningCount() }),
+                    })}
                   </div>
                 </Show>
                 <div class="row-inline" style={{ "margin-top": "0.5rem" }}>
                   <button class="btn btn-primary" disabled={installing()} onClick={() => void install()}>
-                    {installing() ? "Installing…" : `Install ${available().version} and restart`}
+                    {installing()
+                      ? t("common.installing")
+                      : t("settings.installAndRestart", { version: available().version })}
                   </button>
                   <Show when={downloadLine()}>
                     <span class="hint">{downloadLine()}</span>
@@ -2065,14 +2087,7 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
             )}
           </Show>
 
-          <span class="hint">
-            The tool check asks npm and crates.io what they offer for the versions your cache holds,
-            and empties that cache when something has moved, so the next build installs it again. It
-            never builds anything by itself, and turning it off leaves the "Check now" button working.
-
-            Updates are signed, and the signature is what Deepsand checks before installing — not the
-            download. A release that is not signed with this project's key will be refused.
-          </span>
+          <span class="hint">{t("settings.toolCheckHint")}</span>
         </div>
       </div>
     </Modal>
@@ -2094,11 +2109,11 @@ async function copyToast(entry: { title: string; body?: string }) {
   const text = entry.body ? `${entry.title}\n\n${entry.body}` : entry.title;
   try {
     await navigator.clipboard.writeText(text);
-    toast("ok", "Copied", "The message is on the clipboard.");
+    toast("ok", t("common.copied"), t("common.messageOnClipboard"));
   } catch {
     // No clipboard permission is not a reason to lose the message: it is still selectable,
     // and it is in the log.
-    toast("warn", "Could not copy", "Select the text instead; it is in the log too.");
+    toast("warn", t("common.couldNotCopy"), t("common.selectTextInstead"));
   }
 }
 
@@ -2150,24 +2165,24 @@ export function Toasts() {
               <span class="row-inline" style={{ gap: "0.25rem", "flex-shrink": "0" }}>
                 <button
                   class="btn btn-ghost btn-sm"
-                  title="Copy this message"
+                  title={t("common.copyMessage")}
                   onClick={(event) => {
                     event.stopPropagation();
                     void copyToast(entry);
                   }}
                 >
-                  Copy
+                  {t("common.copy")}
                 </button>
                 <Show when={entry.kind === "error"}>
                   <button
                     class="btn btn-ghost btn-sm"
-                    title="Dismiss"
+                    title={t("common.dismiss")}
                     onClick={(event) => {
                       event.stopPropagation();
                       dismissToast(entry.id);
                     }}
                   >
-                    Close
+                    {t("common.close")}
                   </button>
                 </Show>
               </span>

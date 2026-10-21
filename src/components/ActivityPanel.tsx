@@ -10,6 +10,8 @@
 import { createSignal, For, Show } from "solid-js";
 import * as api from "../lib/api";
 import { baseName, formatTimestamp, shortPath } from "../lib/format";
+import { networkModeLabel } from "../lib/types";
+import { t } from "../i18n";
 import {
   clearBlockedEgress,
   describeError,
@@ -38,7 +40,7 @@ export function ActivityPanel() {
       setPlan(preview.text);
       setPlanWarnings(preview.warnings);
     } catch (error) {
-      toast("error", "Could not build the plan", describeError(error));
+      toast("error", t("activity.couldNotBuildPlan"), describeError(error));
     } finally {
       setBusy(false);
     }
@@ -48,9 +50,9 @@ export function ActivityPanel() {
     setBusy(true);
     try {
       await api.buildRuntimeImage(false);
-      toast("info", "Building the runtime image", "Progress appears below.");
+      toast("info", t("activity.buildingRuntimeImage"), t("activity.progressBelow"));
     } catch (error) {
-      toast("error", "Could not start the build", describeError(error));
+      toast("error", t("activity.couldNotStartBuild"), describeError(error));
     } finally {
       setBusy(false);
     }
@@ -61,12 +63,14 @@ export function ActivityPanel() {
       const removed = await api.cleanupOrphans();
       toast(
         removed.length > 0 ? "ok" : "info",
-        removed.length > 0 ? `Removed ${removed.length} leftover container(s)` : "Nothing to clean up",
+        removed.length > 0
+          ? t("activity.removedContainers", { count: removed.length })
+          : t("activity.nothingToClean"),
         removed.join(", "),
       );
       await refreshProjects();
     } catch (error) {
-      toast("error", "Cleanup failed", describeError(error));
+      toast("error", t("activity.cleanupFailed"), describeError(error));
     }
   }
 
@@ -81,14 +85,11 @@ export function ActivityPanel() {
       </Show>
 
       <div class="card">
-        <h3>What Deepsand runs</h3>
-        <p>
-          The sandbox is one <span class="mono">docker run</span> command. This is the whole of it — there is no
-          second path that starts a container, and nothing in it depends on the sandbox's own good behaviour.
-        </p>
+        <h3>{t("activity.whatRuns")}</h3>
+        <p>{t("activity.whatRunsDetail")}</p>
         <div class="row-inline" style={{ "margin-top": "0.6rem" }}>
           <button class="btn" disabled={busy() || !project()} onClick={() => void showPlan()}>
-            Show the exact command
+            {t("activity.showCommand")}
           </button>
         </div>
         <Show when={planWarnings().length > 0}>
@@ -102,25 +103,22 @@ export function ActivityPanel() {
       </div>
 
       <div class="card">
-        <h3>Runtime image</h3>
-        <p>
-          The image contains the DeepCode CLI and the sandbox entrypoint. Building it is the only step that needs
-          network access on the host.
-        </p>
+        <h3>{t("activity.runtimeImage")}</h3>
+        <p>{t("activity.runtimeImageDetail")}</p>
         <div class="row-inline" style={{ "margin-top": "0.6rem" }}>
           <span class="tag">{store.info?.settings.image}</span>
-          <Show when={store.info?.docker} fallback={<span class="badge">checking…</span>}>
+          <Show when={store.info?.docker} fallback={<span class="badge">{t("common.checking")}</span>}>
             {(docker) => (
               <Show
                 when={docker().image_present}
-                fallback={<span class="badge badge-warn">not built</span>}
+                fallback={<span class="badge badge-warn">{t("activity.notBuilt")}</span>}
               >
-                <span class="badge badge-ok">present</span>
+                <span class="badge badge-ok">{t("activity.present")}</span>
               </Show>
             )}
           </Show>
           <button class="btn" disabled={busy() || store.building} onClick={() => void buildImage()}>
-            {store.building ? "Building…" : "Build image"}
+            {store.building ? t("common.building") : t("activity.buildImage")}
           </button>
         </div>
         <Show when={store.buildLog.length > 0}>
@@ -129,20 +127,17 @@ export function ActivityPanel() {
       </div>
 
       <div class="card">
-        <h3>Requests Deepsand discarded</h3>
-        <p>
-          Requests that arrived on the spool but failed validation. A sandbox can ask for anything, so Deepsand
-          checks the shape of what arrives before it reaches your screen.
-        </p>
+        <h3>{t("activity.requestsDiscarded")}</h3>
+        <p>{t("activity.requestsDiscardedDetail")}</p>
         <Show
           when={store.rejected.length > 0}
-          fallback={<div class="empty">Nothing has been discarded.</div>}
+          fallback={<div class="empty">{t("activity.nothingDiscarded")}</div>}
         >
           <table>
             <thead>
               <tr>
-                <th>File</th>
-                <th>Reason</th>
+                <th>{t("activity.file")}</th>
+                <th>{t("activity.reason")}</th>
               </tr>
             </thead>
             <tbody>
@@ -160,23 +155,19 @@ export function ActivityPanel() {
       </div>
 
       <div class="card">
-        <h3>Blocked network destinations</h3>
-        <p>
-          Only applies to allowlisted network mode. Nothing appears here in <span class="mono">internet</span> mode
-          because the blocking happens inside the container's kernel, where Deepsand cannot see individual attempts.
-          Allowing a host adds it to <strong>this project's</strong> allowlist, not the app-wide one.
-        </p>
+        <h3>{t("activity.blockedDestinations")}</h3>
+        <p>{t("activity.blockedDestinationsDetail")}</p>
         <Show
           when={store.blockedEgress.length > 0}
-          fallback={<div class="empty">Nothing has been blocked.</div>}
+          fallback={<div class="empty">{t("activity.nothingBlocked")}</div>}
         >
           <table>
             <thead>
               <tr>
-                <th>Host</th>
-                <th>Port</th>
-                <th>Reason</th>
-                <th>When</th>
+                <th>{t("activity.host")}</th>
+                <th>{t("activity.port")}</th>
+                <th>{t("activity.reason")}</th>
+                <th>{t("activity.when")}</th>
                 <th />
               </tr>
             </thead>
@@ -192,9 +183,9 @@ export function ActivityPanel() {
                       <button
                         class="btn btn-sm"
                         onClick={() => void allowHost(entry.host)}
-                        title="Add this host to the egress allowlist"
+                        title={t("activity.allowTitle")}
                       >
-                        Allow
+                        {t("activity.allow")}
                       </button>
                     </td>
                   </tr>
@@ -206,55 +197,54 @@ export function ActivityPanel() {
       </div>
 
       <div class="card">
-        <h3>Host and sandbox status</h3>
+        <h3>{t("activity.statusTitle")}</h3>
         <table>
           <tbody>
             <tr>
-              <th>Deepsand</th>
+              <th>{t("activity.deepsand")}</th>
               <td>{store.info?.version ?? "?"}</td>
             </tr>
             <tr>
-              <th>Data directory</th>
+              <th>{t("activity.dataDirectory")}</th>
               <td class="path">{store.info?.dataDir ?? "?"}</td>
             </tr>
             <tr>
-              <th>Error log</th>
+              <th>{t("activity.errorLog")}</th>
               <td class="path">
                 {logPath() ?? "…"}
                 <Show when={logPath()}>
                   <button
                     class="btn btn-ghost btn-sm"
                     style={{ "margin-left": "0.4rem" }}
-                    title="Copy the log's path"
+                    title={t("activity.copyPathTitle")}
                     onClick={() => void copyLogPath()}
                   >
-                    Copy path
+                    {t("activity.copyPath")}
                   </button>
                 </Show>
                 <div class="small" style={{ "margin-top": "0.2rem" }}>
-                  Every error the window shows is written here as well, so it can be read and
-                  copied after the box is gone.
+                  {t("activity.logDetail")}
                 </div>
               </td>
             </tr>
             <tr>
-              <th>Docker</th>
+              <th>{t("activity.docker")}</th>
               <td>
                 <Show
                   when={store.info?.docker}
-                  fallback={<span class="badge">checking…</span>}
+                  fallback={<span class="badge">{t("common.checking")}</span>}
                 >
                   {(docker) => (
                     <>
                       <Show
                         when={docker().available}
-                        fallback={<span class="badge badge-danger">daemon not reachable</span>}
+                        fallback={<span class="badge badge-danger">{t("activity.daemonNotReachable")}</span>}
                       >
-                        <span class="badge badge-ok">server {docker().server_version}</span>
+                        <span class="badge badge-ok">{t("activity.serverVersion", { version: docker().server_version })}</span>
                       </Show>
                       <Show when={docker().desktop}>
                         <span class="badge badge-warn" style={{ "margin-left": "0.4rem" }}>
-                          Docker Desktop: limited hardening
+                          {t("activity.dockerDesktopLimited")}
                         </span>
                       </Show>
                     </>
@@ -263,13 +253,13 @@ export function ActivityPanel() {
               </td>
             </tr>
             <tr>
-              <th>Model credentials</th>
+              <th>{t("activity.modelCredentials")}</th>
               <td>
                 <Show
                   when={store.info?.hostConfig.apiKey !== "(unset)"}
-                  fallback={<span class="badge badge-warn">no API key found</span>}
+                  fallback={<span class="badge badge-warn">{t("activity.noApiKey")}</span>}
                 >
-                  <span class="badge badge-ok">inherited from {baseName(store.info?.hostConfig.path ?? "")}</span>
+                  <span class="badge badge-ok">{t("activity.inheritedFrom", { file: baseName(store.info?.hostConfig.path ?? "") })}</span>
                 </Show>
                 <div class="faint small" style={{ "margin-top": "0.3rem" }}>
                   {store.info?.hostConfig.path}
@@ -277,10 +267,12 @@ export function ActivityPanel() {
               </td>
             </tr>
             <tr>
-              <th>Network policy</th>
+              <th>{t("activity.networkPolicy")}</th>
               <td>
-                <Show when={project()} fallback={<span class="muted">no project selected</span>}>
-                  {(current) => <span class="tag">{current().network.mode}</span>}
+                <Show when={project()} fallback={<span class="muted">{t("activity.noProjectSelected")}</span>}>
+                  {(current) => (
+                    <span class="tag">{networkModeLabel(current().network.mode)}</span>
+                  )}
                 </Show>
               </td>
             </tr>
@@ -288,10 +280,10 @@ export function ActivityPanel() {
         </table>
         <div class="row-inline" style={{ "margin-top": "0.7rem" }}>
           <button class="btn" onClick={() => void cleanup()}>
-            Remove leftover containers
+            {t("activity.removeContainers")}
           </button>
           <button class="btn btn-ghost" onClick={() => void reveal()}>
-            Show data folder
+            {t("activity.showDataFolder")}
           </button>
         </div>
       </div>
@@ -310,12 +302,15 @@ export function ActivityPanel() {
       const updated = await api.setProjectAllowlist(current.id, next);
       toast(
         "ok",
-        `Allowed ${host} for ${current.name}`,
-        `${updated.effective.length} entr${updated.effective.length === 1 ? "y" : "ies"} in force.`,
+        t("activity.allowedHost", { host, project: current.name }),
+        t(
+          updated.effective.length === 1 ? "activity.entryInForce" : "activity.entriesInForce",
+          { count: updated.effective.length },
+        ),
       );
       clearBlockedEgress(host);
     } catch (error) {
-      toast("error", "Could not update the allowlist", describeError(error));
+      toast("error", t("activity.couldNotUpdateAllowlist"), describeError(error));
     }
   }
 
@@ -332,9 +327,9 @@ export function ActivityPanel() {
     if (!path) return;
     try {
       await navigator.clipboard.writeText(path);
-      toast("ok", "Copied", "The log's path is on the clipboard.");
+      toast("ok", t("activity.copied"), t("activity.logPathOnClipboard"));
     } catch {
-      toast("warn", "Could not copy", path);
+      toast("warn", t("common.couldNotCopy"), path);
     }
   }
 
@@ -344,9 +339,9 @@ export function ActivityPanel() {
   async function reveal() {
     try {
       const path = await api.revealDataDir();
-      toast("info", "Deepsand's data folder", shortPath(path, 90));
+      toast("info", t("activity.dataFolder"), shortPath(path, 90));
     } catch (error) {
-      toast("error", "Could not open the folder", describeError(error));
+      toast("error", t("activity.couldNotOpenFolder"), describeError(error));
     }
   }
 }

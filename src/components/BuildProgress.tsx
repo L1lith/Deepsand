@@ -12,6 +12,7 @@
 
 import { createMemo, createSignal, Show } from "solid-js";
 import { cancelBuild, store } from "../store";
+import { t } from "../i18n";
 
 export function BuildProgress() {
   /** Only to stop a second click landing while the first is being answered. */
@@ -28,21 +29,21 @@ export function BuildProgress() {
       const line = (store.buildLog[index] ?? "").trim();
       if (line) return line.length > 160 ? `${line.slice(0, 157)}…` : line;
     }
-    return "Starting the build…";
+    return t("build.starting");
   });
 
-  const image = () => store.buildImage ?? "the runtime image";
+  const image = () => store.buildImage ?? t("build.runtimeImageFallback");
 
   return (
     <Show when={store.building || store.buildWait !== null}>
       <div class="build-bar" role="status" aria-live="polite">
         <div class="build-bar-head">
           <span class="build-bar-title">
-            {store.building ? "Installing tools" : "Waiting for the image build"}
+            {store.building ? t("build.installingTools") : t("build.waiting")}
           </span>
           <Show
             when={percent() !== null}
-            fallback={<span class="build-bar-pct">working…</span>}
+            fallback={<span class="build-bar-pct">{t("common.working")}</span>}
           >
             <span class="build-bar-pct">{percent()}%</span>
           </Show>
@@ -54,7 +55,7 @@ export function BuildProgress() {
           class="build-bar-track"
           classList={{ "build-bar-indeterminate": percent() === null }}
           role="progressbar"
-          aria-label={`Building ${image()}`}
+          aria-label={t("build.aria", { image: image() })}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={percent() ?? undefined}
@@ -66,7 +67,7 @@ export function BuildProgress() {
           <Show when={store.buildProgress}>
             {(progress) => (
               <span class="build-bar-step">
-                Step {progress().step} of {progress().total}
+                {t("build.stepOf", { step: progress().step, total: progress().total })}
               </span>
             )}
           </Show>
@@ -81,7 +82,7 @@ export function BuildProgress() {
               void cancelBuild().finally(() => setStopping(false));
             }}
           >
-            Stop build
+            {t("app.stopBuild")}
           </button>
         </div>
       </div>

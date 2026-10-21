@@ -10,7 +10,8 @@
 import { createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
 import * as api from "./lib/api";
 import { baseName, formatBytes } from "./lib/format";
-import { networkLabel, type ProjectDiskUsage } from "./lib/types";
+import { dockerDetail, networkLabel, type ProjectDiskUsage } from "./lib/types";
+import { hasChosenLanguage, t } from "./i18n";
 import {
   bootstrap,
   cancelBuild,
@@ -33,10 +34,12 @@ import { BuildProgress } from "./components/BuildProgress";
 import { PermissionsPanel } from "./components/PermissionsPanel";
 import { TerminalPane } from "./components/TerminalPane";
 import { RestartDockerControl } from "./components/RestartDocker";
+import { LanguageOnboarding } from "./components/LanguagePicker";
 import {
   NewProjectDialog,
   PermissionDialog,
   ProjectSettingsDialog,
+  RenameProjectDialog,
   SettingsDialog,
   Toasts,
 } from "./components/Dialogs";
@@ -72,10 +75,10 @@ function SidebarToggle(props: { hidden: boolean; floating?: boolean; onToggle: (
     <button
       class="btn btn-ghost btn-sm sidebar-toggle"
       classList={{ "sidebar-toggle-floating": props.floating }}
-      aria-label={props.hidden ? "Show project sidebar" : "Hide project sidebar"}
+      aria-label={props.hidden ? t("app.showSidebar") : t("app.hideSidebar")}
       aria-expanded={!props.hidden}
       aria-controls="project-sidebar"
-      title={props.hidden ? "Show the project sidebar" : "Hide the project sidebar"}
+      title={props.hidden ? t("app.showSidebarTitle") : t("app.hideSidebarTitle")}
       onClick={props.onToggle}
     >
       <span aria-hidden="true">☰</span>
@@ -94,6 +97,9 @@ export default function App() {
   const [over, setOver] = createSignal<{ id: string; below: boolean } | null>(null);
   /** The right-click menu: which project it is about, and where the pointer opened it. */
   const [menu, setMenu] = createSignal<{ projectId: string; x: number; y: number } | null>(null);
+  /** The project whose sidebar label is being edited, if any. */
+  const [renaming, setRenaming] = createSignal<string | null>(null);
+  const renamingProject = () => store.projects.find((entry) => entry.id === renaming()) ?? null;
   /** Whether the project sidebar is slid out of the way. */
   const [sidebarHidden, setSidebarHidden] = createSignal(sidebarStartsHidden());
 
@@ -153,18 +159,18 @@ export default function App() {
   /** What the disk badge says; empty when there is nothing honest to show. */
   const diskLabel = () => {
     const usage = disk();
-    if (usage === undefined) return "measuring disk…";
+    if (usage === undefined) return t("app.diskMeasuring");
     if (usage === null) return "";
-    return `${usage.complete ? "" : "≥ "}${formatBytes(usage.bytes)} on disk`;
+    return `${usage.complete ? "" : "≥ "}${t("app.onDisk", { size: formatBytes(usage.bytes) })}`;
   };
 
   const diskTitle = () => {
     const usage = disk();
-    if (usage === undefined) return "Measuring this project's folder…";
+    if (usage === undefined) return t("app.diskMeasuringTitle");
     if (usage && !usage.complete) {
-      return "Some files could not be read, so this is a lower bound on the project folder's size. Build output such as target/ and node_modules/ is included; a physical file with more than one hard link is counted once.";
+      return t("app.diskTitlePartial");
     }
-    return "Total size of this project's folder on disk, including build output such as target/ and node_modules/. A physical file with more than one hard link is counted once.";
+    return t("app.diskTitle");
   };
 
   /**
@@ -182,9 +188,9 @@ export default function App() {
     setDockerBusy(true);
     try {
       await restartDocker();
-      toast("ok", "Docker is back");
+      toast("ok", t("app.dockerBack"));
     } catch (error) {
-      toast("error", "Could not restart Docker", describeError(error));
+      toast("error", t("app.couldNotRestartDocker"), describeError(error));
     } finally {
       setDockerBusy(false);
     }
@@ -223,11 +229,11 @@ export default function App() {
         // A start waiting for a build returns the current status when a newer start
         // supersedes it; it did not start a sandbox, so it must not say that it did.
         if (status.running) {
-          toast("ok", `Started ${current.name}`);
+          toast("ok", t("app.started", { name: current.name }));
           setTab("terminal");
         }
       } catch (error) {
-        toast("error", "Could not start the sandbox", describeError(error));
+        toast("error", t("app.couldNotStartSandbox"), describeError(error));
       }
     });
   }
@@ -239,7 +245,7 @@ export default function App() {
       try {
         await api.stopSession(current.id);
       } catch (error) {
-        toast("error", "Could not stop the sandbox", describeError(error));
+        toast("error", t("app.couldNotStopSandbox"), describeError(error));
       }
     });
   }
@@ -250,9 +256,9 @@ export default function App() {
     await sessionOperation(current.id, async () => {
       try {
         await api.restartSession(current.id);
-        toast("ok", "Sandbox restarted", "The session resumed where it left off.");
+        toast("ok", t("app.sandboxRestarted"), t("app.sandboxRestartedBody"));
       } catch (error) {
-        toast("error", "Could not restart the sandbox", describeError(error));
+        toast("error", t("app.couldNotRestartSandbox"), describeError(error));
       }
     });
   }
@@ -371,12 +377,18 @@ export default function App() {
     void revealProjectDir(projectId);
   }
 
+  function beginRenameProject(projectId: string) {
+    setMenu(null);
+    setRenaming(projectId);
+  }
+
   return (
+    <>
     <Show
       when={store.ready}
       fallback={
         <div class="empty" style={{ "margin-top": "40vh" }}>
-          Starting Deepsand…
+          {t("app.starting")}
         </div>
       }
     >
@@ -391,16 +403,16 @@ export default function App() {
                   A local build shares one data directory with the installed app, and nothing else
                   on screen tells the two apart. */}
               <Show when={store.info?.dev}>
-                <span class="dev-badge" title="A local build, not a released one">
-                  dev mode
+                <span class="dev-badge" title={t("app.devModeTitle")}>
+                  {t("app.devMode")}
                 </span>
               </Show>
             </div>
             <p class="brand-tagline">
-              DeepCode runs inside a container that can only see the project you choose.
+              {t("app.tagline")}
             </p>
             <button class="btn btn-primary" style={{ width: "100%" }} onClick={() => setShowNewProject(true)}>
-              New project
+              {t("app.newProject")}
             </button>
           </div>
 
@@ -409,9 +421,9 @@ export default function App() {
               when={store.projects.length > 0}
               fallback={
                 <div class="empty">
-                  No projects yet.
+                  {t("app.noProjects")}
                   <br />
-                  Create one to get a sandbox.
+                  {t("app.noProjectsHint")}
                 </div>
               }
             >
@@ -442,7 +454,8 @@ export default function App() {
                       setMenu({
                         projectId: entry.id,
                         x: Math.min(event.clientX, window.innerWidth - 200),
-                        y: Math.min(event.clientY, window.innerHeight - 52),
+                        // Two entries now, so the clamp leaves room for both.
+                        y: Math.min(event.clientY, window.innerHeight - 88),
                       });
                     }}
                   >
@@ -450,17 +463,17 @@ export default function App() {
                       <span class="name">{entry.name}</span>
                       <Show when={entry.running}>
                         <span class="badge badge-ok">
-                          <span class="dot" /> running
+                          <span class="dot" /> {t("app.running")}
                         </span>
                       </Show>
                       <Show when={entry.pendingRequests > 0}>
-                        <span class="badge badge-danger">{entry.pendingRequests} asking</span>
+                        <span class="badge badge-danger">{t("app.asking", { count: entry.pendingRequests })}</span>
                       </Show>
                       {/* Held while a dialog is open: the sandbox is frozen, so "running" would
                           otherwise be the only thing this row said about it. */}
                       <Show when={entry.paused}>
                         <span class="badge badge-warn">
-                          <span class="dot" /> held
+                          <span class="dot" /> {t("app.held")}
                         </span>
                       </Show>
                     </div>
@@ -478,7 +491,7 @@ export default function App() {
               when={store.info?.docker}
               fallback={
                 <span class="badge">
-                  <span class="dot" /> Checking Docker…
+                  <span class="dot" /> {t("app.checkingDocker")}
                 </span>
               }
             >
@@ -488,9 +501,9 @@ export default function App() {
                   fallback={
                     <>
                       <span class="badge badge-danger">
-                        <span class="dot" /> Docker daemon unreachable
+                        <span class="dot" /> {t("app.dockerUnreachable")}
                       </span>
-                      <span class="faint">{docker().detail}</span>
+                      <span class="faint">{dockerDetail(docker().detail)}</span>
                       {/* Only Docker Desktop can be restarted this way; a bare daemon is the
                           business of whatever supervises it. Nothing is retried from here --
                           see `restartDockerFromStatus`. */}
@@ -506,17 +519,17 @@ export default function App() {
                 >
                   <div class="row-inline">
                     <span class="badge badge-ok">
-                      <span class="dot" /> Docker {docker().server_version}
+                      <span class="dot" /> {t("app.dockerVersion", { version: docker().server_version })}
                     </span>
                     <Show when={!docker().image_present}>
-                      <span class="badge badge-warn">image missing</span>
+                      <span class="badge badge-warn">{t("app.imageMissing")}</span>
                     </Show>
                   </div>
                 </Show>
               )}
             </Show>
             <button class="btn btn-ghost btn-sm" onClick={() => setShowSettings(true)}>
-              Settings
+              {t("app.settings")}
             </button>
           </div>
         </aside>
@@ -533,10 +546,9 @@ export default function App() {
                   onToggle={toggleSidebar}
                 />
                 <div class="empty" style={{ "margin-top": "30vh" }}>
-                  <h3>No project selected</h3>
+                  <h3>{t("app.noProjectSelected")}</h3>
                   <p class="muted">
-                    Create a project, give it a working directory, and run DeepCode inside a container that can only
-                    see that directory.
+                    {t("app.noProjectSelectedDetail")}
                   </p>
                 </div>
               </>
@@ -552,12 +564,12 @@ export default function App() {
                     <h2>{current().name}</h2>
                     <span class={current().running ? "badge badge-ok" : "badge"}>
                       <span class="dot" />
-                      {current().running ? "running" : "stopped"}
+                      {current().running ? t("app.running") : t("app.stopped")}
                     </span>
                     <span class="badge badge-accent" title={networkLabel(current().network)}>
                       {networkLabel(current().network)}
                     </span>
-                    <span class="badge">{current().grantCount} shared</span>
+                    <span class="badge">{t("app.sharedCount", { count: current().grantCount })}</span>
                     {/* The folder's real size, not a guess from the project list: it is
                         measured when the selection changes and when the sandbox stops or
                         starts, which is when a build or a cleanup has changed it. */}
@@ -568,8 +580,12 @@ export default function App() {
                     </Show>
                     <Show when={store.requests.length > 0}>
                       <span class="badge badge-danger">
-                        {store.requests.length} permission request
-                        {store.requests.length === 1 ? "" : "s"}
+                        {t(
+                          store.requests.length === 1
+                            ? "app.permissionRequest"
+                            : "app.permissionRequests",
+                          { count: store.requests.length },
+                        )}
                       </span>
                     </Show>
                   </div>
@@ -583,7 +599,7 @@ export default function App() {
                         is a build to stop, and this is where an operator looks for it. */}
                     <Show when={store.building}>
                       <button class="btn" onClick={() => void cancelBuild()}>
-                        Stop build
+                        {t("app.stopBuild")}
                       </button>
                     </Show>
                     {/* The model comes before the thinking intensity: it decides what is
@@ -594,19 +610,19 @@ export default function App() {
                       when={current().running}
                       fallback={
                         <button class="btn btn-primary" disabled={busy()} onClick={() => void run()}>
-                          {busy() ? "Starting…" : "Run"}
+                          {busy() ? t("common.starting") : t("app.run")}
                         </button>
                       }
                     >
                       <button class="btn" disabled={busy()} onClick={() => void restart()}>
-                        Restart
+                        {t("app.restart")}
                       </button>
                       <button class="btn" disabled={busy()} onClick={() => void stop()}>
-                        Stop
+                        {t("app.stop")}
                       </button>
                     </Show>
                     <button class="btn btn-ghost" onClick={() => setShowProjectSettings(true)}>
-                      Project settings
+                      {t("app.projectSettings")}
                     </button>
                   </div>
                   <div class="header-sub" title={current().rootDir}>
@@ -625,30 +641,30 @@ export default function App() {
                     aria-selected={tab() === "terminal"}
                     onClick={() => setTab("terminal")}
                   >
-                    Terminal
+                    {t("app.tabTerminal")}
                   </button>
                   <button
                     class="tab"
                     aria-selected={tab() === "permissions"}
                     onClick={() => setTab("permissions")}
                   >
-                    Permissions
+                    {t("app.tabPermissions")}
                     <Show when={current().grantCount > 0}>
                       <span class="tab-badge">{current().grantCount}</span>
                     </Show>
                   </button>
                   <button class="tab" aria-selected={tab() === "tools"} onClick={() => setTab("tools")}>
-                    Tools
+                    {t("app.tabTools")}
                   </button>
                   <button
                     class="tab"
                     aria-selected={tab() === "secrets"}
                     onClick={() => setTab("secrets")}
                   >
-                    Secrets
+                    {t("app.tabSecrets")}
                   </button>
                   <button class="tab" aria-selected={tab() === "activity"} onClick={() => setTab("activity")}>
-                    Activity
+                    {t("app.tabActivity")}
                     <Show when={store.requests.length > 0}>
                       <span class="count">{store.requests.length}</span>
                     </Show>
@@ -700,12 +716,18 @@ export default function App() {
         <ProjectSettingsDialog project={project()!} onClose={() => setShowProjectSettings(false)} />
       </Show>
 
+      <Show when={renamingProject()}>
+        {(entry) => (
+          <RenameProjectDialog project={entry()} onClose={() => setRenaming(null)} />
+        )}
+      </Show>
+
       <Show when={store.fatal}>
         {(message) => (
           <div class="scrim">
             <div class="modal">
               <div class="modal-head">
-                <h2>Deepsand could not start</h2>
+                <h2>{t("app.couldNotStart")}</h2>
               </div>
               <div class="modal-body">
                 <pre class="output">{message()}</pre>
@@ -731,7 +753,13 @@ export default function App() {
             />
             <div class="context-menu" style={{ left: `${open().x}px`, top: `${open().y}px` }}>
               <button class="context-item" onClick={() => openRoot(open().projectId)}>
-                Open root directory
+                {t("app.openRoot")}
+              </button>
+              <button
+                class="context-item"
+                onClick={() => beginRenameProject(open().projectId)}
+              >
+                {t("app.renameProject")}
               </button>
             </div>
           </>
@@ -740,5 +768,12 @@ export default function App() {
 
       <Toasts />
     </Show>
+
+    {/* The first-run selector sits above everything, including the fatal screen:
+        there is no language chosen yet, and the prompt itself must be readable. */}
+    <Show when={!hasChosenLanguage()}>
+      <LanguageOnboarding />
+    </Show>
+    </>
   );
 }

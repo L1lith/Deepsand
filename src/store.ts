@@ -18,6 +18,7 @@ import type {
 } from "./lib/types";
 import * as api from "./lib/api";
 import { decodeBase64 } from "./lib/format";
+import { t } from "./i18n";
 
 export interface Toast {
   id: number;
@@ -268,9 +269,23 @@ export async function moveProject(projectId: string, toIndex: number): Promise<v
   try {
     setStore("projects", await api.moveProject(projectId, toIndex));
   } catch (error) {
-    toast("error", "Could not reorder the projects", describeError(error));
+    toast("error", t("toast.reorderFailedTitle"), describeError(error));
     await refreshProjects();
   }
+}
+
+/**
+ * Change a project's sidebar label.
+ *
+ * The backend returns the updated project, and only that row is replaced: the order, the
+ * selection and every other row stay exactly where they were.
+ */
+export async function renameProject(projectId: string, name: string): Promise<ProjectView> {
+  const updated = await api.renameProject(projectId, name);
+  setStore("projects", (list) =>
+    list.map((entry) => (entry.id === updated.id ? updated : entry)),
+  );
+  return updated;
 }
 
 /** Open a project's working directory in the machine's file manager. */
@@ -278,7 +293,7 @@ export async function revealProjectDir(projectId: string): Promise<void> {
   try {
     await api.revealProjectDir(projectId);
   } catch (error) {
-    toast("error", "Could not open the project folder", describeError(error));
+    toast("error", t("toast.revealProjectFailed"), describeError(error));
   }
 }
 
@@ -287,7 +302,7 @@ export async function revealGrantDir(projectId: string, grantId: string): Promis
   try {
     await api.revealGrantDir(projectId, grantId);
   } catch (error) {
-    toast("error", "Could not open that folder", describeError(error));
+    toast("error", t("toast.revealGrantFailed"), describeError(error));
   }
 }
 
@@ -326,12 +341,12 @@ export async function cancelBuild() {
   try {
     const stopped = await api.cancelBuild(store.buildImage);
     if (stopped.length > 0) {
-      toast("info", "Stopping the build", "Its output so far is in the Activity tab.");
+      toast("info", t("toast.cancelBuildTitle"), t("toast.cancelBuildBody"));
     } else {
-      toast("warn", "Nothing to stop", "No build is running now.");
+      toast("warn", t("toast.nothingToStopTitle"), t("toast.nothingToStopBody"));
     }
   } catch (error) {
-    toast("error", "Could not stop the build", describeError(error));
+    toast("error", t("toast.cancelBuildFailed"), describeError(error));
   }
 }
 
@@ -364,8 +379,8 @@ export async function sessionOperation(
     // otherwise do nothing at all, which reads as a broken button rather than as a queue.
     toast(
       "warn",
-      "This project is already starting",
-      "If it has been a while, it is most likely building the project image, which takes minutes the first time. That build writes into the terminal, and the sandbox starts on its own when it finishes.",
+      t("toast.sessionBusyTitle"),
+      t("toast.sessionBusyBody"),
     );
     return;
   }
@@ -377,9 +392,8 @@ export async function sessionOperation(
     setStore("sessionBusy", null);
     toast(
       "warn",
-      "The sandbox is not answering",
-      "Starting or stopping it has taken fifteen minutes without an answer, so the button is " +
-        "available again. It may still be working: the Activity tab and the log have the details.",
+      t("toast.sessionHungTitle"),
+      t("toast.sessionHungBody"),
     );
     void api.logUiEvent(
       "warn",
@@ -438,22 +452,21 @@ export async function wireEvents(): Promise<() => void> {
       if (payload.restarting) {
         toast(
           "info",
-          "Restarting DeepCode",
-          `The sandboxed process exited with code ${payload.code}. Starting it again.`,
+          t("toast.restartingDeepCodeTitle"),
+          t("toast.restartingDeepCodeBody", { code: payload.code }),
         );
         return;
       }
       if (payload.gaveUp) {
         toast(
           "error",
-          "DeepCode keeps exiting",
-          "It exited unexpectedly several times in a row, so it has been left stopped. " +
-            "Start the project again once the cause is fixed.",
+          t("toast.deepcodeKeepsExitingTitle"),
+          t("toast.deepcodeKeepsExitingBody"),
         );
         return;
       }
       if (payload.code !== 0) {
-        toast("warn", "The sandbox stopped", `DeepCode exited with code ${payload.code}.`);
+        toast("warn", t("toast.sandboxStoppedTitle"), t("toast.sandboxStoppedBody", { code: payload.code }));
       }
     }),
 
@@ -472,7 +485,7 @@ export async function wireEvents(): Promise<() => void> {
       setStore("requests", (list) => list.filter((entry) => entry.id !== payload.requestId));
       void refreshProjects();
       if (payload.decision === "allow") {
-        toast("ok", "Access granted", "The sandbox is restarting with the new permission.");
+        toast("ok", t("toast.accessGrantedTitle"), t("toast.accessGrantedBody"));
       }
     }),
 
@@ -518,10 +531,10 @@ export async function wireEvents(): Promise<() => void> {
       setStore("buildProgress", null);
       setStore("buildImage", null);
       if (payload.ok) {
-        toast("ok", "Runtime image built");
+        toast("ok", t("toast.imageBuiltTitle"));
         void refreshSettings();
       } else {
-        toast("error", "Runtime image build failed", payload.detail);
+        toast("error", t("toast.imageBuildFailedTitle"), payload.detail);
       }
     }),
 
@@ -536,8 +549,8 @@ export async function wireEvents(): Promise<() => void> {
       const first = report.notes[0] ?? "some cached tools have moved on";
       toast(
         "info",
-        "Cached tools are out of date",
-        `${first} The next build installs them again.`,
+        t("toast.toolsOutOfDateTitle"),
+        t("toast.toolsOutOfDateBody", { note: first }),
       );
     }),
 
@@ -580,8 +593,8 @@ export async function wireEvents(): Promise<() => void> {
         if (result.update) {
           toast(
             "info",
-            `Deepsand ${result.update.version} is available`,
-            "Open Settings to install it.",
+            t("toast.updateAvailableTitle", { version: result.update.version }),
+            t("toast.updateAvailableBody"),
           );
         }
       })

@@ -54,6 +54,9 @@ npm run app:dev         # app with hot reload
 | `src-tauri/src/update.rs` | Self-updates: the check, the download, the restart. Our own commands, not the plugin's JS bindings. |
 | `.github/workflows/release.yml` | Cross-platform release builds and the update manifest. Publishes a **draft**. |
 | `src/` | SolidJS UI. Views only: no policy decisions. |
+| `src/i18n/index.ts` | The one reactive locale signal, browser/OS detection, `localStorage` persistence, `t()` and date locale. |
+| `src/i18n/*.json` | Every visible frontend string, as flat JSON bundles with identical keys and placeholders. Currently `en`, `zh`, `hi`, `es`, `ar`, `fr`, `ru`, `ja`, `ko`, `vi`, `pt`, `id`, `bn`, `sw`, `ha`, `yo`, `am`. |
+| `src/components/LanguagePicker.tsx` | The first-run selector and the overlay opened by **Settings → Language**. |
 | `runtime/` | Everything that runs **inside** the container. |
 
 ## The invariants
@@ -178,6 +181,29 @@ These are load-bearing. Breaking one is how this project gets a CVE.
 * `src/lib/types.ts` mirrors the Rust payloads in `src-tauri/src/state.rs` by
   hand. Serde uses camelCase; the enums keep their own shape. Changing one side
   means changing the other.
+* **Every visible frontend string lives in the JSON bundles, and new text lands in all of them
+  at once.** `src/i18n/index.ts` owns the reactive `locale()` signal; `t("key", { name })` reads it,
+  so a component that renders `t` re-renders when the language changes, and `tOptional` exists for
+  catalogue prose that has a backend fallback. The seventeen bundles are `en`, `zh`, `hi`, `es`,
+  `ar`, `fr`, `ru`, `ja`, `ko`, `vi`, `pt`, `id`, `bn`, `sw`, `ha`, `yo` and `am`; add a key to
+  every one in the same change, with identical interpolation placeholders -- the parity check is
+  part of review, and a missing key renders its own name in that language.
+  Detection uses `navigator.languages`/`navigator.language` (the webview's OS locale): the primary
+  subtag selects the bundle (`es-MX` reaches `es`, `ar-EG` reaches Modern Standard Arabic), and an
+  unsupported locale falls back to English. The first run shows `LanguagePicker` when
+  `deepsand.language` is absent; selecting a language previews it, and **Continue** is what writes
+  it. **Settings → Language** shows the current language and a **Change…** button that opens the
+  same scrollable list; choosing there is already a decision and persists immediately. Adding a
+  language means a JSON bundle, a `LANGUAGES` entry with its native name and `dir`, and the
+  `Locale` union -- no component should learn a language name. Arabic is RTL, so
+  `applyDocumentLanguage` sets both `document.documentElement.lang` and `.dir`; `dateLocale()` maps
+  each code to a regional tag. Backend paths, hostnames, tool ids and raw error details are data
+  and are not translated; translate the sentence around them, and use `tools.tool.<id>.*` /
+  request titles rather than translating the backend's English in place. A fixed backend sentence
+  is the exception: map it to a bundle key at the render boundary, as `dockerDetail` in
+  `src/lib/types.ts` does for `DockerStatus.detail`, and add the same key to every bundle. Keep
+  product names and technical identifiers (`Deepsand`, `DeepCode`, `Docker`, `MCP`, `API`, `npm`,
+  paths) in their original spelling inside every bundle.
 * **A field the backend skips is absent from the payload, and a bound input renders that absence
   as the word "undefined".** Empty strings carry `skip_serializing_if`, so `AppSettings.user_prompt`
   was not in the JSON while it was empty -- and the text area bound to it showed that literal word,
@@ -604,6 +630,13 @@ npm run core:check
 npm test
 npm run build
 ```
+
+If you added or changed visible UI text, check that every bundle in `src/i18n/`
+has the same keys *and* the same `{placeholders}`. There are seventeen: `en`,
+`zh`, `hi`, `es`, `ar`, `fr`, `ru`, `ja`, `ko`, `vi`, `pt`, `id`, `bn`, `sw`,
+`ha`, `yo`, `am`. A key that exists only in English silently falls back to
+English in every other language, which is the one translation bug `npm run
+build` cannot see.
 
 If you touched `runtime/`, re-read invariant 5 and check `runtime/README.md` —
 the image is only rebuilt when its revision hash changes. If you changed the

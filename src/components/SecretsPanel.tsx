@@ -15,6 +15,7 @@ import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import * as api from "../lib/api";
 import type { SecretListView, SecretView } from "../lib/types";
 import { describeError, selectedProject, toast } from "../store";
+import { t } from "../i18n";
 
 /**
  * One icon from a path, with its meaning carried in text.
@@ -95,7 +96,7 @@ export function SecretsPanel() {
     try {
       setView(await api.listSecrets(projectId));
     } catch (error) {
-      toast("error", "Could not read this project's secrets", describeError(error));
+      toast("error", t("secrets.couldNotRead"), describeError(error));
     }
   }
 
@@ -105,14 +106,14 @@ export function SecretsPanel() {
     const trimmed = candidate.trim();
     if (!trimmed) return null;
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(trimmed)) {
-      return "Use letters, digits and underscores, starting with a letter or underscore.";
+      return t("secrets.nameLetters");
     }
     const upper = trimmed.toUpperCase();
     if (upper.startsWith("DEEPSAND_")) {
-      return "Names starting with DEEPSAND_ are reserved.";
+      return t("secrets.nameReservedPrefix");
     }
     if ((view()?.reserved ?? []).includes(upper)) {
-      return `${upper} is reserved, because the sandbox itself uses it.`;
+      return t("secrets.nameReserved", { name: upper });
     }
     return null;
   }
@@ -128,15 +129,13 @@ export function SecretsPanel() {
       setView(saved);
       toast(
         "ok",
-        `${name().trim()} saved`,
-        saved.restartNeeded
-          ? "Encrypted and stored. Restart the sandbox so it reaches the container."
-          : "Encrypted and stored. It will be in the environment next time this project runs.",
+        t("secrets.saved", { name: name().trim() }),
+        saved.restartNeeded ? t("secrets.savedRestart") : t("secrets.savedNextStart"),
       );
       setName("");
       setValue("");
     } catch (error) {
-      toast("error", "Could not save the secret", describeError(error));
+      toast("error", t("secrets.couldNotSave"), describeError(error));
     } finally {
       setBusy(false);
     }
@@ -151,9 +150,9 @@ export function SecretsPanel() {
       setView(saved);
       setEditing(null);
       setEditValue("");
-      toast("ok", `${target} replaced`, "The old value is gone; it was overwritten, not kept.");
+      toast("ok", t("secrets.replaced", { name: target }), t("secrets.replacedBody"));
     } catch (error) {
-      toast("error", "Could not replace the secret", describeError(error));
+      toast("error", t("secrets.couldNotReplace"), describeError(error));
     } finally {
       setBusy(false);
     }
@@ -165,9 +164,9 @@ export function SecretsPanel() {
     setBusy(true);
     try {
       await api.copySecret(current.id, target);
-      toast("ok", `${target} copied`, "The value is on your clipboard. It was never shown here.");
+      toast("ok", t("secrets.copied", { name: target }), t("secrets.copiedBody"));
     } catch (error) {
-      toast("error", "Could not copy that secret", describeError(error));
+      toast("error", t("secrets.couldNotCopy"), describeError(error));
     } finally {
       setBusy(false);
     }
@@ -182,13 +181,13 @@ export function SecretsPanel() {
       setView(saved);
       toast(
         "ok",
-        secret.enabled ? `${secret.name} disabled` : `${secret.name} enabled`,
         secret.enabled
-          ? "Still stored and still replaceable, just not handed to the sandbox."
-          : "It will be in the environment next time this project starts.",
+          ? t("secrets.disabledToast", { name: secret.name })
+          : t("secrets.enabledToast", { name: secret.name }),
+        secret.enabled ? t("secrets.disabledBody") : t("secrets.enabledBody"),
       );
     } catch (error) {
-      toast("error", "Could not change that secret", describeError(error));
+      toast("error", t("secrets.couldNotChange"), describeError(error));
     } finally {
       setBusy(false);
     }
@@ -204,9 +203,9 @@ export function SecretsPanel() {
       setView(saved);
       setRenaming(null);
       setNewName("");
-      toast("ok", `${target} renamed to ${next}`, "The value and its on/off state came with it.");
+      toast("ok", t("secrets.renamed", { from: target, to: next }), t("secrets.renamedBody"));
     } catch (error) {
-      toast("error", "Could not rename that secret", describeError(error));
+      toast("error", t("secrets.couldNotRename"), describeError(error));
     } finally {
       setBusy(false);
     }
@@ -219,9 +218,9 @@ export function SecretsPanel() {
     try {
       const saved = await api.deleteSecret(current.id, target);
       setView(saved);
-      toast("ok", `${target} removed`, "Removed from the store and from the sandbox environment.");
+      toast("ok", t("secrets.removed", { name: target }), t("secrets.removedBody"));
     } catch (error) {
-      toast("error", "Could not remove the secret", describeError(error));
+      toast("error", t("secrets.couldNotRemove"), describeError(error));
     } finally {
       setBusy(false);
     }
@@ -229,23 +228,14 @@ export function SecretsPanel() {
 
   return (
     <div class="panel">
-      <Show when={view()} fallback={<div class="empty">Loading secrets…</div>}>
+      <Show when={view()} fallback={<div class="empty">{t("secrets.loading")}</div>}>
         {(current) => (
           <>
             <div class="card">
-              <h3>Secrets for this project</h3>
-              <p class="muted small">
-                Stored encrypted, keyed from your operating system's keystore — not in the project
-                directory, not in the repository, and never in the audit log. They are handed to the
-                container as environment variables, so anything running inside the sandbox can read
-                them, which is what makes them useful and also what makes a broad network allowlist
-                a way for one to leave.
-              </p>
+              <h3>{t("secrets.title")}</h3>
+              <p class="muted small">{t("secrets.detail")}</p>
               <Show when={current().restartNeeded}>
-                <div class="callout callout-warn">
-                  A sandbox is running. Changes here are stored straight away but reach the container
-                  on its next start, so restart the sandbox after editing.
-                </div>
+                <div class="callout callout-warn">{t("secrets.restartNeeded")}</div>
               </Show>
               <Show when={!current().available}>
                 <div class="callout callout-danger">{current().unavailableReason}</div>
@@ -254,22 +244,17 @@ export function SecretsPanel() {
 
             <Show when={current().available}>
               <div class="card">
-                <h3>Stored</h3>
+                <h3>{t("secrets.stored")}</h3>
                 <Show
                   when={current().secrets.length > 0}
-                  fallback={
-                    <div class="empty">
-                      No secrets yet. Anything this project needs — an API key, a database URL — can go
-                      here rather than in a file in the repository.
-                    </div>
-                  }
+                  fallback={<div class="empty">{t("secrets.none")}</div>}
                 >
                   <table class="secret-table">
                     <thead>
                       <tr>
-                        <th>Name</th>
-                        <th>Value</th>
-                        <th class="num">Length</th>
+                        <th>{t("secrets.name")}</th>
+                        <th>{t("secrets.value")}</th>
+                        <th class="num">{t("secrets.length")}</th>
                         <th class="actions" />
                       </tr>
                     </thead>
@@ -281,7 +266,7 @@ export function SecretsPanel() {
                               <td class="mono">
                                 {secret.name}
                                 <Show when={!secret.enabled}>
-                                  <span class="badge secret-badge">disabled</span>
+                                  <span class="badge secret-badge">{t("secrets.disabled")}</span>
                                 </Show>
                               </td>
                               <td class="mono faint">{secret.masked}</td>
@@ -289,7 +274,7 @@ export function SecretsPanel() {
                               <td class="actions">
                                 <IconButton
                                   icon="copy"
-                                  label="Copy the value to your clipboard"
+                                  label={t("secrets.copyLabel")}
                                   disabled={busy()}
                                   onClick={() => void copy(secret.name)}
                                 />
@@ -297,15 +282,15 @@ export function SecretsPanel() {
                                   icon="power"
                                   label={
                                     secret.enabled
-                                      ? "Disable: keep it stored, but stop handing it to the sandbox"
-                                      : "Enable: hand it to the sandbox again"
+                                      ? t("secrets.disableLabel")
+                                      : t("secrets.enableLabel")
                                   }
                                   disabled={busy()}
                                   onClick={() => void toggleEnabled(secret)}
                                 />
                                 <IconButton
                                   icon="pencil"
-                                  label="Rename this secret"
+                                  label={t("secrets.renameLabel")}
                                   disabled={busy()}
                                   onClick={() => {
                                     setRenaming(secret.name);
@@ -315,7 +300,7 @@ export function SecretsPanel() {
                                 />
                                 <IconButton
                                   icon="swap"
-                                  label="Replace the value"
+                                  label={t("secrets.replaceLabel")}
                                   disabled={busy()}
                                   onClick={() => {
                                     setEditing(secret.name);
@@ -325,7 +310,7 @@ export function SecretsPanel() {
                                 />
                                 <IconButton
                                   icon="trash"
-                                  label="Remove this secret"
+                                  label={t("secrets.removeLabel")}
                                   disabled={busy()}
                                   onClick={() => void remove(secret.name)}
                                 />
@@ -343,12 +328,12 @@ export function SecretsPanel() {
                               <tr class="secret-edit-row">
                                 <td colspan={4}>
                                   <div class="secret-edit">
-                                    <span class="secret-edit-label hint">New value for {secret.name}</span>
+                                    <span class="secret-edit-label hint">{t("secrets.newValueFor", { name: secret.name })}</span>
                                     <input
                                       type="password"
                                       autocomplete="off"
-                                      placeholder="new value"
-                                      aria-label={`New value for ${secret.name}`}
+                                      placeholder={t("secrets.newValuePlaceholder")}
+                                      aria-label={t("secrets.newValueFor", { name: secret.name })}
                                       value={editValue()}
                                       onInput={(event) => setEditValue(event.currentTarget.value)}
                                       onKeyDown={(event) => {
@@ -361,7 +346,7 @@ export function SecretsPanel() {
                                       disabled={busy() || !editValue()}
                                       onClick={() => void replace(secret.name)}
                                     >
-                                      Save
+                                      {t("common.save")}
                                     </button>
                                     <button
                                       class="btn btn-ghost small"
@@ -370,7 +355,7 @@ export function SecretsPanel() {
                                         setEditValue("");
                                       }}
                                     >
-                                      Cancel
+                                      {t("common.cancel")}
                                     </button>
                                   </div>
                                 </td>
@@ -381,12 +366,12 @@ export function SecretsPanel() {
                               <tr class="secret-edit-row">
                                 <td colspan={4}>
                                   <div class="secret-edit">
-                                    <span class="secret-edit-label hint">Rename {secret.name} to</span>
+                                    <span class="secret-edit-label hint">{t("secrets.renameTo", { name: secret.name })}</span>
                                     <input
                                       type="text"
                                       autocomplete="off"
                                       placeholder="NEW_NAME"
-                                      aria-label={`New name for ${secret.name}`}
+                                      aria-label={t("secrets.newNameFor", { name: secret.name })}
                                       value={newName()}
                                       onInput={(event) => setNewName(event.currentTarget.value)}
                                       onKeyDown={(event) => {
@@ -399,7 +384,7 @@ export function SecretsPanel() {
                                       disabled={busy() || !newName().trim() || checkName(newName()) !== null}
                                       onClick={() => void rename(secret.name)}
                                     >
-                                      Save
+                                      {t("common.save")}
                                     </button>
                                     <button
                                       class="btn btn-ghost small"
@@ -408,7 +393,7 @@ export function SecretsPanel() {
                                         setNewName("");
                                       }}
                                     >
-                                      Cancel
+                                      {t("common.cancel")}
                                     </button>
                                   </div>
                                 </td>
@@ -426,13 +411,13 @@ export function SecretsPanel() {
               </div>
 
               <div class="card">
-                <h3>Add a secret</h3>
+                <h3>{t("secrets.addSecret")}</h3>
                 <div class="row-inline">
                   <input
                     class="grow"
                     type="text"
-                    placeholder="MY_API_KEY"
-                    aria-label="Secret name"
+                    placeholder={t("secrets.namePlaceholder")}
+                    aria-label={t("secrets.nameAria")}
                     autocomplete="off"
                     value={name()}
                     onInput={(event) => setName(event.currentTarget.value)}
@@ -440,8 +425,8 @@ export function SecretsPanel() {
                   <input
                     class="grow"
                     type="password"
-                    placeholder="value"
-                    aria-label="Secret value"
+                    placeholder={t("secrets.valuePlaceholder")}
+                    aria-label={t("secrets.valueAria")}
                     autocomplete="off"
                     value={value()}
                     onInput={(event) => setValue(event.currentTarget.value)}
@@ -454,16 +439,13 @@ export function SecretsPanel() {
                     disabled={busy() || !name().trim() || !value() || nameProblem() !== null}
                     onClick={() => void add()}
                   >
-                    Add
+                    {t("common.add")}
                   </button>
                 </div>
                 <Show when={nameProblem()}>
                   {(problem) => <div class="hint tool-unavailable">{problem()}</div>}
                 </Show>
-                <span class="hint">
-                  The name becomes an environment variable name, so it has to be one. Values are typed
-                  one way: once saved they are never shown again, only replaced.
-                </span>
+                <span class="hint">{t("secrets.addHint")}</span>
               </div>
             </Show>
           </>

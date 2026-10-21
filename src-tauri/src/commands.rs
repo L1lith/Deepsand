@@ -381,6 +381,31 @@ pub fn import_git_project_impl(
     })
 }
 
+/// Change what the sidebar calls a project, without touching its identity.
+///
+/// Desktop-only and absent from the remote command table: renaming a project is a local
+/// labelling decision, and the container, volume and session names deliberately do not move.
+#[tauri::command]
+pub fn rename_project(
+    state: State<'_, AppState>,
+    project_id: String,
+    name: String,
+) -> CmdResult<ProjectView> {
+    rename_project_impl(&state, project_id, name)
+}
+
+pub fn rename_project_impl(
+    state: &AppState,
+    project_id: String,
+    name: String,
+) -> CmdResult<ProjectView> {
+    let mut store = store(&state);
+    store.rename_project(&project_id, &name).map_err(fail)?;
+    let project = store.project(&project_id).cloned().map_err(fail)?;
+    drop(store);
+    Ok(project_view(&state, &project))
+}
+
 #[tauri::command]
 pub fn update_project_settings(state: State<'_, AppState>, project_id: String, network: Option<NetworkPolicy>, limits: Option<ResourceLimits>, deepcode_mode: Option<DeepCodeMode>, notes: Option<String>, credentials: Option<Credentials>, resume_on_launch: Option<bool>, user_prompt_mode: Option<UserPromptMode>, user_prompt: Option<String>) -> CmdResult<ProjectView> {
     update_project_settings_impl(

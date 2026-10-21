@@ -17,6 +17,8 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import * as api from "../lib/api";
 import { attachTerminal, describeError, restartDocker, selectedProject, sessionOperation, store, toast } from "../store";
+import { t } from "../i18n";
+import { dockerDetail } from "../lib/types";
 import { RestartDockerControl } from "./RestartDocker";
 
 /**
@@ -99,7 +101,7 @@ export function TerminalPane() {
       api.writeToSession(current.id, data).catch((error) => {
         // Losing a keystroke when the container has just exited is expected.
         if (!/no sandbox is running/i.test(describeError(error))) {
-          toast("warn", "Could not send input", describeError(error));
+          toast("warn", t("terminal.couldNotSendInput"), describeError(error));
         }
       });
     });
@@ -147,7 +149,7 @@ export function TerminalPane() {
       try {
         await navigator.clipboard.writeText(text);
       } catch (error) {
-        toast("warn", "Could not copy", describeError(error));
+        toast("warn", t("terminal.couldNotCopy"), describeError(error));
       }
     }
 
@@ -398,7 +400,7 @@ export function TerminalPane() {
       // A previous run's scrollback is not what this is about, and the tools being installed are
       // the only thing worth reading until they are done.
       term.reset();
-      term.writeln("\x1b[2m── installing tools for this project ──\x1b[0m");
+      term.writeln(`\x1b[2m${t("terminal.toolsTerminalLine")}\x1b[0m`);
       mirrored = 0;
       mirroring = true;
     }
@@ -439,11 +441,11 @@ export function TerminalPane() {
         // tools". It returns the current status rather than an error; saying "Started" for
         // a sandbox this attempt did not start would be a lie.
         if (status.running) {
-          toast("ok", `Started ${current.name}`);
+          toast("ok", t("app.started", { name: current.name }));
           window.setTimeout(() => safeFit(), 120);
         }
       } catch (error) {
-        toast("error", "Could not start the sandbox", describeError(error));
+        toast("error", t("terminal.startFailed"), describeError(error));
       }
     });
   }
@@ -462,11 +464,11 @@ export function TerminalPane() {
       try {
         const status = await api.startSessionWithoutTools(current.id);
         if (status.running) {
-          toast("ok", `Starting ${current.name}`, "Installing the tools in the background.");
+          toast("ok", t("terminal.startingBackground", { name: current.name }), t("terminal.installingInBackground"));
           window.setTimeout(() => safeFit(), 120);
         }
       } catch (error) {
-        toast("error", "Could not start the sandbox", describeError(error));
+        toast("error", t("terminal.startFailed"), describeError(error));
       }
     });
   }
@@ -488,13 +490,13 @@ export function TerminalPane() {
       if (status.running) {
         toast(
           "ok",
-          `Starting ${current.name}`,
-          "The tools will be copied in when the build finishes.",
+          t("terminal.startingBackground", { name: current.name }),
+          t("terminal.toolsCopiedWhenReady"),
         );
         window.setTimeout(() => safeFit(), 120);
       }
     } catch (error) {
-      toast("error", "Could not start the sandbox", describeError(error));
+      toast("error", t("terminal.startFailed"), describeError(error));
     } finally {
       setSkipping(false);
     }
@@ -507,7 +509,7 @@ export function TerminalPane() {
       try {
         await api.stopSession(current.id);
       } catch (error) {
-        toast("error", "Could not stop the sandbox", describeError(error));
+        toast("error", t("terminal.stopped"), describeError(error));
       }
     });
   }
@@ -529,10 +531,10 @@ export function TerminalPane() {
       try {
         await restartDocker();
         await api.startSession(current.id, true);
-        toast("ok", `Restarted Docker and started ${current.name}`);
+        toast("ok", t("terminal.restartedDocker", { name: current.name }));
         window.setTimeout(() => safeFit(), 120);
       } catch (error) {
-        toast("error", "Could not restart Docker", describeError(error));
+        toast("error", t("app.couldNotRestartDocker"), describeError(error));
       }
     });
   }
@@ -562,7 +564,7 @@ export function TerminalPane() {
 
   function reportProblems(problems: string[]) {
     if (problems.length === 0) return;
-    toast("warn", "Some of that could not be attached", problems.join("\n"));
+    toast("warn", t("terminal.someAttachFailed"), problems.join("\n"));
   }
 
   /** Type the paths into the session, the same way typing would. */
@@ -573,7 +575,7 @@ export function TerminalPane() {
     // input box, not into a shell.
     void api
       .writeToSession(current.id, `${paths.join(" ")} `)
-      .catch((error) => toast("error", "Could not type the path", describeError(error)));
+      .catch((error) => toast("error", t("terminal.couldNotTypePath"), describeError(error)));
   }
 
   /**
@@ -613,8 +615,8 @@ export function TerminalPane() {
       }
       toast(
         "warn",
-        "Nothing to paste",
-        "The clipboard is empty, or holds something the terminal cannot take.",
+        t("terminal.nothingToPaste"),
+        t("terminal.nothingToPasteBody"),
       );
     } catch (error) {
       console.warn("the clipboard could not be read", error);
@@ -626,16 +628,15 @@ export function TerminalPane() {
       if (refused) {
         toast(
           "warn",
-          "Deepsand needs permission to read the clipboard",
-          "Windows asked once and the answer was no, so this paste had nothing to work " +
-            "with. Allow it, then paste again; from then on Ctrl+V goes straight in.",
+          t("terminal.clipboardPermission"),
+          t("terminal.clipboardPermissionBody"),
         );
         return;
       }
       toast(
         "warn",
-        "Could not read the clipboard",
-        "Use right-click then Paste in the terminal instead.",
+        t("terminal.couldNotReadClipboard"),
+        t("terminal.couldNotReadClipboardBody"),
       );
     }
   }
@@ -659,9 +660,11 @@ export function TerminalPane() {
         const name = file.name || "pasted";
         if (file.size > ATTACH_LIMIT_BYTES) {
           problems.push(
-            `${name} is ${Math.round(file.size / (1024 * 1024))} MB; the limit is ${
-              ATTACH_LIMIT_BYTES / (1024 * 1024)
-            } MB.`,
+            t("terminal.attachTooLarge", {
+              name,
+              size: Math.round(file.size / (1024 * 1024)),
+              limit: ATTACH_LIMIT_BYTES / (1024 * 1024),
+            }),
           );
           continue;
         }
@@ -690,7 +693,7 @@ export function TerminalPane() {
       insertPaths(view.paths);
       reportProblems(view.problems);
     } catch (error) {
-      toast("error", "Could not attach that", describeError(error));
+      toast("error", t("terminal.couldNotAttach"), describeError(error));
     } finally {
       setAttaching(false);
     }
@@ -706,18 +709,17 @@ export function TerminalPane() {
               when={project()}
               fallback={
                 <>
-                  <h3>No project selected</h3>
-                  <p>Create a project to give DeepCode a working directory and a sandbox to run in.</p>
+                  <h3>{t("terminal.noProject")}</h3>
+                  <p>{t("terminal.createProject")}</p>
                 </>
               }
             >
               {(current) => (
                 <>
-                  <h3>{current().name} is not running</h3>
+                  <h3>{t("terminal.notRunning", { name: current().name })}</h3>
                   <Show when={!current().workspaceExists}>
                     <div class="callout callout-danger">
-                      The working directory <span class="mono">{current().rootDir}</span> does not exist any more.
-                      Remove the project or recreate the folder.
+                      {t("terminal.workspaceMissing", { path: current().rootDir })}
                     </div>
                   </Show>
                   {/* Only once the answer is in: this used to fire during the first
@@ -725,8 +727,9 @@ export function TerminalPane() {
                   <Show when={store.info?.docker && !store.info.docker.available}>
                     <div class="callout callout-danger">
                       <p>
-                        {store.info?.docker?.detail ||
-                          "The Docker daemon is not reachable. Start Docker Desktop, then try again."}
+                        {store.info?.docker?.detail
+                          ? dockerDetail(store.info.docker.detail)
+                          : t("terminal.dockerUnreachable")}
                       </p>
                       {/* Only Docker Desktop can be restarted this way. The daemon being
                           wedged is one of the two states this shows, and `docker create`
@@ -734,11 +737,11 @@ export function TerminalPane() {
                           container-only fix cannot reach. */}
                       <Show
                         when={store.info?.docker?.desktop}
-                        fallback={<p class="hint">Start the Docker daemon, then try again.</p>}
+                        fallback={<p class="hint">{t("terminal.startDocker")}</p>}
                       >
                         <RestartDockerControl
                           busy={busy()}
-                          confirmLabel="Restart Docker Desktop and retry"
+                          confirmLabel={t("terminal.restartDockerAndRetry")}
                           onConfirm={() => void restartDockerAndRetry()}
                         />
                       </Show>
@@ -748,35 +751,35 @@ export function TerminalPane() {
                     when={store.info?.docker?.available && !store.info.docker.image_present}
                   >
                     <div class="callout callout-warn">
-                      The runtime image <span class="mono">{store.info?.settings.image}</span> has not been built
-                      yet. Build it from the Activity tab, or run{" "}
-                      <span class="mono">node runtime/scripts/build-image.mjs</span>.
+                      {t("terminal.imageNotBuilt", { image: store.info?.settings.image ?? "" })}
                     </div>
                   </Show>
                   <p>
-                    DeepCode will run inside a container whose only view of this machine is{" "}
-                    <span class="mono">{current().rootDir}</span>
-                    {current().grantCount > 0
-                      ? ` plus ${current().grantCount} shared director${current().grantCount === 1 ? "y" : "ies"}`
-                      : ""}
-                    .
+                    {t("terminal.runsInside", {
+                      rootDir: current().rootDir,
+                      extra:
+                        current().grantCount > 0
+                          ? t(
+                              current().grantCount === 1
+                                ? "terminal.sharedDirectory"
+                                : "terminal.sharedDirectories",
+                              { count: current().grantCount },
+                            )
+                          : "",
+                    })}
                   </p>
                   <Show
                     when={!store.building}
                     fallback={
                       <>
-                        <p class="hint">
-                          Installing the tools this project asked for. The install is running
-                          above, in this terminal, and the project starts by itself as soon as it
-                          finishes.
-                        </p>
+                        <p class="hint">{t("terminal.installingTools")}</p>
                         <button
                           class="btn"
                           disabled={skipping()}
-                          title="Start now on an image with no tools. The build keeps running and its tools are copied into the sandbox when they are ready; a tool installed as a system package still needs a restart."
+                          title={t("terminal.startNowTitle")}
                           onClick={() => void skipToolBuild()}
                         >
-                          {skipping() ? "Starting…" : "Start now without tools"}
+                          {skipping() ? t("common.starting") : t("terminal.startNowWithoutTools")}
                         </button>
                       </>
                     }
@@ -785,15 +788,15 @@ export function TerminalPane() {
                       {/* A disabled button that says nothing is indistinguishable from a broken
                           one, which is what this looked like while it waited for an answer that
                           never came. */}
-                      {busy() ? "Starting…" : "Run project"}
+                      {busy() ? t("common.starting") : t("terminal.runProject")}
                     </button>
                     <button
                       class="btn"
                       disabled={busy()}
-                      title="Start now on an image with no tools, and copy the built ones in when they are ready. A tool installed as a system package still needs a restart."
+                      title={t("terminal.startWithoutToolsTitle")}
                       onClick={() => void runWithoutTools()}
                     >
-                      Start without tools
+                      {t("terminal.startWithoutTools")}
                     </button>
                   </Show>
                 </>
@@ -803,16 +806,15 @@ export function TerminalPane() {
         </Show>
       </div>
       <Show when={dropping() || attaching()}>
-        <div class="terminal-drop-hint">{attaching() ? "Attaching…" : "Drop to attach"}</div>
+        <div class="terminal-drop-hint">{attaching() ? t("terminal.attaching") : t("terminal.dropToAttach")}</div>
       </Show>
       <Show when={project()?.running}>
         <div class="queue-note">
           <span>
-            Container <span class="mono">{project()?.containerName}</span> is running. Everything it can see is
-            listed under Permissions.
+            {t("terminal.containerRunning", { name: project()?.containerName ?? "" })}
           </span>
           <button class="btn btn-sm" disabled={busy()} onClick={() => void stop()}>
-            {busy() ? "Stopping…" : "Stop"}
+            {busy() ? t("common.stopping") : t("app.stop")}
           </button>
         </div>
       </Show>

@@ -12,6 +12,7 @@
  */
 
 import { createEffect, createSignal, Show } from "solid-js";
+import { t } from "../i18n";
 
 export function RestartDockerControl(props: {
   /** Runs when the operator confirms — never before. */
@@ -39,17 +40,15 @@ export function RestartDockerControl(props: {
         <button
           class="btn btn-sm"
           disabled={props.busy}
-          title="Restart Docker's engine — including the WSL process it runs in — and wait until a container can start again."
+          title={t("docker.restartTitle")}
           onClick={() => setConfirming(true)}
         >
-          Restart Docker Desktop…
+          {t("docker.restartButton")}
         </button>
       }
     >
       <p class="faint">
-        {props.compact
-          ? "Ends every container on this machine, then restarts Docker Desktop and its WSL process."
-          : "This ends every container on this machine, including other projects' sandboxes. It restarts Docker Desktop and the WSL process its engine runs in, where Docker uses one."}
+        {props.compact ? t("docker.restartCompact") : t("docker.restartDetail")}
       </p>
       <div class="row-inline">
         <button
@@ -57,10 +56,10 @@ export function RestartDockerControl(props: {
           disabled={props.busy}
           onClick={() => props.onConfirm()}
         >
-          {props.busy ? "Restarting Docker…" : (props.confirmLabel ?? "Restart Docker Desktop")}
+          {props.busy ? t("docker.restarting") : (props.confirmLabel ?? t("docker.restartConfirm"))}
         </button>
         <button class="btn btn-sm" disabled={props.busy} onClick={() => setConfirming(false)}>
-          Cancel
+          {t("common.cancel")}
         </button>
       </div>
     </Show>

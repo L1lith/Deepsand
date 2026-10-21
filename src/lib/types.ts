@@ -7,6 +7,8 @@
  * the only contract between the two halves of the app.
  */
 
+import { t } from "../i18n";
+
 export type Access = "read" | "write";
 
 export type NetworkPolicy =
@@ -526,29 +528,56 @@ export function policyMode(policy: NetworkPolicy): NetworkPolicy["mode"] {
 export function networkLabel(policy: NetworkPolicy): string {
   switch (policyMode(policy)) {
     case "none":
-      return "no network";
+      return t("network.none");
     case "internet":
-      return "internet only";
+      return t("network.internet");
     case "allowlisted":
-      return "allowlisted";
+      return t("network.allowlisted");
     case "full":
-      return "full egress";
+      return t("network.full");
   }
+}
+
+/** The same label for a bare mode string, as the activity and permission views carry it. */
+export function networkModeLabel(mode: string): string {
+  return networkLabel({ mode: mode === "restricted" ? "allowlisted" : mode } as NetworkPolicy);
 }
 
 export function networkDescription(policy: NetworkPolicy): string {
   switch (policyMode(policy)) {
     case "none":
-      return "Nothing is reachable except the model API itself. Package installs, git clones and web requests will all fail, as will anything the enabled tools would otherwise reach — the sandbox has no way out other than the address its model is served from.";
+      return t("network.noneDescription");
     case "internet":
-      return "Public internet is reachable. The host machine, your local network, link-local addresses and cloud metadata endpoints are blocked by the container's own kernel rules.";
+      return t("network.internetDescription");
     case "allowlisted":
-      return "Only what you list is reachable. A hostname you list goes through Deepsand's proxy; an address you list is reached directly, so a database or any non-HTTP client works. An entry with no port covers every port, and a port you list is also published on this machine's loopback so you can reach a server the sandbox runs there. A hostname that resolves into local or private address space is still refused — list the address itself to reach it on purpose.";
+      return t("network.allowlistedDescription");
     case "full":
-      return "No egress restriction at all, including this machine's own network services. Filesystem isolation is unaffected, but prefer a narrower mode.";
+      return t("network.fullDescription");
   }
 }
 
 export function accessLabel(access: Access): string {
-  return access === "write" ? "read-write" : "read-only";
+  return access === "write" ? t("access.readWrite") : t("access.readOnly");
+}
+
+/**
+ * Translate the known Docker status sentences the backend writes.
+ *
+ * `DockerStatus.detail` is produced in `deepsand-core`, which has no notion of
+ * the interface language. The window is where these sentences become visible,
+ * so it maps the ones it knows back to bundle keys. Unknown text is returned
+ * unchanged: a future diagnostic should still reach the operator rather than be
+ * replaced by a generic sentence.
+ */
+export function dockerDetail(detail: string): string {
+  if (detail.startsWith("Docker Desktop is not running")) {
+    return t("docker.detailNotRunning");
+  }
+  if (detail.startsWith("Docker Desktop is running, but its daemon is not answering")) {
+    return t("docker.detailNoAnswer");
+  }
+  if (detail.startsWith("Docker Desktop detected")) {
+    return t("docker.detailDesktopLimited");
+  }
+  return detail;
 }

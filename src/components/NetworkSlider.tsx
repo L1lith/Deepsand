@@ -8,6 +8,7 @@
 
 import { createMemo } from "solid-js";
 import { networkLabel, policyMode, type NetworkPolicy } from "../lib/types";
+import { t } from "../i18n";
 import { SegmentedSlider } from "./SegmentedSlider";
 
 /** Most restricted first: the order is the argument this control makes. */
@@ -28,7 +29,7 @@ export function NetworkSlider(props: {
 
   return (
     <SegmentedSlider
-      ariaLabel="Network access"
+      ariaLabel={t("network.label")}
       value={current()}
       disabled={props.disabled}
       onChange={props.onChange}

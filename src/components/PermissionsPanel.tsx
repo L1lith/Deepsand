@@ -13,11 +13,13 @@ import * as api from "../lib/api";
 import {
   accessLabel,
   networkDescription,
+  networkModeLabel,
   policyMode,
   type AllowlistView,
   type NetworkPolicy,
 } from "../lib/types";
 import { NetworkSlider } from "./NetworkSlider";
+import { t } from "../i18n";
 import {
   describeError,
   refreshProjects,
@@ -97,13 +99,11 @@ export function PermissionsPanel() {
       await api.setRequestsEnabled(current.id, enabled);
       toast(
         enabled ? "ok" : "info",
-        enabled ? "DeepCode can ask again" : "DeepCode cannot ask any more",
-        enabled
-          ? "Requests from this project will reach you as they come in."
-          : "Anything already waiting was refused, and the sandbox has been told not to ask.",
+        enabled ? t("perm.requestsOnTitle") : t("perm.requestsOffTitle"),
+        enabled ? t("perm.requestsOnBody") : t("perm.requestsOffBody"),
       );
     } catch (error) {
-      toast("error", "Could not change that setting", describeError(error));
+      toast("error", t("perm.couldNotChangeSetting"), describeError(error));
     } finally {
       setRequestsBusy(false);
     }
@@ -115,7 +115,7 @@ export function PermissionsPanel() {
       setAllowlist(view);
       setAllowlistDraft(view.project.join("\n"));
     } catch (error) {
-      toast("error", "Could not read this project's allowlist", describeError(error));
+      toast("error", t("perm.couldNotReadAllowlist"), describeError(error));
     }
   }
 
@@ -133,11 +133,14 @@ export function PermissionsPanel() {
       setAllowlistDraft(view.project.join("\n"));
       toast(
         "ok",
-        "Allowlist saved",
-        `${view.effective.length} entr${view.effective.length === 1 ? "y" : "ies"} in force for this project.`,
+        t("perm.allowlistSaved"),
+        t(
+          view.effective.length === 1 ? "perm.entryInForce" : "perm.entriesInForce",
+          { count: view.effective.length },
+        ),
       );
     } catch (error) {
-      toast("error", "Could not save the allowlist", describeError(error));
+      toast("error", t("perm.couldNotSaveAllowlist"), describeError(error));
     } finally {
       setAllowlistBusy(false);
     }
@@ -159,9 +162,9 @@ export function PermissionsPanel() {
       await api.updateProjectSettings({ projectId: current.id, network: policy });
       await refreshProjects();
       await loadAllowlist(current.id);
-      toast("info", "Network mode changed", "Restart the sandbox for it to take effect.");
+      toast("info", t("perm.networkModeChanged"), t("perm.restartForNetwork"));
     } catch (error) {
-      toast("error", "Could not change the network mode", describeError(error));
+      toast("error", t("perm.couldNotChangeNetwork"), describeError(error));
     } finally {
       setModeBusy(false);
     }
@@ -171,7 +174,7 @@ export function PermissionsPanel() {
     const chosen = await open({
       directory: true,
       multiple: false,
-      title: "Choose a directory to share with this sandbox",
+      title: t("perm.browseTitle"),
     });
     if (typeof chosen === "string") {
       setDraftPath(chosen);
@@ -188,8 +191,8 @@ export function PermissionsPanel() {
       const result = await api.pathCheck(path);
       setCheckNote(
         result.allowed
-          ? { ok: true, text: `Allowed. It would appear as a mount inside the sandbox.` }
-          : { ok: false, text: result.reason ?? "This path cannot be shared." },
+          ? { ok: true, text: t("perm.pathAllowedMount") }
+          : { ok: false, text: result.reason ?? t("perm.pathCannotBeShared") },
       );
     } catch (error) {
       setCheckNote({ ok: false, text: describeError(error) });
@@ -202,13 +205,13 @@ export function PermissionsPanel() {
     setBusy(true);
     try {
       await api.addGrant(current.id, draftPath(), draftAccess(), undefined, draftPurpose());
-      toast("ok", "Permission added", "Restart the sandbox to attach it.");
+      toast("ok", t("perm.permissionAdded"), t("perm.restartToAttach"));
       setDraftPath("");
       setDraftPurpose("");
       setCheckNote(null);
       await refreshProjectData(current.id);
     } catch (error) {
-      toast("error", "Could not add that permission", describeError(error));
+      toast("error", t("perm.couldNotAddPermission"), describeError(error));
     } finally {
       setBusy(false);
     }
@@ -220,9 +223,9 @@ export function PermissionsPanel() {
     try {
       await api.setGrantAccess(current.id, grantId, next);
       await refreshProjectData(current.id);
-      toast("info", next === "write" ? "Now read-write" : "Now read-only", "Restart the sandbox to apply.");
+      toast("info", next === "write" ? t("perm.nowReadWrite") : t("perm.nowReadOnly"), t("perm.restartToApply"));
     } catch (error) {
-      toast("error", "Could not change that permission", describeError(error));
+      toast("error", t("perm.couldNotChangePermission"), describeError(error));
     }
   }
 
@@ -232,9 +235,9 @@ export function PermissionsPanel() {
     try {
       await api.revokeGrant(current.id, grantId);
       await refreshProjectData(current.id);
-      toast("ok", `Revoked ${label}`, "Restart the sandbox to detach it.");
+      toast("ok", t("perm.revoked", { label }), t("perm.restartToDetach"));
     } catch (error) {
-      toast("error", "Could not revoke that permission", describeError(error));
+      toast("error", t("perm.couldNotRevoke"), describeError(error));
     }
   }
 
@@ -254,11 +257,11 @@ export function PermissionsPanel() {
 
   return (
     <div class="panel">
-      <Show when={project()} fallback={<div class="empty">Select a project first.</div>}>
+      <Show when={project()} fallback={<div class="empty">{t("perm.selectProject")}</div>}>
         {(current) => (
           <>
             <div class="card">
-              <h3>Permission requests</h3>
+              <h3>{t("perm.permissionRequests")}</h3>
               <label class="row-inline small">
                 <input
                   type="checkbox"
@@ -266,31 +269,17 @@ export function PermissionsPanel() {
                   disabled={requestsBusy()}
                   onChange={(event) => void setRequests(event.currentTarget.checked)}
                 />
-                Let {current().name} ask for permissions
+                {t("perm.letAsk", { name: current().name })}
               </label>
               <span class="hint">
-                <Show
-                  when={current().requestsEnabled}
-                  fallback={
-                    <>
-                      <strong>Off.</strong> Nothing this project asks for will reach you, and the
-                      sandbox is told not to ask rather than being left waiting. Anything it needs
-                      beyond the workspace, the shared directories and the network allowlist will
-                      simply fail. Turn this back on to be asked again.
-                    </>
-                  }
-                >
-                  The sandbox can ask for a directory, a network destination or a tool that is not
-                  installed, and you decide each one. Each request is written by the sandbox and is
-                  not authenticated, so read what it asks for before granting it. Turn this off if
-                  the requests have become noise — the setting is per project, and the dialog for a
-                  request can also turn it off.
-                </Show>
+                {current().requestsEnabled
+                  ? t("perm.onDetail")
+                  : `${t("perm.offTitle")} ${t("perm.offDetail")}`}
               </span>
             </div>
 
             <div class="card">
-              <h3>On launch</h3>
+              <h3>{t("perm.onLaunch")}</h3>
               <label class="check-row">
                 <input
                   type="checkbox"
@@ -304,20 +293,17 @@ export function PermissionsPanel() {
                       });
                       await refreshProjects();
                     } catch (error) {
-                      toast("error", "Could not change that setting", describeError(error));
+                      toast("error", t("perm.couldNotChangeSetting"), describeError(error));
                     }
                   }}
                 />
-                Start {current().name} again when Deepsand starts
+                {t("perm.startOnLaunch", { name: current().name })}
               </label>
-              <span class="hint">
-                Resumes this sandbox on launch if it was running when you last closed the app.
-                Off by default: a sandbox that comes back on its own is something you ask for.
-              </span>
+              <span class="hint">{t("perm.resumeHint")}</span>
             </div>
 
             <div class="card">
-              <h3>Network access</h3>
+              <h3>{t("perm.networkAccess")}</h3>
               <div class="row-inline" style={{ "flex-wrap": "wrap" }}>
                 <NetworkSlider
                   value={policyMode(current().network)}
@@ -327,20 +313,18 @@ export function PermissionsPanel() {
               </div>
               <span class="hint">{networkDescription(current().network)}</span>
 
-              <Show when={allowlist()} fallback={<span class="hint">Loading…</span>}>
+              <Show when={allowlist()} fallback={<span class="hint">{t("common.loading")}</span>}>
                 {(view) => (
                   <>
                     <Show when={!view().allowlisted}>
                       <div class="callout callout-warn" style={{ "margin-top": "0.7rem" }}>
-                        This project is in <span class="mono">{view().mode}</span> mode, so the
-                        allowlist below is not consulted. Choose <strong>Allowlisted</strong> above for
-                        these entries to take effect.
+                        {t("perm.notConsulted", { mode: networkModeLabel(view().mode) })}
                       </div>
                     </Show>
 
                     <div class="field" style={{ "margin-top": "0.8rem" }}>
                       <label for="allowlist-draft">
-                        Allowed destinations for this project
+                        {t("perm.allowedDestinations")}
                       </label>
                       <textarea
                         id="allowlist-draft"
@@ -352,14 +336,7 @@ export function PermissionsPanel() {
                         }
                         onInput={(event) => setAllowlistDraft(event.currentTarget.value)}
                       />
-                      <span class="hint">
-                        One entry per line. <span class="mono">host</span> matches exactly,{" "}
-                        <span class="mono">*.host</span> its subdomains,{" "}
-                        <span class="mono">host/path</span> only paths under that prefix (HTTP only —
-                        a CONNECT tunnel hides the path), <span class="mono">!host</span> denies and
-                        always wins, <span class="mono">re:^…$</span> is an anchored regular
-                        expression.
-                      </span>
+                      <span class="hint">{t("perm.allowlistHint")}</span>
 
                       <div class="row-inline" style={{ "margin-top": "0.5rem", "flex-wrap": "wrap" }}>
                         <For each={presets()}>
@@ -369,7 +346,7 @@ export function PermissionsPanel() {
                               title={preset.entries.join(", ")}
                               onClick={() => setAllowlistDraft(preset.entries.join("\n"))}
                             >
-                              Use {preset.name} preset
+                              {t("perm.usePreset", { name: preset.name })}
                             </button>
                           )}
                         </For>
@@ -378,13 +355,13 @@ export function PermissionsPanel() {
                           disabled={allowlistBusy() || !view().allowlisted}
                           onClick={() => void saveAllowlist()}
                         >
-                          {allowlistBusy() ? "Saving…" : "Save allowlist"}
+                          {allowlistBusy() ? t("common.saving") : t("perm.saveAllowlist")}
                         </button>
                       </div>
 
                       <Show when={view().problems.length > 0}>
                         <div class="callout callout-danger" style={{ "margin-top": "0.5rem" }}>
-                          <strong>Not enforced — these entries would do nothing:</strong>
+                          <strong>{t("perm.notEnforced")}</strong>
                           <ul style={{ margin: "0.3rem 0 0 1rem" }}>
                             <For each={view().problems}>
                               {(problem) => <li class="small">{problem}</li>}
@@ -395,25 +372,22 @@ export function PermissionsPanel() {
 
                       <Show when={view().risky.length > 0}>
                         <div class="callout callout-warn" style={{ "margin-top": "0.5rem" }}>
-                          <strong>In force, but very broad:</strong>{" "}
-                          <span class="mono">{view().risky.join(", ")}</span>. These allow far more
-                          than the hosts they name; consider narrowing them.
+                          <strong>{t("perm.inForceBroad")}</strong>{" "}
+                          {t("perm.broadDetail", { entries: view().risky.join(", ") })}
                         </div>
                       </Show>
 
                       <details style={{ "margin-top": "0.5rem" }}>
                         <summary class="small muted">
-                          Show all {view().effective.length} entries in force (including{" "}
-                          {view().global.length} inherited from global settings)
+                          {t("perm.showAllEntries", {
+                            total: view().effective.length,
+                            global: view().global.length,
+                          })}
                         </summary>
                         <pre class="output" style={{ "margin-top": "0.4rem" }}>
                           {view().effective.join("\n")}
                         </pre>
-                        <span class="hint">
-                          The global list is edited in the app-wide Settings dialog. Deny entries from
-                          either list beat allow entries from the other, so a global{" "}
-                          <span class="mono">!host</span> cannot be undone here.
-                        </span>
+                        <span class="hint">{t("perm.globalHint")}</span>
                       </details>
                     </div>
                   </>
@@ -422,15 +396,15 @@ export function PermissionsPanel() {
             </div>
 
             <div class="card">
-              <h3>Inside the sandbox right now</h3>
+              <h3>{t("perm.insideSandbox")}</h3>
               <table>
                 <thead>
                   <tr>
                     <th class="folder-cell" />
-                    <th>Reachable at</th>
-                    <th>Host path</th>
-                    <th>Access</th>
-                    <th>Origin</th>
+                    <th>{t("perm.reachableAt")}</th>
+                    <th>{t("perm.hostPath")}</th>
+                    <th>{t("perm.access")}</th>
+                    <th>{t("perm.origin")}</th>
                     <th />
                   </tr>
                 </thead>
@@ -441,7 +415,7 @@ export function PermissionsPanel() {
                           workspace is reachable from this table like every other row. */}
                       <button
                         class="btn btn-icon"
-                        title={`Open ${current().rootDir} in the file manager`}
+                        title={t("perm.openDirectory", { path: current().rootDir })}
                         onClick={() => void openProjectDir()}
                       >
                         <FolderIcon />
@@ -450,10 +424,10 @@ export function PermissionsPanel() {
                     <td class="path">/workspace</td>
                     <td class="path">{current().rootDir}</td>
                     <td>
-                      <span class="badge badge-accent">read-write</span>
+                      <span class="badge badge-accent">{t("access.readWrite")}</span>
                     </td>
-                    <td class="muted small">the project itself</td>
-                    <td class="muted small">always mounted</td>
+                    <td class="muted small">{t("perm.theProjectItself")}</td>
+                    <td class="muted small">{t("perm.alwaysMounted")}</td>
                   </tr>
                   <For each={store.grants}>
                     {(grant) => (
@@ -464,8 +438,8 @@ export function PermissionsPanel() {
                             disabled={!grant.exists}
                             title={
                               grant.exists
-                                ? `Open ${grant.hostPath} in the file manager`
-                                : "This directory is no longer on disk"
+                                ? t("perm.openDirectory", { path: grant.hostPath })
+                                : t("perm.directoryGone")
                             }
                             onClick={() => void openGrantDir(grant.id)}
                           >
@@ -491,26 +465,26 @@ export function PermissionsPanel() {
                               fallback={
                                 <button
                                   class="btn btn-sm"
-                                  title="Allow DeepCode to modify this directory"
+                                  title={t("perm.allowWriteTitle")}
                                   onClick={() => void flip(grant.id, "write")}
                                 >
-                                  Allow write
+                                  {t("perm.allowWrite")}
                                 </button>
                               }
                             >
                               <button
                                 class="btn btn-sm"
-                                title="Downgrade to read-only"
+                                title={t("perm.makeReadOnlyTitle")}
                                 onClick={() => void flip(grant.id, "read")}
                               >
-                                Make read-only
+                                {t("perm.makeReadOnly")}
                               </button>
                             </Show>
                             <button
                               class="btn btn-sm btn-danger"
                               onClick={() => void revoke(grant.id, grant.label)}
                             >
-                              Revoke
+                              {t("perm.revoke")}
                             </button>
                           </div>
                         </td>
@@ -521,27 +495,22 @@ export function PermissionsPanel() {
               </table>
               <Show when={store.grants.length === 0}>
                 <p class="muted small" style={{ "margin-top": "0.6rem" }}>
-                  No extra directories are shared. The sandbox can only see{" "}
-                  <span class="mono">/workspace</span>.
+                  {t("perm.noExtraDirectories")}
                 </p>
               </Show>
               <Show when={!current().running}>
                 <p class="faint small" style={{ "margin-top": "0.6rem" }}>
-                  Changes take effect when the sandbox next starts.
+                  {t("perm.changesNextStart")}
                 </p>
               </Show>
             </div>
 
             <div class="card">
-              <h3>Share another directory</h3>
-              <p>
-                Only the directories you list here become visible. Deepsand refuses system directories, your home
-                folder, credential stores, anything overlapping its own state, and any path that would nest inside
-                another share.
-              </p>
+              <h3>{t("perm.shareAnother")}</h3>
+              <p>{t("perm.shareDetail")}</p>
               <div class="stack" style={{ "margin-top": "0.75rem" }}>
                 <div class="field">
-                  <label for="grant-path">Directory on this machine</label>
+                  <label for="grant-path">{t("perm.directoryOnMachine")}</label>
                   <div class="row-inline">
                     <input
                       id="grant-path"
@@ -553,7 +522,7 @@ export function PermissionsPanel() {
                       onChange={(event) => void check(event.currentTarget.value)}
                     />
                     <button class="btn" onClick={() => void browse()}>
-                      Browse…
+                      {t("common.browse")}
                     </button>
                   </div>
                   <Show when={checkNote()}>
@@ -566,33 +535,33 @@ export function PermissionsPanel() {
                 </div>
 
                 <div class="field">
-                  <label>Access level</label>
+                  <label>{t("perm.accessLevel")}</label>
                   <div class="access-choice">
                     <button
                       class="access-option"
                       aria-pressed={draftAccess() === "read"}
                       onClick={() => setDraftAccess("read")}
                     >
-                      <strong>Read-only</strong>
-                      <span>DeepCode can read files but cannot change or delete anything. Prefer this.</span>
+                      <strong>{t("perm.readOnly")}</strong>
+                      <span>{t("perm.readOnlyDetail")}</span>
                     </button>
                     <button
                       class="access-option"
                       aria-pressed={draftAccess() === "write"}
                       onClick={() => setDraftAccess("write")}
                     >
-                      <strong>Read-write</strong>
-                      <span>DeepCode can create, modify and delete files in this directory.</span>
+                      <strong>{t("perm.readWrite")}</strong>
+                      <span>{t("perm.readWriteDetail")}</span>
                     </button>
                   </div>
                 </div>
 
                 <div class="field">
-                  <label for="grant-purpose">Why (optional)</label>
+                  <label for="grant-purpose">{t("perm.whyOptional")}</label>
                   <input
                     id="grant-purpose"
                     type="text"
-                    placeholder="brand palette and logos"
+                    placeholder={t("perm.whyPlaceholder")}
                     value={draftPurpose()}
                     onInput={(event) => setDraftPurpose(event.currentTarget.value)}
                   />
@@ -604,18 +573,18 @@ export function PermissionsPanel() {
                     disabled={busy() || !draftPath().trim() || checkNote()?.ok === false}
                     onClick={() => void add()}
                   >
-                    Add permission
+                    {t("perm.addPermission")}
                   </button>
                 </div>
               </div>
             </div>
 
             <div class="card">
-              <h3>Decision log</h3>
-              <p>Every grant, revoke and refusal for this project, newest last.</p>
+              <h3>{t("perm.decisionLog")}</h3>
+              <p>{t("perm.decisionLogDetail")}</p>
               <Show
                 when={store.audit.length > 0}
-                fallback={<div class="empty">Nothing has been decided yet.</div>}
+                fallback={<div class="empty">{t("perm.nothingDecided")}</div>}
               >
                 <pre class="output">{store.audit.join("\n")}</pre>
               </Show>

@@ -10,7 +10,54 @@ import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import * as api from "../lib/api";
 import type { EffortView, ModelChoice, ModelView, ToolCatalogView, ToolView } from "../lib/types";
 import { describeError, selectedProject, store, toast } from "../store";
+import { t, tOptional } from "../i18n";
 import { Modal } from "./Dialogs";
+
+/** A catalogue entry's prose lives in the backend; the bundle may override it. */
+function toolLabel(tool: ToolView): string {
+  return tOptional(`tools.tool.${tool.id}.label`) ?? tool.label;
+}
+
+function toolDescription(tool: ToolView): string {
+  return tOptional(`tools.tool.${tool.id}.description`) ?? tool.description;
+}
+
+function toolCostNote(tool: ToolView): string | null {
+  if (!tool.costNote) return null;
+  return tOptional(`tools.tool.${tool.id}.cost`) ?? tool.costNote;
+}
+
+/** Provider labels the backend writes as prose, rather than as an identifier. */
+function providerLabel(provider: string): string {
+  switch (provider) {
+    case "apt (third-party repo)":
+      return t("tools.provider.aptRepo");
+    case "built in":
+      return t("tools.provider.builtIn");
+    case "source build":
+      return t("tools.provider.sourceBuild");
+    default:
+      return provider;
+  }
+}
+
+/** The catalogue's category labels are data; these are the translated names. */
+function categoryLabel(category: string): string {
+  switch (category) {
+    case "Utilities":
+      return t("tools.category.utilities");
+    case "Languages":
+      return t("tools.category.languages");
+    case "Package managers":
+      return t("tools.category.packageManagers");
+    case "Capabilities":
+      return t("tools.category.capabilities");
+    case "Reverse Engineering":
+      return t("tools.category.reverseEngineering");
+    default:
+      return category;
+  }
+}
 
 /* ------------------------------------------------------------------------- */
 /* Model                                                                     */
@@ -89,12 +136,12 @@ export function ModelSelect() {
   function sayWhatHappened(saved: ModelView, what: string) {
     toast(
       "ok",
-      saved.deferring ? "Model: following configuration" : `Model: ${what}`,
+      saved.deferring ? t("tools.modelFollowing") : t("tools.modelSet", { name: what }),
       saved.deferring
-        ? `Using ${saved.configured} from your configuration.`
+        ? t("tools.modelFromConfig", { name: saved.configured })
         : saved.appliedLive
-          ? "Written into the running sandbox's settings."
-          : "Saved. It applies when this project next runs.",
+          ? t("tools.modelAppliedLive")
+          : t("tools.modelSaved"),
     );
   }
 
@@ -114,7 +161,7 @@ export function ModelSelect() {
       // The name if the list has one, so the toast reads like the dropdown.
       sayWhatHappened(saved, labelFor(value));
     } catch (error) {
-      toast("error", "Could not change the model", describeError(error));
+      toast("error", t("tools.couldNotChangeModel"), describeError(error));
       // Put the control back to what is saved, rather than leaving it showing a choice that
       // was refused.
       setView(await api.getModel(current.id).catch(() => view()));
@@ -133,7 +180,7 @@ export function ModelSelect() {
       setCustom(null);
       sayWhatHappened(saved, name);
     } catch (error) {
-      toast("error", "Could not set that model", describeError(error));
+      toast("error", t("tools.couldNotSetModel"), describeError(error));
     } finally {
       setBusy(false);
     }
@@ -148,15 +195,17 @@ export function ModelSelect() {
             disabled={busy()}
             title={
               current().problem ??
-              `The model this project runs. Defer to Config follows the configured model${
-                current().configured ? ` (${current().configured})` : ""
-              }.`
+              (current().configured
+                ? t("tools.modelTitleConfigured", { model: current().configured })
+                : t("tools.modelTitleDefer"))
             }
             value={current().value ?? ""}
             onChange={(event) => void choose(event.currentTarget.value)}
           >
             <option value="">
-              Defer to Config{current().configured ? ` (${current().configured})` : ""}
+              {current().configured
+                ? `${t("tools.deferToConfig")} (${current().configured})`
+                : t("tools.deferToConfig")}
             </option>
             <For each={options()}>
               {(model) => (
@@ -165,7 +214,7 @@ export function ModelSelect() {
                 </option>
               )}
             </For>
-            <option value={CUSTOM}>Custom…</option>
+            <option value={CUSTOM}>{t("tools.custom")}</option>
           </select>
           {/* The list is a network call; when it fails the dropdown is still usable, and this
               is what says why it is short. */}
@@ -204,36 +253,33 @@ function CustomModelDialog(props: {
 
   return (
     <Modal
-      title="Custom model"
-      subtitle="Used exactly as written: nothing checks it against the API's list."
+      title={t("tools.customModel")}
+      subtitle={t("tools.customModelSubtitle")}
       onClose={props.onClose}
       footer={
         <>
           <button class="btn btn-danger left" disabled={props.busy} onClick={props.onClose}>
-            Cancel
+            {t("common.cancel")}
           </button>
           <button class="btn btn-primary" disabled={!ready()} onClick={save}>
-            Use this model
+            {t("tools.useModel")}
           </button>
         </>
       }
     >
       <label class="field">
-        <span>Model name</span>
+        <span>{t("tools.modelName")}</span>
         <input
           autofocus
           value={name()}
-          placeholder="e.g. deepseek-v4-pro"
+          placeholder={t("tools.modelNamePlaceholder")}
           onInput={(event) => setName(event.currentTarget.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") save();
           }}
         />
       </label>
-      <p class="small">
-        Goes into the sandbox's <span class="mono">MODEL</span> setting as typed. Leave the
-        dropdown on Defer to Config to go back to the configured model.
-      </p>
+      <p class="small">{t("tools.customModelDetail")}</p>
     </Modal>
   );
 }
@@ -324,17 +370,17 @@ export function EffortSwitch() {
       setDragged(null);
       toast(
         "ok",
-        `Thinking: ${option.label}`,
+        t("tools.thinking", { label: option.label }),
         saved.deferring
-          ? "Following your own DeepCode settings.json."
+          ? t("tools.followingSettings")
           : saved.appliedLive
-            ? "Applied to the running sandbox."
-            : "Saved. It applies when this project next runs.",
+            ? t("tools.appliedLive")
+            : t("tools.savedNextRun"),
       );
     } catch (error) {
       setView(previous);
       setDragged(null);
-      toast("error", "Could not change the thinking intensity", describeError(error));
+      toast("error", t("tools.couldNotChangeThinking"), describeError(error));
     } finally {
       setBusy(false);
     }
@@ -355,7 +401,7 @@ export function EffortSwitch() {
             step={1}
             value={index()}
             disabled={busy()}
-            aria-label="Thinking intensity"
+            aria-label={t("tools.thinkingIntensity")}
             aria-valuetext={active()?.label}
             title={active()?.description}
             style={{ "--fill": `${(index() / lastIndex()) * 100}%` }}
@@ -391,48 +437,48 @@ function ToolRow(props: {
     <div class="tool-row" classList={{ "tool-off": locked() }}>
       <div class="tool-body">
         <div class="tool-head">
-          <span class="tool-name">{props.tool.label}</span>
+          <span class="tool-name">{toolLabel(props.tool)}</span>
           <Show when={props.tool.homepage}>
             {(homepage) => (
               <button
                 type="button"
                 class="tool-home"
-                title={`Open ${homepage()} in your browser`}
-                aria-label={`Open the ${props.tool.label} project page`}
+                title={t("tools.openHomepage", { url: homepage() })}
+                aria-label={t("tools.openProjectPage", { name: toolLabel(props.tool) })}
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
                   void api
                     .openToolHomepage(props.tool.id)
                     .catch((error) =>
-                      toast("error", "Could not open the project page", describeError(error)),
+                      toast("error", t("tools.couldNotOpenPage"), describeError(error)),
                     );
                 }}
               >
-                project page ↗
+                {t("tools.projectPage")}
               </button>
             )}
           </Show>
           <Show when={props.tool.defaultOn && !locked()}>
-            <span class="chip chip-quiet" title="On for a new project unless switched off">
-              default
+            <span class="chip chip-quiet" title={t("tools.defaultTitle")}>
+              {t("tools.default")}
             </span>
           </Show>
           <Show when={locked()}>
             <span class="chip chip-warn" title={props.tool.unavailableReason ?? ""}>
-              needs {props.tool.requires}
+              {t("tools.needs", { base: props.tool.requires })}
             </span>
           </Show>
           <Show when={opensNetwork()}>
-            <span class="chip chip-accent">opens the network</span>
+            <span class="chip chip-accent">{t("tools.opensNetwork")}</span>
           </Show>
         </div>
 
-        <p class="tool-desc">{props.tool.description}</p>
+        <p class="tool-desc">{toolDescription(props.tool)}</p>
 
         {/* Before the switch, not after it: this is the only warning about a cost the operator
             would otherwise discover on the next build. */}
-        <Show when={props.tool.costNote}>
+        <Show when={toolCostNote(props.tool)}>
           {(note) => <p class="tool-note tool-note-warn">{note()}</p>}
         </Show>
 
@@ -442,13 +488,14 @@ function ToolRow(props: {
 
         <Show when={opensNetwork()}>
           <p class="tool-note">
-            Reaches <span class="mono">{props.tool.hosts.join(", ")}</span> while switched on, and
-            stops the moment it is switched off.
+            {t("tools.reachesHosts", { hosts: props.tool.hosts.join(", ") })}
           </p>
         </Show>
 
         <Show when={!locked()}>
-          <p class="tool-meta">Installed with {props.tool.provider}</p>
+          <p class="tool-meta">
+            {t("tools.installedWith", { provider: providerLabel(props.tool.provider) })}
+          </p>
         </Show>
       </div>
 
@@ -456,13 +503,13 @@ function ToolRow(props: {
         class="switch"
         role="switch"
         aria-checked={props.tool.enabled}
-        aria-label={`${props.tool.label}${locked() ? " (not available here)" : ""}`}
+        aria-label={`${toolLabel(props.tool)}${locked() ? t("tools.notAvailableHere") : ""}`}
         title={
           locked()
-            ? (props.tool.unavailableReason ?? `Needs a ${props.tool.requires} image`)
+            ? (props.tool.unavailableReason ?? t("tools.needsImage", { base: props.tool.requires }))
             : props.tool.enabled
-              ? "Switch off"
-              : "Switch on"
+              ? t("tools.switchOff")
+              : t("tools.switchOn")
         }
         disabled={locked() || props.busy}
         onClick={() => props.onToggle(props.tool.id, !props.tool.enabled)}
@@ -500,7 +547,7 @@ export function ToolsPanel() {
     try {
       setCatalog(await api.listTools(projectId));
     } catch (error) {
-      toast("error", "Could not read this project's tools", describeError(error));
+      toast("error", t("tools.couldNotRead"), describeError(error));
     }
   }
 
@@ -525,7 +572,7 @@ export function ToolsPanel() {
       setCatalog(saved);
       toast("ok", message.title, message.detail);
     } catch (error) {
-      toast("error", "Could not change the tools", describeError(error));
+      toast("error", t("tools.couldNotChange"), describeError(error));
     } finally {
       setBusy(false);
     }
@@ -541,10 +588,13 @@ export function ToolsPanel() {
     ];
     const hosts = hostsOf(actionable);
     void applySelection(ids, {
-      title: `All ${group.category.toLowerCase()} on (${actionable.length})`,
+      title: t("tools.allCategoryOn", {
+        category: categoryLabel(group.category),
+        count: actionable.length,
+      }),
       detail:
-        (hosts.length > 0 ? `Network opened: ${hosts.join(", ")}. ` : "") +
-        "Rebuild the image to install them.",
+        (hosts.length > 0 ? t("tools.networkOpened", { hosts: hosts.join(", ") }) : "") +
+        t("tools.rebuildToInstall"),
     });
   }
 
@@ -557,11 +607,14 @@ export function ToolsPanel() {
         .filter((tool) => tool.enabled && !off.has(tool.id))
         .map((tool) => tool.id),
       {
-        title: `All ${group.category.toLowerCase()} off (${actionable.length})`,
+        title: t("tools.allCategoryOff", {
+          category: categoryLabel(group.category),
+          count: actionable.length,
+        }),
         detail:
           (hostsOf(actionable).length > 0
-            ? `Network closed again: ${hostsOf(actionable).join(", ")}. `
-            : "") + "Rebuild the image to remove them.",
+            ? t("tools.networkClosed", { hosts: hostsOf(actionable).join(", ") })
+            : "") + t("tools.rebuildToRemove"),
       },
     );
   }
@@ -575,12 +628,12 @@ export function ToolsPanel() {
         .filter((tool) => tool.available)
         .map((tool) => tool.id),
       {
-        title: `Every tool on (${tools().filter((t) => t.available).length})`,
+        title: t("tools.everyToolOn", { count: tools().filter((tool) => tool.available).length }),
         // The widest change this panel can make, so it says what it opened rather than
         // just reporting a count.
-        detail:
-          (hosts.length > 0 ? `Network opened: ${hosts.join(", ")}. ` : "") +
-          "This is the largest image Deepsand can build. Rebuild to install everything.",
+        detail: t("tools.everyToolOnDetail", {
+          network: hosts.length > 0 ? t("tools.networkOpened", { hosts: hosts.join(", ") }) : "",
+        }),
       },
     );
   }
@@ -590,10 +643,10 @@ export function ToolsPanel() {
     if (on.length === 0) return;
     const hosts = hostsOf(on);
     void applySelection([], {
-      title: "Every tool off",
-      detail:
-        (hosts.length > 0 ? `Network closed again: ${hosts.join(", ")}. ` : "") +
-        "The next build produces a bare image, with no git, jq or ripgrep.",
+      title: t("tools.everyToolOff"),
+      detail: t("tools.everyToolOffDetail", {
+        network: hosts.length > 0 ? t("tools.networkClosed", { hosts: hosts.join(", ") }) : "",
+      }),
     });
   }
 
@@ -612,17 +665,19 @@ export function ToolsPanel() {
       const hosts = tool?.hosts ?? [];
       toast(
         "ok",
-        `${tool?.label ?? id} ${enabled ? "enabled" : "disabled"}`,
+        t(enabled ? "tools.toolOn" : "tools.toolOff", {
+          name: tool ? toolLabel(tool) : id,
+        }),
         enabled && hosts.length > 0
-          ? `Also allowed: ${hosts.join(", ")}. Rebuild the image to install it.`
+          ? t("tools.toolOnHosts", { hosts: hosts.join(", ") })
           : enabled
-            ? "Rebuild the image to install it."
+            ? t("tools.rebuildToInstallOne")
             : hosts.length > 0
-              ? `Closed again: ${hosts.join(", ")}.`
-              : "Rebuild the image so it takes effect.",
+              ? t("tools.closedAgain", { hosts: hosts.join(", ") })
+              : t("tools.rebuildToApply"),
       );
     } catch (error) {
-      toast("error", "Could not change the tools", describeError(error));
+      toast("error", t("tools.couldNotChange"), describeError(error));
     } finally {
       setBusy(false);
     }
@@ -668,55 +723,54 @@ export function ToolsPanel() {
 
   return (
     <div class="panel">
-      <Show when={catalog()} fallback={<div class="empty">Loading tools…</div>}>
+      <Show when={catalog()} fallback={<div class="empty">{t("tools.loading")}</div>}>
         {(view) => (
           <>
             <div class="card">
               <div class="card-head">
-                <h3>Tools</h3>
-                <span class="chip chip-quiet mono" title="The image tag this selection builds to">
+                <h3>{t("tools.title")}</h3>
+                <span class="chip chip-quiet mono" title={t("tools.imageTagTitle")}>
                   {view().image}
                 </span>
               </div>
-              <p class="muted small">
-                Tools are built into this project's container image, so a change here needs the image
-                rebuilt before it takes effect. A tool that needs the network also opens the hosts it
-                uses while it is switched on, and closes them again when switched off.
-              </p>
+              <p class="muted small">{t("tools.detail")}</p>
               <Show when={view().effectiveHosts.length > 0}>
                 <p class="muted small">
-                  Open for this project right now:{" "}
-                  <span class="mono">{view().effectiveHosts.join(", ")}</span>
+                  {t("tools.openNow", { hosts: view().effectiveHosts.join(", ") })}
                 </p>
               </Show>
               <Show when={unavailable() > 0}>
                 <p class="muted small">
-                  {unavailable()} tool{unavailable() === 1 ? " is" : "s are"} greyed out and cannot be
-                  switched on, because the sandbox image is not the one they need.
+                  {t(unavailable() === 1 ? "tools.unavailableOne" : "tools.unavailableMany", {
+                    count: unavailable(),
+                  })}
                 </p>
               </Show>
 
               <div class="bulk-row">
-                <span class="bulk-label">Whole catalogue</span>
+                <span class="bulk-label">{t("tools.wholeCatalogue")}</span>
                 <button
                   class="btn btn-ghost btn-sm"
                   disabled={busy() || !canEnableAnything()}
-                  title="Switch on every tool this image can hold, including package managers"
+                  title={t("tools.enableAllTitle")}
                   onClick={enableEverything}
                 >
-                  Enable all tools
+                  {t("tools.enableAll")}
                 </button>
                 <button
                   class="btn btn-ghost btn-sm"
                   disabled={busy() || !canDisableAnything()}
-                  title="Switch everything off, including git, jq and ripgrep"
+                  title={t("tools.disableAllTitle")}
                   onClick={disableEverything}
                 >
-                  Disable all tools
+                  {t("tools.disableAll")}
                 </button>
                 <span class="bulk-count">
-                  {enableableTools()} available
-                  <Show when={unavailable() > 0}> · {unavailable()} not for this image</Show>
+                  {t("tools.available", { count: enableableTools() })}
+                  <Show when={unavailable() > 0}>
+                    {" · "}
+                    {t("tools.notForImage", { count: unavailable() })}
+                  </Show>
                 </span>
               </div>
             </div>
@@ -725,9 +779,9 @@ export function ToolsPanel() {
               {(group) => (
                 <div class="card">
                   <div class="card-head">
-                    <h3>{group.category}</h3>
+                    <h3>{categoryLabel(group.category)}</h3>
                     <span class="chip chip-quiet">
-                      {group.enabled} of {group.tools.length} on
+                      {t("tools.onOf", { on: group.enabled, total: group.tools.length })}
                     </span>
                   </div>
 
@@ -735,22 +789,22 @@ export function ToolsPanel() {
                     <button
                       class="btn btn-ghost btn-sm"
                       disabled={busy() || !group.canEnable}
-                      title={`Switch on every available tool in ${group.category}`}
+                      title={t("tools.enableAllGroupTitle", { category: categoryLabel(group.category) })}
                       onClick={() => enableCategory(group)}
                     >
-                      Enable all
+                      {t("tools.enableAllGroup")}
                     </button>
                     <button
                       class="btn btn-ghost btn-sm"
                       disabled={busy() || !group.canDisable}
-                      title={`Switch off every tool in ${group.category}`}
+                      title={t("tools.disableAllGroupTitle", { category: categoryLabel(group.category) })}
                       onClick={() => disableCategory(group)}
                     >
-                      Disable all
+                      {t("tools.disableAllGroup")}
                     </button>
                     <Show when={group.available < group.tools.length}>
                       <span class="bulk-count">
-                        {group.tools.length - group.available} not for this image
+                        {t("tools.notForImage", { count: group.tools.length - group.available })}
                       </span>
                     </Show>
                   </div>

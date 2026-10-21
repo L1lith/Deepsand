@@ -1,5 +1,7 @@
 /** Small formatting helpers shared by the panels. */
 
+import { dateLocale, t } from "../i18n";
+
 const encoder = new TextEncoder();
 
 /** Decode the base64 the Rust side uses for PTY bytes. */
@@ -26,19 +28,19 @@ export function baseName(path: string): string {
 export function relativeTime(ms: number, now = Date.now()): string {
   const delta = Math.max(0, now - ms);
   const seconds = Math.floor(delta / 1000);
-  if (seconds < 5) return "just now";
-  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 5) return t("format.justNow");
+  if (seconds < 60) return t("format.secondsAgo", { count: seconds });
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 60) return t("format.minutesAgo", { count: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return t("format.hoursAgo", { count: hours });
   const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+  return t("format.daysAgo", { count: days });
 }
 
 export function formatTimestamp(ms: number): string {
-  if (!ms) return "unknown";
-  return new Date(ms).toLocaleString();
+  if (!ms) return t("format.unknown");
+  return new Date(ms).toLocaleString(dateLocale());
 }
 
 /** Turn "DeepCode is trying to access X" into a short badge label. */
@@ -56,7 +58,7 @@ export function shortPath(path: string, max = 46): string {
  * not jump between widths as the number grows.
  */
 export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return "unknown";
+  if (!Number.isFinite(bytes) || bytes < 0) return t("format.unknown");
   if (bytes < 1024) return `${Math.round(bytes)} B`;
   const units = ["KB", "MB", "GB", "TB", "PB"];
   let value = bytes / 1024;

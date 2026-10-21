@@ -231,6 +231,10 @@ export const wipeProjectDeepcodeData = (projectId: string) =>
 export const moveProject = (projectId: string, toIndex: number) =>
   call<ProjectView[]>("move_project", { projectId, toIndex });
 
+/** Change the sidebar label. Container, volume and session names deliberately stay put. */
+export const renameProject = (projectId: string, name: string) =>
+  call<ProjectView>("rename_project", { projectId, name });
+
 /** Open a project's working directory in the machine's file manager. */
 export const revealProjectDir = (projectId: string) =>
   call<void>("reveal_project_dir", { projectId });
