@@ -1,0 +1,23 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "deepsand-docs",
+  "main": "./worker.mjs",
+  "compatibility_date": "2026-10-21",
+  "assets": {
+    "directory": "./.vitepress/dist",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "html_handling": "none",
+    "not_found_handling": "none"
+  },
+  "routes": [
+    {
+      "pattern": "deepsand.webslc.com/*",
+      "zone_name": "webslc.com"
+    },
+    {
+      "pattern": "deepsand.webslc.com",
+      "custom_domain": true
+    }
+  ]
+}

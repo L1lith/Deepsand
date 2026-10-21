@@ -1,0 +1,59 @@
+name: docs
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - "docs-site/**"
+      - ".github/workflows/docs.yml"
+      - "package.json"
+      - "package-lock.json"
+  workflow_dispatch:
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: "npm"
+
+      - name: install dependencies
+        run: npm ci
+
+      - name: build documentation
+        env:
+          # Set the repository variable DOCS_SITE_URL when the docs use a
+          # custom domain; the sitemap must contain the public origin.
+          DOCS_SITE_URL: ${{ vars.DOCS_SITE_URL || 'https://deepsand.webslc.com' }}
+        run: npm run docs:build
+
+      - name: check Cloudflare configuration
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo "::error::Set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID in Settings, Secrets and variables, Actions."
+            exit 1
+          fi
+
+      - name: deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --config docs-site/wrangler.jsonc

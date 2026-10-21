@@ -1,0 +1,165 @@
+:root {
+  --vp-c-brand-1: #2dd4bf;
+  --vp-c-brand-2: #14b8a6;
+  --vp-c-brand-3: #0f766e;
+  --vp-c-brand-soft: rgba(45, 212, 191, 0.14);
+}
+
+html[dir="rtl"] body {
+  text-align: right;
+}
+
+html[dir="rtl"] .VPDoc ul,
+html[dir="rtl"] .VPDoc ol {
+  padding-right: 1.25rem;
+  padding-left: 0;
+}
+
+html[dir="rtl"] .VPSidebarItem .item,
+html[dir="rtl"] .VPNavBarMenuLink {
+  text-align: right;
+}
+
+html[dir="rtl"] code,
+html[dir="rtl"] pre {
+  direction: ltr;
+  text-align: left;
+  unicode-bidi: embed;
+}
+
+/*
+ * Use one explicit language control instead of VitePress's built-in switcher,
+ * which collapses into the "..." menu on narrow screens. The globe is the
+ * language-independent cue; the native name is useful when there is room.
+ */
+.VPNavBarTranslations,
+.VPNavBarExtra .group.translations {
+  display: none !important;
+}
+
+.ds-language {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-inline-start: 8px;
+}
+
+.ds-language-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 9px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  background: var(--vp-c-bg-soft);
+  color: var(--vp-c-text-1);
+  cursor: pointer;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.ds-language-button:hover {
+  border-color: var(--vp-c-brand-1);
+  background: var(--vp-c-bg-alt);
+}
+
+.ds-language-button:focus-visible {
+  outline: 2px solid var(--vp-c-brand-1);
+  outline-offset: 2px;
+}
+
+.ds-language-globe {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+.ds-language-name {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.ds-language-chevron {
+  width: 14px;
+  height: 14px;
+  opacity: 0.7;
+  transition: transform 0.15s;
+}
+
+.ds-language-chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.ds-language-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  inset-inline-end: 0;
+  z-index: 100;
+  width: min(18rem, calc(100vw - 2rem));
+  max-height: min(70vh, 32rem);
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+  background: var(--vp-c-bg-elv);
+  box-shadow: var(--vp-shadow-3);
+}
+
+.ds-language-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--vp-c-text-1);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.ds-language-option:hover {
+  background: var(--vp-c-bg-soft);
+}
+
+.ds-language-option.is-current {
+  background: var(--vp-c-brand-soft);
+  color: var(--vp-c-brand-1);
+  font-weight: 600;
+}
+
+.ds-language-check {
+  font-size: 12px;
+}
+
+@media (max-width: 767px) {
+  .ds-language {
+    margin-inline-start: 4px;
+  }
+
+  .ds-language-name,
+  .ds-language-chevron {
+    display: none;
+  }
+
+  .ds-language-button {
+    width: 36px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .ds-language-menu {
+    inset-inline-end: -4px;
+  }
+}
+
+.ds-language-menu-enter-active,
+.ds-language-menu-leave-active {
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.ds-language-menu-enter-from,
+.ds-language-menu-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
