@@ -43,6 +43,10 @@ function selectLanguage(code: string): void {
   close();
 }
 
+function rememberMiddleClick(event: MouseEvent, code: string): void {
+  if (event.button === 1) rememberLanguage(code);
+}
+
 function close(): void {
   open.value = false;
 }
@@ -114,7 +118,7 @@ onBeforeUnmount(() => {
           :aria-current="locale.code === current.code ? 'page' : undefined"
           role="menuitem"
           @click="selectLanguage(locale.code)"
-          @auxclick="rememberLanguage(locale.code)"
+          @auxclick="rememberMiddleClick($event, locale.code)"
         >
           <span>{{ locale.label }}</span>
           <span v-if="locale.code === current.code" class="ds-language-check" aria-hidden="true">✓</span>
