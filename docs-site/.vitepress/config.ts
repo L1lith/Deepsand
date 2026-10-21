@@ -59,6 +59,7 @@ const localeConfig = Object.fromEntries(
     {
       label,
       lang,
+      dir: code === "ar" ? "rtl" : "ltr",
       link: baseFor(code),
       title: "Deepsand",
       description: messages[code].siteDescription,
