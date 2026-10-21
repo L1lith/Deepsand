@@ -101,6 +101,9 @@ export const getSettings = () => call<AppSettings>("get_settings");
 export const setSettings = (settings: AppSettings) => call<AppSettings>("set_settings", { settings });
 export const setEgressAllowlist = (hosts: string[]) =>
   call<string[]>("set_egress_allowlist", { hosts });
+export const defaultApiKeyStatus = () => call<string | null>("default_api_key_status");
+export const setDefaultApiKey = (key: string) => call<string | null>("set_default_api_key", { key });
+export const clearDefaultApiKey = () => call<void>("clear_default_api_key");
 
 /**
  * One project's allowlist, with the inherited global entries alongside it.

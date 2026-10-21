@@ -787,6 +787,22 @@ fn open_secrets(state: &impl AsAppState, project_id: &str) -> Option<deepsand_co
     }
 }
 
+/// The app-wide API key, read from the OS keystore.
+///
+/// A keystore that is unavailable is not fatal to planning or starting: the
+/// host configuration may still supply a key, and the settings panel is where
+/// the operator sees why storing one failed.
+fn app_api_key(state: &impl AsAppState) -> Option<String> {
+    let data_dir = store(state).data_dir().to_path_buf();
+    match deepsand_core::secrets::load_app_api_key(&data_dir) {
+        Ok(key) => key,
+        Err(err) => {
+            tracing::warn!("the app-wide API key is unavailable: {err}");
+            None
+        }
+    }
+}
+
 /// The model API's addresses, resolved on the host.
 ///
 /// A thin wrapper over the core helper, kept because the call site reads better with the
@@ -966,7 +982,9 @@ fn prepare_plan(
 
     let host = credentials::read_host_config();
 
-    let resolved = credentials::resolve(&project, &app_settings, &host);
+    let stored_key = app_api_key(state);
+    let resolved =
+        credentials::resolve_with_app_key(&project, &app_settings, &host, stored_key.as_deref());
 
     let mut sandbox = container_settings::build_sandbox_snapshot(
         &project,
@@ -2963,6 +2981,38 @@ pub fn set_settings_impl(state: &AppState, settings: AppSettings) -> CmdResult<A
     Ok(store.settings().clone())
 }
 
+/// Whether the app-wide model API key is present, and its last four characters.
+///
+/// Only the mask crosses the IPC boundary: the window never receives the key,
+/// which is the same rule the per-project secrets panel follows.
+#[tauri::command]
+pub fn default_api_key_status(state: State<'_, AppState>) -> CmdResult<Option<String>> {
+    default_api_key_status_impl(&state)
+}
+
+pub fn default_api_key_status_impl(state: &AppState) -> CmdResult<Option<String>> {
+    let data_dir = store(state).data_dir().to_path_buf();
+    deepsand_core::secrets::load_app_api_key(&data_dir)
+        .map(|key| key.map(|value| deepsand_core::secrets::mask_app_api_key(&value)))
+        .map_err(fail)
+}
+
+/// Store the app-wide model API key in the operating system's keystore.
+#[tauri::command]
+pub fn set_default_api_key(state: State<'_, AppState>, key: String) -> CmdResult<Option<String>> {
+    let data_dir = store(&state).data_dir().to_path_buf();
+    let key = key.trim();
+    deepsand_core::secrets::store_app_api_key(&data_dir, key).map_err(fail)?;
+    Ok(Some(deepsand_core::secrets::mask_app_api_key(key)))
+}
+
+/// Remove the app-wide model API key from the operating system's keystore.
+#[tauri::command]
+pub fn clear_default_api_key(state: State<'_, AppState>) -> CmdResult<()> {
+    let data_dir = store(&state).data_dir().to_path_buf();
+    deepsand_core::secrets::clear_app_api_key(&data_dir).map_err(fail)
+}
+
 #[tauri::command]
 pub async fn set_egress_allowlist(state: State<'_, AppState>, hosts: Vec<String>) -> CmdResult<Vec<String>> {
     set_egress_allowlist_impl(&state, hosts).await
@@ -3509,8 +3559,11 @@ pub(crate) fn push_live_settings(state: &AppState, project_id: &str) -> CmdResul
             .join("projects")
             .join(project_id)
             .join("config");
+        drop(store);
         let host = credentials::read_host_config();
-        let resolved = credentials::resolve(&project, &app, &host);
+        let stored_key = app_api_key(state);
+        let resolved =
+            credentials::resolve_with_app_key(&project, &app, &host, stored_key.as_deref());
         let container = state
             .sessions
             .lock()
@@ -3920,8 +3973,11 @@ fn model_view(state: &AppState, project_id: &str) -> CmdResult<ModelView> {
         let store = store(state);
         let project = store.project(project_id).map_err(fail)?.clone();
         let app = store.settings().clone();
+        drop(store);
         let host = credentials::read_host_config();
-        let resolved = credentials::resolve(&project, &app, &host);
+        let stored_key = app_api_key(state);
+        let resolved =
+            credentials::resolve_with_app_key(&project, &app, &host, stored_key.as_deref());
         let running = state
             .sessions
             .lock()
@@ -4016,8 +4072,11 @@ pub async fn list_models_impl(state: &AppState, project_id: &str) -> CmdResult<M
         let store = store(state);
         let project = store.project(project_id).map_err(fail)?.clone();
         let app = store.settings().clone();
+        drop(store);
         let host = credentials::read_host_config();
-        let resolved = credentials::resolve(&project, &app, &host);
+        let stored_key = app_api_key(state);
+        let resolved =
+            credentials::resolve_with_app_key(&project, &app, &host, stored_key.as_deref());
         (resolved.base_url.trim().to_string(), resolved.api_key)
     };
 

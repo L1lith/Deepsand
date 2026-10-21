@@ -164,11 +164,25 @@ fn filter_extra_env(
     (keep, dropped)
 }
 
+/// Resolve credentials with no app-wide API key.
+///
+/// Kept as the small call shape so existing callers and tests that do not have
+/// a keyring do not have to thread one through.
+pub fn resolve(project: &Project, app: &AppSettings, host: &HostConfig) -> ResolvedCredentials {
+    resolve_with_app_key(project, app, host, None)
+}
+
 /// Merge, in order of increasing precedence:
 ///   1. Deepsand's own defaults
 ///   2. the host's `~/.deepcode/settings.json`   (when the project inherits)
-///   3. the project's explicit overrides
-pub fn resolve(project: &Project, app: &AppSettings, host: &HostConfig) -> ResolvedCredentials {
+///   3. the app-wide API key stored in Settings
+///   4. the project's explicit overrides
+pub fn resolve_with_app_key(
+    project: &Project,
+    app: &AppSettings,
+    host: &HostConfig,
+    app_api_key: Option<&str>,
+) -> ResolvedCredentials {
     let mut out = ResolvedCredentials {
         model: app.default_model.clone(),
         base_url: app.default_base_url.clone(),
@@ -221,7 +235,14 @@ pub fn resolve(project: &Project, app: &AppSettings, host: &HostConfig) -> Resol
         out.warnings.push(err.clone());
     }
 
-    // Layer 3: explicit project overrides always win.
+    // The app-wide key is an explicit choice in Settings, so it beats the host
+    // configuration but still yields to a project's own override below.
+    if let Some(key) = app_api_key.map(str::trim).filter(|key| !key.is_empty()) {
+        out.api_key = Some(key.to_string());
+        layers.push("Deepsand settings API key");
+    }
+
+    // Layer 4: explicit project overrides always win.
     let mut overrode = false;
     let creds: &Credentials = &project.credentials;
     if let Some(model) = non_empty(&creds.model) {
@@ -392,6 +413,26 @@ mod tests {
         let mut cleared = project();
         cleared.credentials.model = None;
         assert_eq!(resolve(&cleared, &app, &host).model, "configured-model");
+    }
+
+    #[test]
+    fn the_settings_api_key_is_used_and_a_project_key_still_wins() {
+        let host = HostConfig {
+            present: true,
+            api_key: Some("host-key".into()),
+            ..HostConfig::default()
+        };
+
+        let resolved =
+            resolve_with_app_key(&project(), &AppSettings::default(), &host, Some("settings-key"));
+        assert_eq!(resolved.api_key.as_deref(), Some("settings-key"));
+        assert!(resolved.provenance.contains("settings API key"));
+
+        let mut own = project();
+        own.credentials.api_key = Some("project-key".into());
+        let resolved =
+            resolve_with_app_key(&own, &AppSettings::default(), &host, Some("settings-key"));
+        assert_eq!(resolved.api_key.as_deref(), Some("project-key"));
     }
 
     #[test]

@@ -33,6 +33,11 @@ npm run app:dev         # app with hot reload
 | `npm run build` | `tsc --noEmit` + `vite build` (frontend typecheck) |
 | `npm run runtime:build` | build and tag the sandbox image |
 | `npm run runtime:icons` | regenerate `src-tauri/icons` from `assets/icon.png` |
+| `npm run docs` | VitePress documentation with hot reload, opening the browser |
+| `npm run docs:dev` | VitePress documentation with hot reload, without opening a browser |
+| `npm run docs:preview` | build the docs and serve the production output locally |
+| `npm run docs:build` | build the static documentation site |
+| `npm run docs:translate` | regenerate every localized documentation page and UI label |
 
 ## Where things live
 
@@ -53,6 +58,14 @@ npm run app:dev         # app with hot reload
 | `src-tauri/src/remote_server.rs` | HTTP translation of the command surface. Binds loopback, bearer token. |
 | `src-tauri/src/update.rs` | Self-updates: the check, the download, the restart. Our own commands, not the plugin's JS bindings. |
 | `.github/workflows/release.yml` | Cross-platform release builds and the update manifest. Publishes a **draft**. |
+| `.github/workflows/docs.yml` | Builds the VitePress site and deploys the `deepsand-docs` Cloudflare Worker on pushes to `master`. |
+| `docs-site/` | User documentation. English Markdown is the source; 16 translated locale trees are generated. |
+| `docs-site/wrangler.jsonc` | Cloudflare Worker static-asset configuration and the `deepsand.webslc.com` custom domain. |
+| `docs-site/worker.mjs` | Rewrites VitePress clean URLs to their `.html` assets and serves the built 404 page on a miss. |
+| `docs-site/scripts/translate-docs.mjs` | Regenerates the locale pages and `i18n.generated.json`, protecting commands, links, brand names, Vue tags and script blocks. |
+| `docs-site/.vitepress/locales.ts` | The one list of documentation locales: native names, language tags and base paths. |
+| `docs-site/.vitepress/theme/LanguageSwitcher.vue` | The explicit top-right globe button and its language menu. It stays outside the mobile "..." menu. |
+| `docs-site/.vitepress/theme/DownloadPicker.vue` | Detects the visitor's OS, offers manual Windows/macOS/Linux tabs and fetches the latest release's assets from the GitHub API. |
 | `src/` | SolidJS UI. Views only: no policy decisions. |
 | `src/i18n/index.ts` | The one reactive locale signal, browser/OS detection, `localStorage` persistence, `t()` and date locale. |
 | `src/i18n/*.json` | Every visible frontend string, as flat JSON bundles with identical keys and placeholders. Currently `en`, `zh`, `hi`, `es`, `ar`, `fr`, `ru`, `ja`, `ko`, `vi`, `pt`, `id`, `bn`, `sw`, `ha`, `yo`, `am`. |
@@ -204,6 +217,40 @@ These are load-bearing. Breaking one is how this project gets a CVE.
   `src/lib/types.ts` does for `DockerStatus.detail`, and add the same key to every bundle. Keep
   product names and technical identifiers (`Deepsand`, `DeepCode`, `Docker`, `MCP`, `API`, `npm`,
   paths) in their original spelling inside every bundle.
+* **The documentation has one English source and generated locale trees.** Edit
+  `docs-site/*.md` and `docs-site/guide/*.md`, then run `npm run docs:translate`; never edit a
+  locale file such as `docs-site/zh/guide/getting-started.md`, because the next run replaces it.
+  The translator protects fenced code, inline code, Markdown link syntax, bold spans, product
+  names, Vue component tags and `<script>` blocks, so a translation cannot break a command, a
+  link, formatting or the download picker. `DOCS_TRANSLATE_PAGES=download.md npm run
+  docs:translate` retranslates one page without touching the rest. It also translates the home
+  page's YAML frontmatter (hero, actions and feature cards). The home page is deliberately
+  written for a general audience; `what-is-deepsand.md` carries the plain-language explanation and
+  `for-developers.md` the architecture, while `security.md` is the detailed boundary. It writes
+  `docs-site/.vitepress/i18n.generated.json` for the VitePress navigation and UI labels, and
+  `transformHtml` gives each locale its real
+  `lang` and `dir` (Arabic is RTL). The top-right language button is
+  `docs-site/.vitepress/theme/LanguageSwitcher.vue`; it uses the shared
+  `docs-site/.vitepress/locales.ts` list so the button, VitePress locales and navigation cannot
+  drift apart. Both top-level `locales` and `themeConfig.locales` come from that list. The globe
+  is the language-independent cue and stays visible on mobile, where the native-name text is
+  hidden. Commit the generated pages. `.github/workflows/docs.yml`
+  builds the site and deploys the `deepsand-docs` Cloudflare Worker on `master`; the required
+  secrets and variables are documented in `docs-site/README.md`. The Worker serves
+  `docs-site/.vitepress/dist` as static assets and attaches `deepsand.webslc.com` through
+  `docs-site/wrangler.jsonc`. The zone also has a `*.webslc.com/*` route on `lilis-website`, so
+  the specific `deepsand.webslc.com/*` route must stay beside the custom-domain entry: with only
+  the custom domain, requests were still served by the wildcard Worker and `wrangler tail`
+  showed nothing. VitePress generates `sitemap.xml` from the `sitemap.hostname` value, which
+  comes from `DOCS_SITE_URL` and falls back to `https://deepsand.webslc.com`. Set the repository
+  variable when the domain changes, or the sitemap will name the wrong origin.
+* **The app-wide model API key is keystore state, not settings state.** It lives in the OS
+  keystore through `secrets::{load,store,clear}_app_api_key`, never in `AppSettings` or
+  `state.json`, and `default_api_key_status` returns only a mask. Resolution order is host
+  configuration, then the app-wide key from Settings, then a project override, so a per-project
+  key still wins. The Settings field applies on the next sandbox start; a running sandbox is not
+  rewritten. Do not add these commands to the remote command table: a remote client must not be
+  able to replace the host's model credential.
 * **A field the backend skips is absent from the payload, and a bound input renders that absence
   as the word "undefined".** Empty strings carry `skip_serializing_if`, so `AppSettings.user_prompt`
   was not in the JSON while it was empty -- and the text area bound to it showed that literal word,
@@ -637,6 +684,10 @@ has the same keys *and* the same `{placeholders}`. There are seventeen: `en`,
 `ha`, `yo`, `am`. A key that exists only in English silently falls back to
 English in every other language, which is the one translation bug `npm run
 build` cannot see.
+
+If you changed an English page under `docs-site/`, run `npm run docs:translate`
+so every locale tree stays in step, then `npm run docs:build`. Do not edit the
+generated locale pages by hand.
 
 If you touched `runtime/`, re-read invariant 5 and check `runtime/README.md` —
 the image is only rebuilt when its revision hash changes. If you changed the

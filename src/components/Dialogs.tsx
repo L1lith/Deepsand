@@ -1575,6 +1575,48 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
   const [updateBusy, setUpdateBusy] = createSignal(false);
   const [installing, setInstalling] = createSignal(false);
   const [progress, setProgress] = createSignal<UpdateProgress | null>(null);
+  const [apiKey, setApiKey] = createSignal("");
+  const [apiKeyMasked, setApiKeyMasked] = createSignal<string | null>(null);
+  const [apiKeyBusy, setApiKeyBusy] = createSignal(false);
+
+  async function refreshApiKeyStatus() {
+    try {
+      setApiKeyMasked(await api.defaultApiKeyStatus());
+    } catch (error) {
+      toast("error", t("settings.apiKeyCouldNotRead"), describeError(error));
+    }
+  }
+
+  async function saveApiKey() {
+    const key = apiKey().trim();
+    if (!key) {
+      toast("warn", t("settings.apiKeyMissingTitle"), t("settings.apiKeyMissing"));
+      return;
+    }
+    setApiKeyBusy(true);
+    try {
+      setApiKeyMasked(await api.setDefaultApiKey(key));
+      setApiKey("");
+      toast("ok", t("settings.apiKeySavedTitle"), t("settings.apiKeySaved"));
+    } catch (error) {
+      toast("error", t("settings.apiKeyCouldNotSave"), describeError(error));
+    } finally {
+      setApiKeyBusy(false);
+    }
+  }
+
+  async function removeApiKey() {
+    setApiKeyBusy(true);
+    try {
+      await api.clearDefaultApiKey();
+      setApiKeyMasked(null);
+      toast("ok", t("settings.apiKeyRemovedTitle"), t("settings.apiKeyRemoved"));
+    } catch (error) {
+      toast("error", t("settings.apiKeyCouldNotRemove"), describeError(error));
+    } finally {
+      setApiKeyBusy(false);
+    }
+  }
 
   /**
    * Ask what version is out there.
@@ -1734,6 +1776,7 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
 
   onCleanup(flush);
   onMount(() => {
+    void refreshApiKeyStatus();
     // Belt and braces for the shutdown path: nothing here can await a save during teardown, but
     // the write is sent before the page goes, and `Store::save` is atomic on the other side.
     const onHide = () => flush();
@@ -1893,6 +1936,47 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
           </div>
           <span class="hint">
             {t("settings.defaultCredentialsHint", { path: store.info?.hostConfig.path ?? "" })}
+          </span>
+        </div>
+
+        <div class="field">
+          <label for="set-api-key">{t("settings.apiKey")}</label>
+          <div class="row-inline">
+            <input
+              id="set-api-key"
+              class="grow"
+              type="password"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder={t("settings.apiKeyPlaceholder")}
+              value={apiKey()}
+              onInput={(event) => setApiKey(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void saveApiKey();
+              }}
+            />
+            <button
+              class="btn"
+              disabled={apiKeyBusy() || !apiKey().trim()}
+              onClick={() => void saveApiKey()}
+            >
+              {apiKeyBusy() ? t("common.saving") : t("settings.apiKeySave")}
+            </button>
+            <Show when={apiKeyMasked()}>
+              <button
+                class="btn btn-ghost"
+                disabled={apiKeyBusy()}
+                onClick={() => void removeApiKey()}
+              >
+                {t("settings.apiKeyRemove")}
+              </button>
+            </Show>
+          </div>
+          <span class="hint">{t("settings.apiKeyHint")}</span>
+          <span class="hint">
+            {apiKeyMasked()
+              ? t("settings.apiKeyStored", { masked: apiKeyMasked() ?? "" })
+              : t("settings.apiKeyNone")}
           </span>
         </div>
 

@@ -18,6 +18,7 @@ use deepsand_core::credentials;
 use deepsand_core::docker::Docker;
 use deepsand_core::model::*;
 use deepsand_core::policy::{self, MountKind, PlanInput};
+use deepsand_core::secrets;
 use deepsand_core::session::{Session, SessionOptions};
 use deepsand_core::settings as container_settings;
 use deepsand_core::store::Store;
@@ -323,7 +324,15 @@ fn cmd_project(data_dir: &Path, args: &[String]) -> Result<()> {
             );
             let app = store.settings().clone();
             let host = credentials::read_host_config();
-            let resolved = credentials::resolve(&project, &app, &host);
+            let app_key = match secrets::load_app_api_key(store.data_dir()) {
+                Ok(key) => key,
+                Err(err) => {
+                    eprintln!("warning: {err}");
+                    None
+                }
+            };
+            let resolved =
+                credentials::resolve_with_app_key(&project, &app, &host, app_key.as_deref());
             println!("  credentials    : from {}", resolved.provenance);
             println!("  model          : {}", resolved.model);
             println!("  base URL       : {}", resolved.base_url);
@@ -519,7 +528,19 @@ fn build_plan(store: &Store, project: &Project, resume: bool, offline: bool) -> 
     if let Some(err) = &host.error {
         eprintln!("warning: {err}");
     }
-    let resolved = credentials::resolve(project, store.settings(), &host);
+    let app_key = match secrets::load_app_api_key(store.data_dir()) {
+        Ok(key) => key,
+        Err(err) => {
+            eprintln!("warning: {err}");
+            None
+        }
+    };
+    let resolved = credentials::resolve_with_app_key(
+        project,
+        store.settings(),
+        &host,
+        app_key.as_deref(),
+    );
 
     let sandbox = container_settings::build_sandbox_snapshot(
         project,

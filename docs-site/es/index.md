@@ -4,9 +4,7 @@ hero:
   name: Deepsand
   text: Deje que la IA le ayude con su código sin tener que entregarle toda su computadora.
   tagline: >-
-    Deepsand le brinda a un asistente de codificación de IA su propio espacio de trabajo privado y
-    seguro. Puede ver el proyecto que elijas, preguntar antes de llegar a cualquier otra cosa y
-    dejar el resto de tus archivos en paz.
+    Deepsand brinda a un asistente de codificación de IA su propio espacio de trabajo privado y seguro. Puede ver el proyecto que elijas, pedir permiso antes de acceder a cualquier otra cosa y dejar el resto de tus archivos en paz.
   actions:
     - theme: brand
       text: Descargar

@@ -410,6 +410,70 @@ fn key_for(data_dir: &Path) -> Result<[u8; KEY_BYTES]> {
     )))
 }
 
+/// The keystore entry that holds the app-wide model API key.
+///
+/// This is deliberately *not* a field in `state.json`: the operator asked for
+/// the key to be kept in the operating system's keystore, and a state file is
+/// copied, synced and backed up. The entry is scoped by data directory for the
+/// same reason the encryption key is: two installations must not share it.
+fn app_api_key_entry(data_dir: &Path) -> Result<keyring::Entry> {
+    let account = format!("api-key:{}", short_hash(&data_dir.display().to_string()));
+    keyring::Entry::new(KEYRING_SERVICE, &account).map_err(|err| {
+        SandboxError::policy(format!(
+            "the operating system's keystore is unavailable, so the API key cannot be stored there ({err})"
+        ))
+    })
+}
+
+/// The app-wide model API key, if the operator has stored one.
+pub fn load_app_api_key(data_dir: &Path) -> Result<Option<String>> {
+    match app_api_key_entry(data_dir)?.get_password() {
+        Ok(value) if !value.trim().is_empty() => Ok(Some(value)),
+        Ok(_) | Err(keyring::Error::NoEntry) => Ok(None),
+        Err(err) => Err(SandboxError::policy(format!(
+            "the API key could not be read from the operating system's keystore ({err})"
+        ))),
+    }
+}
+
+/// Store or replace the app-wide model API key in the OS keystore.
+pub fn store_app_api_key(data_dir: &Path, value: &str) -> Result<()> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(SandboxError::policy("an API key cannot be empty"));
+    }
+    app_api_key_entry(data_dir)?.set_password(value).map_err(|err| {
+        SandboxError::policy(format!(
+            "the API key could not be saved to the operating system's keystore ({err})"
+        ))
+    })
+}
+
+/// Remove the app-wide model API key from the OS keystore.
+pub fn clear_app_api_key(data_dir: &Path) -> Result<()> {
+    match app_api_key_entry(data_dir)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(err) => Err(SandboxError::policy(format!(
+            "the API key could not be removed from the operating system's keystore ({err})"
+        ))),
+    }
+}
+
+/// The last four characters, for a UI that must prove a key is present without
+/// handing the key itself back to the window.
+pub fn mask_app_api_key(value: &str) -> String {
+    let tail: String = value
+        .trim()
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    format!("****{tail}")
+}
+
 fn encode(key: &[u8; KEY_BYTES]) -> String {
     key.iter().map(|byte| format!("{byte:02x}")).collect()
 }
