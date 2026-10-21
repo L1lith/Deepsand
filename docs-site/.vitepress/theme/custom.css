@@ -171,7 +171,12 @@ html[dir="rtl"] pre {
   }
 
   .ds-language-menu {
-    inset-inline-end: 0;
+    position: fixed;
+    top: calc(var(--vp-nav-height) + 8px);
+    inset-inline-end: 0.5rem;
+    inset-inline-start: auto;
+    width: min(18rem, calc(100vw - 1rem));
+    max-height: calc(100vh - var(--vp-nav-height) - 1.5rem);
   }
 }
 
