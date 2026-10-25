@@ -1,7 +1,7 @@
 {
   "name": "deepsand",
   "private": true,
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "Deepsand - a Docker-contained DeepCode desktop sandbox",
   "type": "module",
   "license": "ESMV",
@@ -29,7 +29,8 @@
     "docs:dev": "vitepress dev docs-site",
     "docs:build": "vitepress build docs-site",
     "docs:preview": "vitepress build docs-site && vitepress preview docs-site",
-    "docs:translate": "node docs-site/scripts/translate-docs.mjs"
+    "docs:translate": "node docs-site/scripts/translate-docs.mjs",
+    "docs:check": "node docs-site/scripts/translate-docs.mjs --verify"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.3",

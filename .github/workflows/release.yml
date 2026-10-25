@@ -67,12 +67,39 @@ jobs:
             } catch (error) {
               if (error.status !== 404) throw error;
             }
+            // The description comes from the repository, not from this file: the notes for a
+            // version are written when the version is bumped, reviewed like any other change,
+            // and are then what the release says. Editing a draft by hand after CI created it
+            // is a step nobody can reproduce, and the one that gets skipped.
+            //
+            // `docs/release-notes/v<version>.md` is optional. Its first line, if it is a `# `
+            // heading, becomes the release's title suffix; the rest is the body, followed by
+            // the sentence about downloads that is true of every release.
+            const fs = require("fs");
+            const notesPath = `docs/release-notes/v${version}.md`;
+            const standard =
+              "Downloads for Windows, Linux and macOS. The app updates itself from this release; see Settings, Updates.";
+            let name = `Deepsand v${version}`;
+            let body = standard;
+            if (fs.existsSync(notesPath)) {
+              const raw = fs.readFileSync(notesPath, "utf8").trim();
+              const lines = raw.split("\n");
+              let notes = raw;
+              if (lines[0].startsWith("# ")) {
+                name = `Deepsand v${version} - ${lines[0].slice(2).trim()}`;
+                notes = lines.slice(1).join("\n").trim();
+              }
+              body = `${notes}\n\n${standard}`;
+              core.info(`release notes for ${version} taken from ${notesPath}`);
+            } else {
+              core.info(`no ${notesPath}; the release gets the default description`);
+            }
             const created = await github.rest.repos.createRelease({
               owner,
               repo,
               tag_name: tag,
-              name: `Deepsand v${version}`,
-              body: "Downloads for Windows, Linux and macOS. The app updates itself from this release; see Settings, Updates.",
+              name,
+              body,
               draft: true,
               prerelease: false,
               target_commitish: context.sha,
