@@ -45,7 +45,7 @@ Awọn pipaṣẹ Slash bẹrẹ pẹlu `/`. Titẹ `/` lori tirẹ ṣii akoj�
 | `/init` | Ṣẹda faili `AGENTS.md` pẹlu awọn ilana iṣẹ akanṣe |
 | `/skills` | Ṣe atokọ awọn ọgbọn ti o wa si DeepCode |
 | `/mcp` | Ṣe afihan ipo olupin MCP ati awọn irinṣẹ to wa |
-| `/undo` | Pada koodu pada, ibaraẹnisọrọ tabi mejeeji si aaye iṣaaju |
+| `/undo` | Mu koodu pada, ibaraẹnisọrọ tabi awọn mejeeji si aaye iṣaaju |
 | `/exit` | Jade DeepCode |
 
 Ise agbese kan le ti ni `AGENTS.md` tẹlẹ; ṣayẹwo ṣaaju lilo `/init` ki o maṣe rọpo awọn ilana ti o wa tẹlẹ.
@@ -63,6 +63,17 @@ Ise agbese kan le ti ni `AGENTS.md` tẹlẹ; ṣayẹwo ṣaaju lilo `/init` ki
 
 Lẹhin idalọwọduro titan pẹlu `Esc`, o le tẹ ibeere miiran. Apoti iyanrin ko tun bẹrẹ.
 
+## Jiju awọn faili sinu ebute
+
+Fa faili kan sori ebute naa ati pe ọna rẹ ti tẹ sinu rẹ.
+
+- Faili ti o wa ninu folda ise agbese, tabi inu itọsọna ti o ti pin pẹlu iṣẹ akanṣe naa, ni a tọka si ibiti apoti iyanrin ti rii tẹlẹ (`/workspace/...` tabi `/grants/...`). Ko si ohun ti a daakọ.
+- Faili kan lati ibikibi miiran ni a daakọ sinu `/tmp/deepsand-incoming` inu apoti iyanrin, ati Deepsand beere lọwọ akọkọ. folda yẹn kii ṣe apakan ti ibi ipamọ eyikeyi, nitorinaa faili ti o lọ silẹ ko le pari ni adehun, ati pe o padanu nigbati apoti iyanrin ba tun ṣe. Ifọrọwerọ naa ni iyipada **Maṣe kilo fun mi lẹẹkansi**, eyiti o jẹ eto kanna bi **Eto → Ihuwasi → Kilọ ṣaaju sisọ awọn faili silẹ lati ita iṣẹ naa**.
+
+## Duro titi di oni
+
+DeepCode CLI ti fi sori ẹrọ inu aworan iyanrin, ati pe apoti iyanrin ko le ṣe imudojuiwọn ararẹ. Ṣaaju ki o to bẹrẹ kọọkan Deepsand beere npm kini itusilẹ tuntun jẹ ati, ti aworan naa ba ni agbalagba, tun ṣe apakan ti aworan naa ni akọkọ - nitorinaa ebute naa ko ṣii lori ẹya ti o n beere lọwọ rẹ lati ṣe imudojuiwọn. Idahun naa jẹ iranti fun mẹẹdogun wakati kan, nitorinaa eyi jẹ ibeere kan ju ọkan lọ fun ṣiṣe, ati pe ti npm ko ba le de ọdọ apoti iyanrin bẹrẹ lori ẹya ti o ti ni tẹlẹ.
+
 ## Awọn igba, awọn awoṣe ati ki o tunṣe
 
 - `/new` bẹrẹ pẹlu ibaraẹnisọrọ mimọ. Awọn faili ise agbese ko ni paarẹ.
@@ -79,10 +90,11 @@ Ibusọ naa wa ninu apo eiyan, nitorinaa o rii iṣẹ akanṣe ni `/workspace` 
 Nigbati DeepCode ba beere fun itọsọna miiran, opin irin ajo nẹtiwọọki kan, ọpa kan tabi orisun miiran, Deepsand di apoti iyanrin ati ṣafihan ifọrọwerọ igbanilaaye.
 
 - **Ifunni wiwọle** kan ibeere naa ati tun bẹrẹ igba naa.
-- **Kọ** kọ o si sọ fun DeepCode ipinnu jẹ ipari.
+- **Ko bayi** kọ ni akoko yii; DeepCode le beere lẹẹkansi nigbamii.
+- **Maṣe beere lẹẹkansi** kọ ọ, ati Deepsand lẹhinna kọ ọna naa (ati ohun gbogbo labẹ rẹ) tabi ogun naa (ati awọn subdomains) funrararẹ, kii ṣe ni awọn ọrọ nikan. Gbogbo bulọọki wa ni atokọ ni Awọn igbanilaaye, nibi ti o ti le gbe soke lẹẹkansi.
 - Ifọwọsi iwe-itọsọna kan tun ṣe eiyan pẹlu oke tuntun.
 
-Ka [Bawo ni apoti iyanrin ṣe n ṣiṣẹ](./security) ṣaaju pinpin ilana ti o ni awọn faili ifura ninu.
+Ka [Bawo ni apoti iyanrin ṣe n ṣiṣẹ](./security) ṣaaju pinpin ilana ti o ni awọn faili ifarabalẹ ninu.
 
 ## Ti ebute ko ba bẹrẹ
 

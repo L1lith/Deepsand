@@ -40,11 +40,20 @@ and **Under the hood** for technical readers, and the **FAQ** for quick answers.
 All pages are translated into the 16 non-English locales. The generated files
 are committed, so a normal docs build does not need network access. Re-run
 `npm run docs:translate` after changing an English page. To retranslate only
-the page that changed:
+the page that changed, or only one locale:
 
 ```bash
 DOCS_TRANSLATE_PAGES=download.md npm run docs:translate
+DOCS_TRANSLATE_LANGS=es npm run docs:translate
 ```
+
+A wording change that must survive regeneration belongs in the `OVERRIDES`
+map in `docs-site/scripts/translate-docs.mjs`: key it by locale and page, and
+use a dot path into the frontmatter (`hero.tagline`), an exact English source
+line, or a UI label. A path or line that no longer matches the English source
+fails the run rather than silently disappearing. `npm run docs:check` validates
+every override against the English source without calling the translator; the
+docs workflow runs it before the build.
 
 The translation output is machine-generated; a native-speaker review is
 worthwhile before publishing major wording changes. The generator protects

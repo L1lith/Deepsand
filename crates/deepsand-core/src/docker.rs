@@ -344,7 +344,10 @@ impl Docker {
         let mut source = std::fs::File::open(host).map_err(|err| {
             SandboxError::policy(format!("{} could not be read: {err}", host.display()))
         })?;
-        let script = "mkdir -p \"$1\" && cat > \"$1/$2\"";
+        // Owned by the sandbox user, like `write_into_container` does: the agent has to be
+        // able to read -- and, for a file it is meant to work on, edit -- what was dropped
+        // in, and `docker exec` would otherwise leave it root-owned.
+        let script = "mkdir -p \"$1\" && cat > \"$1/$2\" && chown 1000:1000 \"$1/$2\" 2>/dev/null || true";
         let mut command = std::process::Command::new(self.program());
         command.args(self.fmt(&["exec", "-i", container, "sh", "-c", script, "sh", dir, name]));
         command

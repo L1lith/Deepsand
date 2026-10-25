@@ -28,7 +28,7 @@ Nhập một yêu cầu bình thường và nhấn **Đi vào**. Ví dụ:
 Find the failing test in this project and explain what is wrong.
 ```
 
-DeepCode có thể đọc và chỉnh sửa các tệp trong không gian làm việc, chạy lệnh và sử dụng các công cụ được chọn cho dự án. Bạn luôn nắm quyền kiểm soát: khi nó cần thứ gì đó bên ngoài không gian làm việc, Deepsand sẽ tạm dừng hộp cát và hỏi bạn trước.
+DeepCode có thể đọc và chỉnh sửa các tệp trong không gian làm việc, chạy lệnh và sử dụng các công cụ được chọn cho dự án. Bạn luôn nắm quyền kiểm soát: khi cần thứ gì đó bên ngoài không gian làm việc, Deepsand sẽ tạm dừng hộp cát và hỏi bạn trước.
 
 ## Các lệnh gạch chéo chính
 
@@ -61,14 +61,25 @@ Một dự án có thể đã có `AGENTS.md`; kiểm tra trước khi sử dụ
 | `Ctrl+V` | Dán hình ảnh khi mô hình đã chọn hỗ trợ hình ảnh |
 | `Ctrl+D` hai lần | Thoát khỏi DeepCode |
 
-Sau khi dừng lượt bằng `Esc`, bạn có thể nhập một yêu cầu khác. Hộp cát không được khởi động lại.
+Sau khi tạm dừng một lượt bằng `Esc`, bạn có thể nhập một yêu cầu khác. Hộp cát không được khởi động lại.
+
+## Thả tập tin vào thiết bị đầu cuối
+
+Kéo một tệp vào thiết bị đầu cuối và đường dẫn của nó sẽ được nhập cho bạn.
+
+- Một tệp bên trong thư mục dự án hoặc bên trong thư mục bạn đã chia sẻ với dự án sẽ được tham chiếu đến nơi hộp cát đã nhìn thấy nó (`/workspace/...` hoặc `/grants/...`). Không có gì được sao chép.
+- Một tệp từ bất kỳ nơi nào khác được sao chép vào `/tmp/deepsand-incoming` bên trong hộp cát và Deepsand sẽ hỏi trước. Thư mục đó không phải là một phần của bất kỳ kho lưu trữ nào, do đó, tệp bị rơi không thể nằm trong một cam kết và nó sẽ biến mất khi hộp cát được tạo lại. Hộp thoại có công tắc **Đừng cảnh báo tôi nữa**, có cùng cài đặt với **Cài đặt → Hành vi → Cảnh báo trước khi thả tệp từ bên ngoài dự án**.
+
+## Luôn cập nhật
+
+DeepCode CLI được cài đặt bên trong hình ảnh hộp cát và hộp cát không thể tự cập nhật. Trước mỗi lần bắt đầu, Deepsand hỏi npm bản phát hành mới nhất là gì và nếu hình ảnh có phiên bản cũ hơn, hãy xây dựng lại phần hình ảnh đó trước — để thiết bị đầu cuối không bao giờ mở trên phiên bản đã yêu cầu bạn cập nhật. Câu trả lời được ghi nhớ trong một phần tư giờ, vì vậy đây là một yêu cầu thay vì một yêu cầu mỗi lần chạy và nếu không thể truy cập npm thì hộp cát sẽ bắt đầu trên phiên bản đã có.
 
 ## Phiên, mô hình và hoàn tác
 
 - `/new` bắt đầu lại bằng một cuộc trò chuyện rõ ràng. Các tập tin dự án không bị xóa.
 - `/resume` và `/continue` gợi lại cuộc trò chuyện trước đó.
 - `/model` thay đổi mô hình, phương thức tư duy và nỗ lực suy luận cho buổi học. Tiêu đề dự án cũng có bộ chọn mô hình và thanh trượt tư duy; **Cân bằng** là điểm dừng giữa và cài đặt được đề xuất cho hầu hết công việc.
-- `/undo` khôi phục mã, cuộc trò chuyện hoặc cả hai về điểm trước đó. Đó là cách nhanh nhất để thoát khỏi sự thay đổi mà bạn không mong muốn.
+- `/undo` khôi phục mã, cuộc trò chuyện hoặc cả hai về điểm trước đó. Đó là cách nhanh nhất để rút lui khỏi sự thay đổi mà bạn không mong muốn.
 
 Lịch sử hội thoại nằm trong ổ trạng thái Deepsand của dự án chứ không phải trong kho lưu trữ của bạn.
 
@@ -79,7 +90,8 @@ Thiết bị đầu cuối nằm bên trong vùng chứa, do đó, nó nhìn th�
 Khi DeepCode yêu cầu một thư mục khác, đích mạng, công cụ hoặc tài nguyên khác, Deepsand sẽ đóng băng hộp cát và hiển thị hộp thoại cấp phép.
 
 - **Cấp quyền truy cập** áp dụng yêu cầu và tiếp tục phiên.
-- **Từ chối** từ chối và nói với DeepCode rằng quyết định là cuối cùng.
+- **Không phải bây giờ** từ chối lần này; DeepCode có thể hỏi lại sau.
+- **Đừng hỏi lại** từ chối nó và Deepsand sau đó từ chối đường dẫn đó (và mọi thứ bên dưới nó) hoặc chính máy chủ đó (và các tên miền phụ của nó), không chỉ bằng lời nói. Mọi khối đều được liệt kê trong Quyền, nơi bạn có thể nâng lại khối đó.
 - Việc phê duyệt một thư mục sẽ tạo lại vùng chứa có giá trị gắn kết mới.
 
 Đọc [Cách hộp cát hoạt động](./security) trước khi chia sẻ thư mục chứa các tệp nhạy cảm.

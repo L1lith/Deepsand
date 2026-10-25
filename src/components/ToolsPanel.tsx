@@ -459,11 +459,6 @@ function ToolRow(props: {
               </button>
             )}
           </Show>
-          <Show when={props.tool.defaultOn && !locked()}>
-            <span class="chip chip-quiet" title={t("tools.defaultTitle")}>
-              {t("tools.default")}
-            </span>
-          </Show>
           <Show when={locked()}>
             <span class="chip chip-warn" title={props.tool.unavailableReason ?? ""}>
               {t("tools.needs", { base: props.tool.requires })}

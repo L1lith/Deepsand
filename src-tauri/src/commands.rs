@@ -471,6 +471,48 @@ pub fn set_requests_enabled(
     set_requests_enabled_impl(&app, &state, project_id, enabled)
 }
 
+/// Remove one of the operator's permanent refusals.
+///
+/// A block is a decision the host enforces, so it needs an explicit way back — otherwise
+/// "Don't ask again" is a trap rather than a choice. This is deliberately local-only: it
+/// widens what the sandbox can reach, and a remote client must not be able to do that.
+#[tauri::command]
+pub fn unblock_resource(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    project_id: String,
+    kind: String,
+    value: String,
+) -> CmdResult<bool> {
+    unblock_resource_impl(&app, &state, project_id, kind, value)
+}
+
+pub fn unblock_resource_impl(
+    app: &AppHandle,
+    state: &AppState,
+    project_id: String,
+    kind: String,
+    value: String,
+) -> CmdResult<bool> {
+    let changed = {
+        let mut guard = state.store.lock().unwrap_or_else(|p| p.into_inner());
+        guard.unblock(&project_id, &kind, &value).map_err(fail)?
+    };
+    if changed {
+        tracing::info!(project = %project_id, kind = %kind, "a permanent refusal was lifted");
+        // A lifted host block has to reach a running proxy too, or the destination stays
+        // refused until the next start and the button looks broken.
+        if kind == "host" {
+            let handle = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let state = tauri::Manager::state::<AppState>(&handle);
+                refresh_proxies(&state).await;
+            });
+        }
+    }
+    Ok(changed)
+}
+
 /// Turn permission requests on or off for one project.
 ///
 /// Turning it off also answers every request that is already waiting, with the
@@ -1488,6 +1530,27 @@ if without_tools {
         launch.image = settings.image;
     }
 
+    // The cache the resolved version lives in, and the place a failed refresh is recorded.
+    // Owned, because both are needed again after the awaits below.
+    let data_dir = data_dir_of(state);
+
+    // What npm calls `latest`, resolved once for this start and given to whatever build it
+    // causes: the first build of a missing image, or a refresh of an existing one.
+    //
+    // This has to happen before the sandbox starts, because the CLI lives in the image and the
+    // sandbox cannot install its own update -- it offers one from inside the terminal, which is
+    // a question with no answer there. The answer is cached (`cli::CHECK_INTERVAL`), and a
+    // registry that cannot be reached yields `None`, which means "start on the image we have"
+    // rather than making a Run depend on npm.
+    let cli_version = if without_tools {
+        // The minimal image is only a runway for the real build behind it, and that build
+        // resolves its own version. Waiting for npm here would defeat "start now without
+        // tools", whose whole point is not waiting.
+        None
+    } else {
+        crate::cli_refresh::latest_version(&data_dir).await
+    };
+
     // The first Run for a tool selection has no image yet. Build it here rather than
     // refusing: "run this project" plainly means "make it runnable", and the operator
     // should not have to discover a separate build button first.
@@ -1509,7 +1572,7 @@ if !docker.image_present(&launch.image) {
             serde_json::json!({ "line": format!("Building {image} for the first time. This happens once per tool selection.") }),
         );
         if let Err(err) =
-            build_runtime_image_impl(app, state, Some(project_id.clone()), None, without_tools)
+            build_runtime_image_impl(app, state, Some(project_id.clone()), None, without_tools, cli_version.clone())
         {
             // A synchronous failure means no build thread was started. If another build is
             // already running, its own `BUILD_DONE` is the one that reports the outcome.
@@ -1566,6 +1629,63 @@ if !docker.image_present(&launch.image) {
         }
     }
 
+    // The image exists. Is its CLI the version npm just told us about? If not, rebuild it now,
+    // before a container is created -- this is the last moment at which a newer CLI can be
+    // installed, and the one the operator never has to hear a prompt about.
+    if let Some(version) = cli_version.clone() {
+        if let Some(installed) = crate::cli_refresh::outdated(&docker, &launch.image, &version, &data_dir) {
+            let _ = app.emit(
+                events::BUILD_LOG,
+                serde_json::json!({ "line": format!(
+                    "Updating the DeepCode CLI in {} from {} to {version} before the sandbox starts.",
+                    launch.image,
+                    installed.as_deref().unwrap_or("an older build"),
+                )}),
+            );
+            // Waiting for a build is not starting a container: let go of the lock, as the
+            // first-build path above does, so a stop or a newer start can take over.
+            drop(_start_guard);
+            let outcome = crate::cli_refresh::refresh(
+                app,
+                state,
+                &docker,
+                &project_id,
+                &launch.image,
+                &version,
+                &data_dir,
+                attempt,
+                stop_before,
+            )
+            .await;
+            let Some(guard) = state.begin_start(&project_id) else {
+                return session_status_impl(state, project_id.clone());
+            };
+            _start_guard = guard;
+            if state.start_epoch(&project_id) != attempt
+                || state.stop_epoch(&project_id) != stop_before
+            {
+                return session_status_impl(state, project_id.clone());
+            }
+            match outcome {
+                crate::cli_refresh::Refresh::Done => {
+                    tracing::info!(image = %launch.image, %version, "the DeepCode CLI was updated before the start")
+                }
+                crate::cli_refresh::Refresh::Failed(why) => {
+                    // Never a reason to refuse the start: an older CLI still runs, and the
+                    // operator is better served by a sandbox than by an error about npm.
+                    tracing::warn!(image = %launch.image, error = %why, "the DeepCode CLI was not updated");
+                    let _ = app.emit(
+                        events::BUILD_LOG,
+                        serde_json::json!({ "line": format!("{why}. Starting with the CLI the image already has.") }),
+                    );
+                }
+                crate::cli_refresh::Refresh::Superseded => {
+                    return session_status_impl(state, project_id.clone())
+                }
+            }
+        }
+    }
+
     if without_tools {
         // Recorded against the image the project actually wants, because that is what the build
         // knows when it finishes.
@@ -1601,7 +1721,19 @@ if !docker.image_present(&launch.image) {
                 serde_json::json!({ "line": format!("Building {image_for_log} while the sandbox runs.") }),
             );
             let state = tauri::Manager::state::<AppState>(&handle);
-            let _ = build_runtime_image_impl(&handle, &state, Some(for_build), None, false);
+            // Resolved here rather than on the start path: this thread is already behind the
+            // running sandbox, so a registry round-trip costs nothing anyone is waiting for.
+            let data_dir = { store(&state).data_dir().to_path_buf() };
+            let cli_version =
+                tauri::async_runtime::block_on(crate::cli_refresh::latest_version(&data_dir));
+            let _ = build_runtime_image_impl(
+                &handle,
+                &state,
+                Some(for_build),
+                None,
+                false,
+                cli_version,
+            );
         });
     }
 
@@ -1644,7 +1776,10 @@ let mut restricted_proxy: Option<(deepsand_core::policy::ProxyEndpoint, String)>
     // endpoint and nothing else; `restricted` adds whatever the project allows.
     if launch.project.network.uses_proxy() {
         let mut allow: Vec<String> = if launch.project.network.honours_allowlist() {
-            launch.project.network.allowlist().to_vec()
+            // Effective, not the raw list: the operator's permanent refusals are deny
+            // rules, and starting the proxy without them would leave a blocked host
+            // reachable until the next restart.
+            launch.project.effective_allowlist()
         } else {
             Vec::new()
         };
@@ -2264,6 +2399,14 @@ fn auto_refusal(
         ));
     }
 
+    // A block the operator made comes before everything else, including "you already have
+    // it": the point of "Don't ask again" is that this request never reaches them again.
+    // Checked on the host, from stored state, so a request written straight into the spool
+    // is refused the same way as one the bridge composed.
+    if let Some((message, tag)) = blocked_refusal(&project, request) {
+        return Some((message, tag));
+    }
+
     let snapshot = container_settings::build_sandbox_snapshot(
         &project,
         &grants,
@@ -2274,6 +2417,103 @@ fn auto_refusal(
     );
     deepsand_core::covered::already_covered(request, Path::new(&project.root_dir), &snapshot)
         .map(|covered| (covered.message, "already covered"))
+}
+
+/// Whether the operator has permanently refused what this request asks for.
+///
+/// The message has to be explicit about the permanence, because the model's alternative is
+/// to try again in a slightly different shape: the block covers the named path and
+/// everything under it, or the named host and every subdomain.
+fn blocked_refusal(
+    project: &deepsand_core::model::Project,
+    request: &PermissionRequest,
+) -> Option<(String, &'static str)> {
+    use deepsand_core::model::RequestKind;
+
+    match request.kind {
+        RequestKind::DirectoryAccess => {
+            let claimed = request.claimed_host_path()?;
+            let blocked = deepsand_core::blocks::blocked_path(
+                &project.blocked_paths,
+                Path::new(&claimed),
+            )?;
+            Some((
+                format!(
+                    "The operator blocked {blocked}, and everything under it, for this project. \
+                     {claimed} is inside it. Do not ask again and do not look for another route: \
+                     continue with what you have, or tell the operator what you could not do."
+                ),
+                "blocked by the operator",
+            ))
+        }
+        RequestKind::NetworkAccess => {
+            for pattern in request.requested_patterns() {
+                if let Some(blocked) =
+                    deepsand_core::blocks::blocked_host(&project.blocked_hosts, &pattern)
+                {
+                    return Some((
+                        format!(
+                            "The operator blocked {blocked}, and every subdomain of it, for this \
+                             project. {pattern} is one of them. Do not ask again and do not look \
+                             for another route: continue with what you have."
+                        ),
+                        "blocked by the operator",
+                    ));
+                }
+            }
+            None
+        }
+        // A block is about a place on the machine or a place on the network. A secret, a
+        // tool and "somewhere, I do not know where" have nothing to match against.
+        RequestKind::LocateResource | RequestKind::ToolInstall | RequestKind::Secret => None,
+    }
+}
+
+/// Store the permanent refusal a "don't ask again" answer means.
+///
+/// Returns whether a *network* block changed, which is the only kind that has to be pushed
+/// into a running proxy; a path block takes effect at the next start, and there is nothing
+/// to push because the path was never mounted.
+fn record_block(
+    store: &mut deepsand_core::store::Store,
+    request: &PermissionRequest,
+    payload: &DecisionPayload,
+    operator_path: Option<&str>,
+) -> deepsand_core::error::Result<bool> {
+    use deepsand_core::model::RequestKind;
+
+    match request.kind {
+        RequestKind::DirectoryAccess | RequestKind::LocateResource => {
+            // The operator may have named a different directory than the sandbox did, and
+            // the one they named is the one they are refusing. A locate request they
+            // refused without choosing a folder has nothing concrete to block.
+            if let Some(path) = operator_path {
+                if store.block_path(&request.project, path)? {
+                    store.append_audit(&request.project, &format!("BLOCK path {path}"));
+                }
+            }
+            Ok(false)
+        }
+        RequestKind::NetworkAccess => {
+            let patterns = payload
+                .patterns
+                .clone()
+                .filter(|list| !list.is_empty())
+                .unwrap_or_else(|| request.requested_patterns());
+            if store.block_hosts(&request.project, &patterns)? {
+                store.append_audit(
+                    &request.project,
+                    &format!("BLOCK host {}", patterns.join(", ")),
+                );
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
+        // A secret, a tool or a location has no place to block; the refusal is still final
+        // for the model, it just has nothing for the host to enforce later.
+        _ => Ok(false),
+    }
 }
 
 fn request_view(state: &impl AsAppState, request: &PermissionRequest) -> PermissionRequestView {
@@ -2378,6 +2618,10 @@ pub fn answer_request_impl(app: &AppHandle, state: &AppState, payload: DecisionP
 
     let broker = state.broker(&request.project);
     let allow = payload.decision.eq_ignore_ascii_case("allow");
+    // "Not now" is a refusal, but not a final one: the model is told it may ask once more
+    // later. Anything this build does not recognise is a final refusal, so a typo can only
+    // ever produce the stricter answer.
+    let defer = payload.decision.eq_ignore_ascii_case("defer");
     let access = match payload.access.as_deref() {
         Some("write") => Access::ReadWrite,
         Some("read") => Access::ReadOnly,
@@ -2393,22 +2637,67 @@ pub fn answer_request_impl(app: &AppHandle, state: &AppState, payload: DecisionP
     let mut guard = state.store.lock().unwrap_or_else(|p| p.into_inner());
 
     if !allow {
-        broker
-            .answer(&PermissionResponse::deny(&request_id, payload.message.clone()))
-            .map_err(fail)?;
+        let decision = if defer { "defer" } else { "deny" };
+
+        // "Don't ask again" is a decision the host enforces, not advice to the model.
+        //
+        // Recording it here is what turns the answer into something every later request is
+        // checked against: a refused directory is stored as a path (covering everything
+        // beneath it), and a refused destination as a host (covering every subdomain). A
+        // "not now" records nothing -- the operator did not say never.
+        //
+        // A failure to store the block is logged and audited rather than returned: the
+        // sandbox is frozen while this dialog is open, so refusing to answer because the
+        // disk is full would leave the operator with no way to continue at all. The deny
+        // still reaches the model; what is lost is its permanence, and that is written down.
+        let mut blocked_network = false;
+        if !defer {
+            match record_block(&mut guard, &request, &payload, operator_path.as_deref()) {
+                Ok(changed) => blocked_network = changed,
+                Err(err) => {
+                    tracing::error!(
+                        project = %request.project,
+                        error = %err,
+                        "the permanent refusal could not be stored"
+                    );
+                    guard.append_audit(
+                        &request.project,
+                        &format!("BLOCK FAILED {}: {err}", request.description()),
+                    );
+                }
+            }
+        }
+
+        let response = if defer {
+            PermissionResponse::defer(&request_id, payload.message.clone())
+        } else {
+            PermissionResponse::deny(&request_id, payload.message.clone())
+        };
+        broker.answer(&response).map_err(fail)?;
         broker.clear_request(&request_id);
         guard.append_audit(
             &request.project,
             &format!(
-                "DENY  {} ({})",
+                "{}  {} ({})",
+                if defer { "DEFER" } else { "DENY" },
                 request.description(),
                 if payload.message.is_empty() { "no reason given" } else { &payload.message }
             ),
         );
+        // A deny that stored a host block must reach the proxy that is already running, or
+        // the block would only take effect at the next start -- which is exactly the kind
+        // of "it says no but it still works" gap this is meant to close.
+        if blocked_network {
+            let handle = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let state = tauri::Manager::state::<AppState>(&handle);
+                refresh_proxies(&state).await;
+            });
+        }
         drop(guard);
         let _ = app.emit(
             events::BROKER_RESOLVED,
-            serde_json::json!({ "requestId": request_id, "decision": "deny" }),
+            serde_json::json!({ "requestId": request_id, "decision": decision }),
         );
         return Ok(false);
     }
@@ -2431,9 +2720,23 @@ pub fn answer_request_impl(app: &AppHandle, state: &AppState, payload: DecisionP
             let validation = allowlist::validate(&patterns);
             let in_allowlisted_mode =
                 matches!(guard.project(&request.project).map(|p| &p.network), Ok(NetworkPolicy::Allowlisted { .. }));
+            // Approving something the operator has blocked would be a grant that the very
+            // next request check refuses. The way out is the Permissions tab, where the
+            // block is visible and removable -- not a dialog that quietly reverses it.
+            let blocked_pattern = guard.project(&request.project).ok().and_then(|project| {
+                patterns.iter().find_map(|pattern| {
+                    deepsand_core::blocks::blocked_host(&project.blocked_hosts, pattern)
+                        .map(|blocked| (pattern.clone(), blocked))
+                })
+            });
 
             let refusal = if !validation.is_acceptable() {
                 Some(validation.problems.join("; "))
+            } else if let Some((pattern, blocked)) = &blocked_pattern {
+                Some(format!(
+                    "{blocked} is blocked for this project, and {pattern} is covered by that block. \
+                     Remove the block in Permissions before allowing it."
+                ))
             } else if !in_allowlisted_mode {
                 // Refused rather than acted on: the only way an entry could take
                 // effect is by switching the project's whole network mode, which
@@ -3058,10 +3361,19 @@ async fn refresh_proxies(state: &impl AsAppState) {
         running
             .iter()
             .map(|(id, _)| {
-                let project_entries = match store.project(id).map(|project| &project.network) {
-                    Ok(NetworkPolicy::Allowlisted { allow }) => allow.clone(),
-                    _ => Vec::new(),
-                };
+                // Effective, not the raw list: a host the operator refused is a deny rule,
+                // and a proxy refreshed without it would keep serving the destination that
+                // was just blocked.
+                let project_entries = store
+                    .project(id)
+                    .map(|project| {
+                        if project.network.honours_allowlist() {
+                            project.effective_allowlist()
+                        } else {
+                            Vec::new()
+                        }
+                    })
+                    .unwrap_or_default();
                 let (merged, problems) = allowlist::effective(&global, &project_entries);
                 for problem in &problems {
                     tracing::warn!("allowlist entry ignored for project {id}: {problem}");
@@ -3085,8 +3397,12 @@ async fn refresh_proxies(state: &impl AsAppState) {
 /// restricted mode is returned untouched, since nothing consults its allowlist.
 fn with_effective_allowlist(project: &Project, app: &AppSettings) -> Project {
     let mut effective = project.clone();
-    if let NetworkPolicy::Allowlisted { allow } = &project.network {
-        let (merged, problems) = allowlist::effective(&app.egress_allowlist, allow);
+    if project.network.honours_allowlist() {
+        // The project's own entries plus the deny rules its blocks produce. Passing only
+        // `network.allow()` here would drop the blocks on the floor at exactly the point
+        // the plan, the snapshot and the proxy are supposed to agree.
+        let (merged, problems) =
+            allowlist::effective(&app.egress_allowlist, &project.effective_allowlist());
         for problem in &problems {
             tracing::warn!("allowlist entry ignored for project {}: {problem}", project.id);
         }
@@ -3421,7 +3737,6 @@ fn tool_view(tool: &deepsand_core::tools::Tool, selected: &[String]) -> ToolView
         category: tool.category.label().to_string(),
         homepage: tool.homepage().map(str::to_string),
         provider: tool.provider.label().to_string(),
-        default_on: tool.default_on,
         enabled: selected.iter().any(|id| id == tool.id),
         available: reason.is_none(),
         unavailable_reason: reason,
@@ -3449,8 +3764,10 @@ pub fn list_tools_impl(state: &AppState, project_id: &str) -> CmdResult<ToolCata
         .map(|tool| tool.id.to_string())
         .collect();
 
-    let tools = deepsand_core::tools::CATALOG
-        .iter()
+    // Display order, not catalogue order: the panel groups consecutive entries, so this is
+    // what puts the sections in the order the operator asked for.
+    let tools = deepsand_core::tools::catalogue_in_display_order()
+        .into_iter()
         .map(|tool| tool_view(tool, &selected))
         .collect();
 
@@ -3768,6 +4085,20 @@ const MAX_ATTACHMENT_BYTES: u64 = 25 * 1024 * 1024;
 /// because a tarball or a log an operator wants looked at is exactly what gets dropped in.
 const MAX_DROPPED_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
+/// Where a file dropped from **outside** the project's permitted directories is put.
+///
+/// Deliberately not the workspace and deliberately not the state volume:
+///
+/// * Not the workspace, because a permitted directory is usually a git repository, and a file
+///   dragged in for one question must not be swept into the next `git add -A`.
+/// * Not the state volume, because these files are inputs to a conversation rather than part
+///   of the project; `/tmp` is a tmpfs here, so they go away with the container instead of
+///   quietly accumulating.
+///
+/// It is writable and readable in every mode: `/tmp` is mounted as a tmpfs by the plan, and
+/// the write runs through `docker exec` as root.
+const ATTACHMENT_DROP_DIR: &str = "/tmp/deepsand-incoming";
+
 /// A safe name for an attachment, prefixed so two pastes never collide.
 ///
 /// The suggestion comes from a filename or from whatever the webview decided to call a pasted
@@ -3835,43 +4166,52 @@ fn put_attachment(
     Ok(path)
 }
 
-/// Attach paths from a drop: a file already inside the workspace is named where the sandbox
-/// already sees it, and anything else is copied in.
+/// Attach paths from a drop.
+///
+/// A file the sandbox can already see -- inside the workspace *or inside a grant* -- is named
+/// where the sandbox sees it, and nothing is copied. Anything else is outside the project's
+/// permitted directories: it is copied into a disposable directory, and only after the
+/// operator has said yes (unless they have turned the warning off).
 pub fn attach_paths_impl(
     state: &AppState,
     project_id: &str,
     paths: Vec<String>,
+    confirmed_outside: bool,
 ) -> CmdResult<AttachmentView> {
-    let project = store(state).project(project_id).map_err(fail)?.clone();
+    let (project, grants, warn) = {
+        let guard = store(state);
+        let project = guard.project(project_id).map_err(fail)?.clone();
+        // Active grants only: an expired grant is not a place the sandbox can still see.
+        let grants = guard.active_grants(project_id);
+        let warn = guard.settings().warn_on_outside_drops;
+        (project, grants, warn)
+    };
     let container = attachment_container(state, project_id)?;
-    let root = std::fs::canonicalize(&project.root_dir).ok();
-    let workspace_mount = deepsand_core::model::Project::workspace_mount();
 
     let mut view = AttachmentView {
         paths: Vec::new(),
         problems: Vec::new(),
+        outside: Vec::new(),
     };
 
     for raw in paths {
-        // Canonical first: a symlink or a `..` must not be able to name something outside the
-        // workspace and be treated as if it were inside it.
+        // Canonical first: a symlink or a `..` must not be able to name something outside a
+        // permitted directory and be treated as if it were inside one.
         let Ok(canonical) = std::fs::canonicalize(&raw) else {
             view.problems.push(format!("{raw} could not be read"));
             continue;
         };
 
-        // Already inside the workspace: the sandbox sees the same file, so the path it needs is
-        // the mount path, and nothing is copied.
-        if let Some(root) = &root {
-            if let Ok(relative) = canonical.strip_prefix(root) {
-                if !relative.as_os_str().is_empty() {
-                    view.paths.push(format!(
-                        "{workspace_mount}/{}",
-                        relative.to_string_lossy().replace('\\', "/")
-                    ));
-                    continue;
-                }
-            }
+        // A file the sandbox already sees -- in the workspace or under a grant -- needs no
+        // copy at all: the path it needs is the mount path. This is the same rule for both,
+        // because from the sandbox's point of view a grant is just another mount.
+        if let Some(sandbox_path) = deepsand_core::attachments::in_sandbox_path(
+            &canonical,
+            Path::new(&project.root_dir),
+            &grants,
+        ) {
+            view.paths.push(sandbox_path);
+            continue;
         }
 
         let meta = match std::fs::metadata(&canonical) {
@@ -3908,10 +4248,20 @@ pub fn attach_paths_impl(
             ));
             continue;
         }
+
+        // Outside every permitted directory. The window shows what that means and asks; the
+        // list is returned before anything is copied, so a refusal costs nothing.
+        if warn && !confirmed_outside {
+            view.outside.push(canonical.to_string_lossy().to_string());
+            continue;
+        }
+
+        // Into the disposable directory, never the workspace: a dropped file is not part of
+        // the repository, and a `git add -A` after a screenshot should not pick it up.
         let dest = attachment_name(&name, deepsand_core::now_ms().max(0) as u64);
         let docker = state.docker().map_err(fail)?;
-        match docker.write_file_into_container(&container, ATTACHMENTS_DIR, &dest, &canonical) {
-            Ok(()) => view.paths.push(format!("{ATTACHMENTS_DIR}/{dest}")),
+        match docker.write_file_into_container(&container, ATTACHMENT_DROP_DIR, &dest, &canonical) {
+            Ok(()) => view.paths.push(format!("{ATTACHMENT_DROP_DIR}/{dest}")),
             Err(err) => view.problems.push(err.to_string()),
         }
     }
@@ -3924,8 +4274,9 @@ pub fn attach_paths(
     state: State<'_, AppState>,
     project_id: String,
     paths: Vec<String>,
+    confirmed_outside: bool,
 ) -> CmdResult<AttachmentView> {
-    attach_paths_impl(&state, &project_id, paths)
+    attach_paths_impl(&state, &project_id, paths, confirmed_outside)
 }
 
 /// Attach bytes with no path of their own: what a pasted image or file gives the window.
@@ -3944,6 +4295,8 @@ pub fn attach_bytes_impl(
     let mut view = AttachmentView {
         paths: Vec::new(),
         problems: Vec::new(),
+        // A pasted image has no host path, so it is never "outside" anything.
+        outside: Vec::new(),
     };
     match put_attachment(state, &container, &name, &bytes) {
         Ok(path) => view.paths.push(path),
@@ -4665,10 +5018,16 @@ pub async fn build_runtime_image(
 ) -> CmdResult<()> {
     // Async: a build takes minutes, and a sync command runs on the main thread -- one Build click
     // used to freeze the entire window for the whole build.
+    //
+    // The CLI version is resolved here, before the build is started on its thread: it is the
+    // version the image will record in its label, so it has to be the one npm offers now. A
+    // registry that cannot be reached leaves this `None` and the build proceeds with `latest`.
+    let data_dir = data_dir_of(&tauri::Manager::state::<AppState>(&app));
+    let cli_version = crate::cli_refresh::latest_version(&data_dir).await;
     let handle = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let state = tauri::Manager::state::<AppState>(&handle);
-        build_runtime_image_impl(&handle, &state, project_id, build_tools, false)
+        build_runtime_image_impl(&handle, &state, project_id, build_tools, false, cli_version)
     })
     .await
     .map_err(|err| format!("the build could not be started: {err}"))?
@@ -4690,6 +5049,12 @@ pub fn build_runtime_image_impl(
     // meaningful selection rather than a missing one, and it hashes to its own tag, so this is a
     // different image from the one the project will end up with.
     no_tools: bool,
+    // The DeepCode CLI version this build should install, already resolved from npm by the
+    // caller. `None` means the caller could not resolve one (no network), and the Dockerfile's
+    // `latest` is used -- the image then records `latest` as its version, which the next start
+    // treats as "unknown" and refreshes. Resolving here instead would put a network call in
+    // front of a build the operator may have asked for by pressing a button.
+    cli_version: Option<String>,
 ) -> CmdResult<()> {
 
     let docker = state.docker().map_err(fail)?;
@@ -4711,6 +5076,16 @@ pub fn build_runtime_image_impl(
         values.join(",")
     }
 
+    // A resolved version is a cache key all by itself, so the DeepCode layer can be reused when
+    // the build is for another reason (a tool change) and the CLI has not moved. An unresolved
+    // one is installed as `latest`, which the layer cache cannot see: that is the case that
+    // still needs the timestamp forcing it, or "latest" would mean "latest when the layer was
+    // first built".
+    let (cli_arg, cli_refresh) = match cli_version {
+        Some(version) => (version, "pinned".to_string()),
+        None => ("latest".to_string(), deepsand_core::now_ms().to_string()),
+    };
+
     let build_args: Vec<(&str, String)> = vec![
         ("INSTALL_TOOLS", deepsand_core::tools::build_argument(selection.as_deref())),
         ("APT_PACKAGES", csv(&plan.apt)),
@@ -4725,9 +5100,16 @@ pub fn build_runtime_image_impl(
             "INSTALL_BUILD_TOOLS",
             u8::from(build_tools.unwrap_or(false)).to_string(),
         ),
-        // Changes every build, so the DeepCode install layer is never reused and
-        // "latest" means latest now rather than latest when the layer was cached.
-        ("DEEPCODE_REFRESH", deepsand_core::now_ms().to_string()),
+        // `pinned` when a version was resolved, so the layer is keyed by that version alone and
+        // survives a build for another reason; a timestamp when it was not, because an
+        // unpinned `@latest` install cannot otherwise be told from the cached one.
+        ("DEEPCODE_REFRESH", cli_refresh),
+        // The version the host resolved from npm, and the one the image records in its
+        // `deepsand.deepcode.version` label. Pinning it is what lets the next start compare
+        // label against registry instead of guessing, and it makes the install reproducible
+        // from the build log. `latest` when nothing could be resolved, which the label
+        // normalises to "unknown".
+        ("DEEPCODE_CLI_VERSION", cli_arg),
     ];
 
     let context = runtime_context_dir().ok_or_else(|| {
@@ -5078,6 +5460,14 @@ pub fn tool_updates_enabled(state: &AppState) -> bool {
 /// Where cache entries live, for the check that reads them.
 pub fn tool_cache_root(state: &AppState) -> std::path::PathBuf {
     store(state).data_dir().join("buildcache")
+}
+
+/// The app's data directory, owned.
+///
+/// For callers that need it across an `await`: a guard borrowed from a `State` cannot be held
+/// there, and this is the cheapest way to say "this value, not that borrow".
+pub fn data_dir_of(state: &AppState) -> std::path::PathBuf {
+    store(state).data_dir().to_path_buf()
 }
 
 /// Empty a cache entry, keeping the directory the build context points at.
@@ -5487,8 +5877,8 @@ pub fn load_store() -> (Store, Option<String>) {
                 .unwrap_or_default();
             let notice = format!(
                 "Deepsand's saved configuration could not be read, so it was recovered from {from}, \
-                 a copy that had been set aside earlier. Your projects and permissions are there. \
-                 Check anything you changed most recently: the recovered copy may predate it."
+                 an earlier complete copy of your configuration. Your projects and permissions are \
+                 there. Check anything you changed most recently: the recovered copy may predate it."
             );
             (store, Some(notice))
         }
@@ -5690,5 +6080,110 @@ mod auto_restart_tests {
             "C:\\Users\\me\\Projects\\Deepsand"
         ));
         assert!(!is_deepsand_state_volume("some-other-volume"));
+    }
+}
+
+/// The host half of "Don't ask again": a blocked request never reaches the dialog, and the
+/// block is part of the list the egress layer enforces.
+#[cfg(test)]
+mod blocked_request_tests {
+    use super::*;
+    use deepsand_core::model::{PermissionRequest, Project, RequestKind};
+
+    fn project(blocked_paths: Vec<String>, blocked_hosts: Vec<String>) -> Project {
+        let mut project: Project = serde_json::from_str(
+            r#"{"id":"p1","name":"n","slug":"s","root_dir":"/w","created_at_ms":0}"#,
+        )
+        .expect("a minimal project");
+        project.blocked_paths = blocked_paths;
+        project.blocked_hosts = blocked_hosts;
+        project
+    }
+
+    fn request(kind: RequestKind, args: serde_json::Value) -> PermissionRequest {
+        PermissionRequest {
+            id: "req_aaa_1111".to_string(),
+            kind,
+            project: "p1".to_string(),
+            workspace: "/workspace".to_string(),
+            args,
+            created_at: String::new(),
+            pid: None,
+        }
+    }
+
+    #[test]
+    fn a_request_inside_a_blocked_path_is_refused_before_the_operator_sees_it() {
+        let dir = std::env::temp_dir()
+            .join(format!("deepsand-blocked-refusal-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("deploy")).expect("dirs");
+        let project = project(vec![dir.to_string_lossy().to_string()], vec![]);
+
+        let nested = request(
+            RequestKind::DirectoryAccess,
+            serde_json::json!({ "host_path": dir.join("deploy").to_string_lossy() }),
+        );
+        let (message, tag) = blocked_refusal(&project, &nested).expect("a subpath is covered");
+        assert_eq!(tag, "blocked by the operator");
+        assert!(
+            message.contains("Do not ask again"),
+            "the model has to be told the answer will not change: {message}"
+        );
+
+        // A sibling whose name merely starts the same is a different directory.
+        let sibling = request(
+            RequestKind::DirectoryAccess,
+            serde_json::json!({ "host_path": format!("{}-old", dir.display()) }),
+        );
+        assert!(blocked_refusal(&project, &sibling).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_request_for_a_blocked_host_or_subdomain_is_refused() {
+        let project = project(vec![], vec!["example.com".to_string()]);
+        for host in ["example.com", "api.example.com"] {
+            let req = request(
+                RequestKind::NetworkAccess,
+                serde_json::json!({ "patterns": [host] }),
+            );
+            assert!(
+                blocked_refusal(&project, &req).is_some(),
+                "{host} is covered by the block"
+            );
+        }
+        let other = request(
+            RequestKind::NetworkAccess,
+            serde_json::json!({ "patterns": ["example.org"] }),
+        );
+        assert!(
+            blocked_refusal(&project, &other).is_none(),
+            "a different registrable domain is not covered"
+        );
+    }
+
+    /// A host block is only enforceable where the mode has a proxy, but the list the plan
+    /// and the proxy both read has to carry it there -- otherwise the block is stored and
+    /// silently does nothing.
+    #[test]
+    fn a_blocked_host_survives_the_merge_into_the_effective_allowlist() {
+        let mut project = project(vec![], vec!["example.com".to_string()]);
+        project.network = NetworkPolicy::Allowlisted {
+            allow: vec!["api.example.org".to_string()],
+        };
+        let effective = with_effective_allowlist(&project, &AppSettings::default());
+        let entries = effective.network.allowlist();
+        assert!(
+            entries.contains(&"!example.com".to_string()),
+            "the host block has to reach the merged list: {entries:?}"
+        );
+        assert!(
+            entries.contains(&"!*.example.com".to_string()),
+            "and so does its subdomain rule: {entries:?}"
+        );
+        assert!(
+            entries.contains(&"api.example.org".to_string()),
+            "the ordinary entry must survive the merge: {entries:?}"
+        );
     }
 }

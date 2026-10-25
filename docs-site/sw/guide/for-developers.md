@@ -25,17 +25,17 @@ Kila mradi hupata kontena lake la Docker na ujazo wake wa hali. Saraka ya mradi 
 
 Chombo kimezuiwa kwa makusudi:
 
-- Mfumo wa faili wa mizizi ni wa kusomeka pekee, na vipachiko vya ukubwa wa tmpfs kwa `/tmp` na `/run`.
-- Spool ya majibu na saraka ya hali imewekwa kusoma tu.
+- Mfumo wa faili wa mizizi ni wa kusoma tu, na vipandikizi vya ukubwa wa tmpfs kwa `/tmp` na `/run`.
+- Spool ya majibu na saraka ya hali imewekwa kwa kusoma tu.
 - Soketi za wakati wa kutumia chombo zimekataliwa kwa jina.
 - Uwezo hupunguzwa kabla ya DeepCode kukimbia, na `no-new-privileges` imewekwa.
 - Soketi za wakati wa kutumia kontena na vipachiko vingine vilivyopigwa marufuku hushindwa kufungwa badala ya kutoa mpango dhaifu.
 
 ## Ruhusa
 
-Sanduku la mchanga linaweza kuomba ufikiaji zaidi, lakini haliwezi kutoa. Ombi la ruhusa limeandikwa kwa spool; wakala mwenyeji huithibitisha na kusitisha kontena. Opereta anaona ombi na kuamua.
+Sandbox inaweza kuomba ufikiaji zaidi, lakini haiwezi kuiruhusu. Ombi la ruhusa limeandikwa kwa spool; wakala mwenyeji huithibitisha na kusitisha kontena. Opereta anaona ombi na kuamua.
 
-Kuidhinisha ombi la saraka huunda tena kontena kwa kipachiko kipya na kurudisha kipindi. Kukataa ni mwisho na inaripotiwa kwa mwanamitindo.
+Kuidhinisha ombi la saraka hutengeneza tena kontena kwa kipachiko kipya na kurudisha kipindi. Kukataa ni mojawapo ya majibu mawili, na modeli inaambiwa ambayo: **Usiulize tena** ni ya mwisho, wakati **Si sasa** inakataa wakati huu na kusema kwamba mwanamitindo anaweza kuuliza tena baadaye. Kukataliwa kwa mwisho kunahifadhiwa kwenye mradi na kutekelezwa na mwenyeji: hakuna mlima unaowahi kuundwa kwa ajili ya njia au kitu chochote chini yake, na mwenyeji aliyekataliwa huwa sheria ya kukataa inayofunika vikoa vyake vidogo. Vitalu vimeorodheshwa katika Ruhusa na vinaweza kuinuliwa hapo, kwa sababu uamuzi usio na njia ya kurudi nyuma ni mtego badala ya chaguo.
 
 Ombi la kitu ambacho sanduku la mchanga tayari linayo limekataliwa kwa maelezo. Hakuna njia ya uidhinishaji wa kiotomatiki, kwa sababu kibali cha kimya kitakuwa kibali ambacho mwendeshaji hajawahi kutoa.
 
@@ -50,7 +50,7 @@ Sera ya mtandao ina njia nne:
 | `internet` | Ufikiaji wa mtandao, na safu za ndani na za kibinafsi zimezuiwa ndani ya kontena. |
 | `full` | Ufikiaji wa mtandao bila kizuizi cha mtandao wa ndani. |
 
-Ingizo la jina la mpangishaji linatatuliwa na seva mbadala, ambayo inakataa matokeo ya faragha, ya kurudi nyuma, ya kiungo-ya karibu na yaliyohifadhiwa. Ingizo la anwani linatekelezwa moja kwa moja na kontena, ambalo ndilo huruhusu mteja wa hifadhidata au programu nyingine isiyo ya HTTP kuunganishwa. Lango iliyotajwa huchapishwa kwenye mpangilio wa nyuma wa seva pangishi pekee.
+Ingizo la jina la mpangishaji linatatuliwa na seva mbadala, ambayo inakataa matokeo ya faragha, ya kurudi nyuma, ya kiungo-ya karibu na yaliyohifadhiwa. Ingizo la anwani hutekelezwa moja kwa moja na kontena, ambalo ndilo huruhusu mteja wa hifadhidata au programu nyingine isiyo ya HTTP kuunganishwa. Lango iliyotajwa huchapishwa kwenye mpangilio wa nyuma wa seva pangishi pekee.
 
 ## Siri na sasisho
 

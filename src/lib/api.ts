@@ -290,6 +290,15 @@ export const pathCheck = (path: string) => call<PathCheck>("path_check", { path 
 export const setRequestsEnabled = (projectId: string, enabled: boolean) =>
   call<ProjectView>("set_requests_enabled", { projectId, enabled });
 
+/**
+ * Lift one of the operator's permanent refusals.
+ *
+ * `kind` is "path" or "host"; the value is the stored entry. Local-only by design: this
+ * widens what the sandbox can reach, so it is not part of the remote command table.
+ */
+export const unblockResource = (projectId: string, kind: "path" | "host", value: string) =>
+  call<boolean>("unblock_resource", { projectId, kind, value });
+
 /* --- updates ------------------------------------------------------------- */
 
 /**
@@ -319,8 +328,15 @@ export const cancelBuild = (image: string | null) => call<string[]>("cancel_buil
 
 /* --- attachments: what is pasted or dropped into the terminal --------------- */
 
-export const attachPaths = (projectId: string, paths: string[]) =>
-  call<AttachmentView>("attach_paths", { projectId, paths });
+/**
+ * Drop these paths into the sandbox.
+ *
+ * Files inside the workspace or a grant are named at their mount path and nothing is copied.
+ * Files from outside are returned in `outside` instead of being copied, unless
+ * `confirmedOutside` is true -- which is what the warning dialog's own confirmation sets.
+ */
+export const attachPaths = (projectId: string, paths: string[], confirmedOutside = false) =>
+  call<AttachmentView>("attach_paths", { projectId, paths, confirmedOutside });
 export const attachBytes = (projectId: string, name: string, base64Data: string) =>
   call<AttachmentView>("attach_bytes", { projectId, name, base64Data });
 

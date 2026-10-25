@@ -349,7 +349,7 @@ pub fn plan_run(input: &PlanInput<'_>) -> Result<RunPlan> {
     let mut published_ports: Vec<u16> = Vec::new();
     if project.network.honours_allowlist() {
         let (list, _) =
-            allowlist::effective(&input.app.egress_allowlist, project.network.allowlist());
+            allowlist::effective(&input.app.egress_allowlist, &project.effective_allowlist());
         let mut v6_skipped: Vec<String> = Vec::new();
         for (address, port) in list.direct_targets() {
             match address {
@@ -382,10 +382,7 @@ pub fn plan_run(input: &PlanInput<'_>) -> Result<RunPlan> {
                 // `none` means the model API and nothing else, so the project's own
                 // list is not consulted; `restricted` uses it.
                 let allow: Vec<String> = if project.network.honours_allowlist() {
-                    match &project.network {
-                        NetworkPolicy::Allowlisted { allow } => allow.clone(),
-                        _ => Vec::new(),
-                    }
+                    project.effective_allowlist()
                 } else {
                     Vec::new()
                 };
@@ -785,6 +782,8 @@ mod tests {
                 credentials: Credentials::default(),
                 deepcode_mode: DeepCodeMode::AllowAll,
                 allowed_roots: vec![],
+                blocked_paths: vec![],
+                blocked_hosts: vec![],
                 requests_enabled: true,
                 resume_on_launch: false,
                 was_running: false,

@@ -21,21 +21,21 @@ Ohun elo tabili tabili ati awakọ laini aṣẹ `deepsandctl` lo mojuto kanna, 
 
 Ise agbese kọọkan gba eiyan Docker tirẹ ati iwọn didun ipinlẹ tirẹ. Ilana ise agbese ti wa ni gbigbe ni `/workspace`; miiran ogun ilana nilo fojuhan igbeowosile.
 
-`policy::plan_run` kọ awọn pipe `docker run` argv ni ibi kan. Awọn taabu aṣayan iṣẹ-ṣiṣe fihan wipe gangan ètò, pẹlu awọn gbeko, awọn agbara, nẹtiwọki mode ati kika-nikan ona.
+`policy::plan_run` kọ awọn pipe `docker run` argv ni ibi kan. Awọn taabu aṣayan iṣẹ-ṣiṣe fihan wipe gangan ètò, pẹlu awọn gbeko, awọn agbara, nẹtiwọki mode ati awọn ọna kika-nikan.
 
 Epo naa ti ni ihamọ mọọmọ:
 
 - Eto faili gbongbo jẹ kika-nikan, pẹlu iwọn tmpfs gbeko fun `/tmp` ati `/run`.
-- Idahun spool ati iwe ilana ipinle ti wa ni agesin kika-nikan.
+- Idahun spool ati iwe ilana ipinle ti wa ni gbigbe kika-nikan.
 - Awọn ibọsẹ igba-akoko apoti jẹ kọ nipasẹ orukọ.
 - Awọn agbara ti lọ silẹ ṣaaju ṣiṣe DeepCode, ati `no-new-privileges` ti ṣeto.
-- Awọn ibọsẹ-akoko asiko apoti ati awọn agbeko eewọ miiran kuna ni pipade kuku ju iṣelọpọ ero alailagbara kan jade.
+- Awọn ibọsẹ-akoko asiko eiyan ati awọn igbeko eewọ miiran kuna ni pipade kuku ju iṣelọpọ ero alailagbara kan jade.
 
 ## Awọn igbanilaaye
 
-Apoti iyanrin le beere fun iraye si diẹ sii, ṣugbọn ko le fun ni. A fun igbanilaaye ìbéèrè ti kọ si a spool; alagbata agbalejo fọwọsi rẹ ati da duro eiyan naa. Oniṣẹ n wo ibeere naa o pinnu.
+Apoti iyanrin le beere fun iraye si diẹ sii, ṣugbọn ko le fun ni. A fun igbanilaaye ìbéèrè ti kọ si a spool; alagbata ile-iṣẹ fọwọsi rẹ ati da duro eiyan naa. Oniṣẹ n wo ibeere naa o pinnu.
 
-Gbigba ibeere itọsọna kan tun ṣe eiyan naa pẹlu oke dipọ tuntun ati tun bẹrẹ igba naa. Kiko ni ase ati ki o ti wa ni royin si awọn awoṣe.
+Gbigba ibeere itọsọna kan tun ṣe eiyan naa pẹlu oke dipọ tuntun ati tun bẹrẹ igba naa. A aigba jẹ ọkan ninu awọn meji idahun, ati awọn awoṣe ti wa ni so fun eyi ti: **Maṣe beere lẹẹkansi** ni ik, nigba ti **Ko bayi** kọ akoko yi o si wi pe awọn awoṣe le beere lẹẹkansi nigbamii. Ijusilẹ ikẹhin ti wa ni ipamọ lori iṣẹ akanṣe ati fi agbara mu nipasẹ agbalejo: ko si oke ti a ṣẹda lailai fun ọna tabi ohunkohun labẹ rẹ, ati pe agbalejo kan ti o kọ di ofin atako ti o bo awọn subdomains rẹ. Awọn bulọọki ti wa ni atokọ ni Awọn igbanilaaye ati pe o le gbe soke nibẹ, nitori ipinnu ti ko si ọna pada jẹ ẹgẹ ju yiyan lọ.
 
 Ibere ​​fun nkan ti apoti iyanrin ti ni tẹlẹ ni a kọ pẹlu alaye kan. Ko si ipa-ọna alafọwọsi aifọwọyi, nitori ifọwọsi ipalọlọ yoo jẹ ifọwọsi oniṣẹ ẹrọ ko funni.
 
@@ -48,7 +48,7 @@ Ilana nẹtiwọki ni awọn ọna mẹrin:
 | `none` | Nikan aaye ipari awoṣe nipasẹ aṣoju egress Deepsand. |
 | `allowlisted` | Ojuami ipari awoṣe, aṣoju, ati awọn ogun ti a npè ni, awọn adirẹsi ati awọn ebute oko oju omi. |
 | `internet` | Wiwọle Intanẹẹti, pẹlu agbegbe ati awọn sakani ikọkọ ti dina mọ inu eiyan naa. |
-| `full` | Wiwọle Ayelujara laisi bulọọki-nẹtiwọọki agbegbe. |
+| `full` | Wiwọle Ayelujara laisi bulọki-nẹtiwọọki agbegbe. |
 
 Titẹwọle orukọ olupin ni ipinnu nipasẹ aṣoju, eyiti o kọ ikọkọ, loopback, ọna asopọ-agbegbe ati awọn abajade ti a fi pamọ. Titẹ sii adirẹsi kan ni ipa taara nipasẹ apo eiyan, eyiti o jẹ ki alabara data data tabi eto miiran ti kii ṣe HTTP sopọ. A ti a npè ni ibudo ti wa ni atejade lori ogun loopback nikan.
 

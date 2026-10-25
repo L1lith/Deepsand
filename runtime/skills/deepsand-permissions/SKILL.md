@@ -38,11 +38,12 @@ Call **`deepsand_sandbox_info`** first. It lists the workspace, every granted di
 
 ## Asking, and what comes back
 
-A request returns one of four things:
+A request returns one of five things:
 
 - **`APPROVED`** — the directory is now mounted and the reply tells you the path
   it appears at, under `/grants/<name>`. **Use the path from the reply, not one you predicted.** The name is chosen by the operator's Deepsand instance, so it may not match what you asked for.
 - **`DENIED`** — the decision is final. Do not retry it, do not rephrase it, do not look for another route to the same place. Report the limitation and continue with what you have, or ask the operator what they would prefer.
+- **`NOT NOW`** — a refusal that is not final. The operator was unsure, or not ready to decide, and has not ruled the request out. Carry on without it, and do not retry it in this turn. If it still matters later you may ask once more, with a concrete reason rather than a repetition — once, not in a loop.
 - **`REQUESTS ARE OFF`** — the operator has turned permission requests off for this project,
   so nothing you ask will reach them. This is not a refusal of *this* request and it is not
   something to work around: adjust to what you already have and say plainly what you could
@@ -169,7 +170,7 @@ An approved tool is added to the project's image, which means it is **not usable
 - Do not search the filesystem for a way around a missing path. There is not one, and the attempt is wasted work.
 - Do not assume a standard layout (`~/.ssh`, `/etc`, the operator's home) exists. Those are deliberately absent.
 - Do not silently work around a missing input by inventing its contents. Say what is missing and ask.
-- Do not retry a denied request. A refusal is a decision, and there is no workaround.
+- Do not retry a `DENIED` request. That decision is final, and there is no workaround. A `NOT NOW` is not a licence to ask again immediately either: carry on without it, and ask once more only if it still matters later.
 - Do not ask for a wildcard to avoid diagnosing which host you actually need. The error message usually says.
 - Do not install tools yourself. They are baked into the image; an install you perform is discarded, and installing something else with a different version is worse than not having it.
 - Do not bundle unrelated requests into one to save a round trip. A request the operator cannot judge is a request they have to refuse.

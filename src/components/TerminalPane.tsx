@@ -10,16 +10,17 @@
  *    itself, which is what lets the container's TUI initialise at all.
  */
 
-import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import * as api from "../lib/api";
-import { attachTerminal, describeError, restartDocker, selectedProject, sessionOperation, store, toast } from "../store";
+import { attachTerminal, describeError, refreshSettings, restartDocker, selectedProject, sessionOperation, store, toast } from "../store";
 import { t } from "../i18n";
 import { dockerDetail } from "../lib/types";
 import { RestartDockerControl } from "./RestartDocker";
+import { Modal } from "./Dialogs";
 
 /**
  * The pane's colours.
@@ -62,6 +63,15 @@ export function TerminalPane() {
   const [dropping, setDropping] = createSignal(false);
   /** True while something is being copied into the sandbox. */
   const [attaching, setAttaching] = createSignal(false);
+  /**
+   * Files that were dropped from outside every permitted directory.
+   *
+   * They are held here rather than copied: the operator gets to see what is at stake first,
+   * and saying no leaves nothing behind. `remember` is the dialog's "don't warn me again".
+   */
+  const [outsideDrop, setOutsideDrop] = createSignal<{ paths: string[]; remember: boolean } | null>(
+    null,
+  );
   /**
    * True while the "start now" button is starting on the no-tools image.
    *
@@ -683,15 +693,49 @@ export function TerminalPane() {
     }
   }
 
-  /** Attach dropped paths: what the sandbox can already see is named, the rest is copied in. */
+  /**
+   * Attach dropped paths.
+   *
+   * What the sandbox can already see -- the workspace or a granted directory -- is typed in
+   * as its mount path. Anything from outside is not copied on the first call: the host
+   * returns it separately, and this asks before anything is written anywhere.
+   */
   async function attachDroppedPaths(paths: string[]) {
     const current = project();
     if (!current || paths.length === 0 || attaching()) return;
     setAttaching(true);
     try {
-      const view = await api.attachPaths(current.id, paths);
+      const view = await api.attachPaths(current.id, paths, false);
       insertPaths(view.paths);
       reportProblems(view.problems);
+      if (view.outside.length > 0) setOutsideDrop({ paths: view.outside, remember: false });
+    } catch (error) {
+      toast("error", t("terminal.couldNotAttach"), describeError(error));
+    } finally {
+      setAttaching(false);
+    }
+  }
+
+  /** The operator said yes to copying files in from outside the permitted directories. */
+  async function confirmOutsideDrop() {
+    const pending = outsideDrop();
+    const current = project();
+    if (!pending || !current) return;
+    setAttaching(true);
+    try {
+      const settings = store.settings;
+      // Never saved from a partial object: `set_settings` takes the whole document, so
+      // spreading `null` here would write a defaulted one over the operator's configuration.
+      if (pending.remember && settings?.warn_on_outside_drops) {
+        // The toggle is a global setting, not a property of this drop: it says "I know what
+        // this means", and should hold for the next project too.
+        await api.setSettings({ ...settings, warn_on_outside_drops: false });
+        await refreshSettings();
+      }
+      const view = await api.attachPaths(current.id, pending.paths, true);
+      insertPaths(view.paths);
+      reportProblems(view.problems);
+      setOutsideDrop(null);
     } catch (error) {
       toast("error", t("terminal.couldNotAttach"), describeError(error));
     } finally {
@@ -817,6 +861,50 @@ export function TerminalPane() {
             {busy() ? t("common.stopping") : t("app.stop")}
           </button>
         </div>
+      </Show>
+
+      {/* The operator dropped something from outside the project's folders. Nothing has been
+          copied yet: this is the decision, and its "don't warn me again" is the global
+          setting rather than a property of one drop. */}
+      <Show when={outsideDrop()}>
+        {(pending) => (
+          <Modal
+            title={t("drop.title")}
+            subtitle={project()?.name ?? ""}
+            onClose={() => setOutsideDrop(null)}
+            footer={
+              <>
+                <button class="btn btn-ghost" disabled={attaching()} onClick={() => setOutsideDrop(null)}>
+                  {t("common.cancel")}
+                </button>
+                <button class="btn btn-primary" disabled={attaching()} onClick={() => void confirmOutsideDrop()}>
+                  {attaching() ? t("common.applying") : t("drop.confirm")}
+                </button>
+              </>
+            }
+          >
+            <div class="stack">
+              <div class="callout callout-warn">{t("drop.risk")}</div>
+              <div class="field">
+                <label>{t("drop.files")}</label>
+                <For each={pending().paths}>
+                  {(path) => <div class="request-path mono">{path}</div>}
+                </For>
+              </div>
+              <label class="row-inline small">
+                <input
+                  type="checkbox"
+                  checked={pending().remember}
+                  onChange={(event) =>
+                    setOutsideDrop({ ...pending(), remember: event.currentTarget.checked })
+                  }
+                />
+                {t("drop.remember")}
+              </label>
+              <span class="hint">{t("drop.tempHint", { path: "/tmp/deepsand-incoming" })}</span>
+            </div>
+          </Modal>
+        )}
       </Show>
     </div>
   );

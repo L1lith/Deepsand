@@ -48,11 +48,11 @@ La clave de toda la aplicación se guarda en el almacén de claves de su sistema
 3. Elija el directorio de trabajo.
 4. Crea el proyecto.
 
-El directorio de trabajo se convierte en `/workspace` dentro del entorno sandbox. Deepsand rechaza rutas como la raíz del sistema de archivos, su directorio de inicio, almacenes de credenciales y su propio directorio de datos.
+El directorio de trabajo se convierte en `/workspace` dentro del sandbox. Deepsand rechaza rutas como la raíz del sistema de archivos, su directorio de inicio, almacenes de credenciales y su propio directorio de datos.
 
 ## Elige un modelo
 
-Utilice un **modelo flash** para la mayoría de las tareas. Deepsand tiene como valor predeterminado `deepseek-v4-flash`, que es la opción más económica para la codificación, explicaciones y ediciones diarias. Cambie a `deepseek-v4-pro` sólo cuando Flash claramente tenga dificultades con una tarea; el modelo profesional cuesta más de ejecutar.
+Utilice un **modelo flash** para la mayoría de las tareas. Deepsand por defecto es `deepseek-v4-flash`, que es la opción más económica para codificación, explicaciones y ediciones diarias. Cambie a `deepseek-v4-pro` solo cuando Flash claramente tenga dificultades con una tarea; el modelo profesional cuesta más de ejecutar.
 
 Puedes cambiar el modelo en **Ajustes**, desde la cabecera del proyecto, o con `/model` en el terminal DeepCode.
 
@@ -88,7 +88,8 @@ Lea [Usando el terminal DeepCode](./deepcode-terminal) para conocer los comandos
 Cuando DeepCode necesita un directorio, un destino de red, una herramienta u otro recurso, Deepsand pausa el sandbox y muestra la solicitud.
 
 - **Conceder acceso** permite la solicitud y reanuda la sesión.
-- **Denegar** lo rechaza y le dice al modelo que la decisión es definitiva.
+- **Ahora no** lo rechaza esta vez; El modelo puede volver a preguntar más tarde.
+- **no vuelvas a preguntar** lo rechaza, y Deepsand luego rechaza esa ruta (y todo lo que hay debajo de ella) o ese host (y sus subdominios), no solo con palabras. Cada bloque aparece en Permisos, donde puedes eliminarlo nuevamente.
 - Una concesión de directorio recrea el contenedor con el nuevo montaje adjunto.
 
 Lea [Cómo funciona la caja de arena](./security) antes de otorgar acceso a un directorio que contenga archivos confidenciales.
@@ -99,7 +100,7 @@ Lea [Cómo funciona la caja de arena](./security) antes de otorgar acceso a un d
 | --- | --- |
 | Terminales | La sesión DeepCode en vivo dentro del sandbox. |
 | Permisos | Directorios compartidos, la lista de permitidos de la red y la pista de auditoría. |
-| Herramientas | Herramientas integradas en la imagen del proyecto. Al cambiar la selección se reconstruye la imagen. |
+| Herramientas | Herramientas integradas en la imagen del proyecto, capacidades agrupadas, idiomas, administradores de paquetes, utilidades, ingeniería inversa. No hay nada activado de forma predeterminada y al cambiar la selección se reconstruye la imagen. |
 | Secretos | Valores cifrados inyectados como variables de entorno al inicio. |
 | Actividad | Los argumentos exactos de `docker run`, el registro de compilación y los intentos de salida bloqueados. |
 

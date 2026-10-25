@@ -33,6 +33,9 @@ jobs:
       - name: install dependencies
         run: npm ci
 
+      - name: check translation overrides
+        run: npm run docs:check
+
       - name: build documentation
         env:
           # Set the repository variable DOCS_SITE_URL when the docs use a

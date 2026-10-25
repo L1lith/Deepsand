@@ -61,7 +61,7 @@ O le yi awoṣe pada ni **Eto**, lati akọsori iṣẹ akanṣe, tabi pẹlu `/
 Awọn ero esun ni tókàn si awọn awoṣe selector ni ise agbese akọsori. O ṣakoso iye ero ti awoṣe ṣe ṣaaju idahun.
 
 - **Paa:** ko si ero. Yara ju, ṣugbọn o kere julọ ṣọra.
-- **Yiyara:** kekere ero, fun kekere daradara-pato àtúnṣe.
+- **Yara:** kekere ero, fun kekere daradara-pato àtúnṣe.
 - **Iwontunwonsi:** ironu dede ati iduro aarin. Eyi jẹ aifọwọyi ti oye fun iṣẹ gidi.
 - **Jin:** o pọju ero. O lọra ati gbowolori julọ.
 - **Aiyipada:** da duro si alejo `settings.json`; ti ko ba sọ nkankan, ṣubu DeepCode pada si Iwontunws.funfun.
@@ -88,7 +88,8 @@ Ka [Lilo ebute DeepCode](./deepcode-terminal) fun awọn aṣẹ akọkọ, aw�
 Nigbati DeepCode nilo itọsọna kan, opin irin ajo nẹtiwọọki kan, ọpa kan tabi orisun miiran, Deepsand da duro apoti iyanrin ati ṣafihan ibeere naa.
 
 - **Ifunni wiwọle** gba ibeere laaye ati tun bẹrẹ igba naa.
-- **Kọ** kọ o si sọ fun awoṣe pe ipinnu jẹ ipari.
+- **Ko bayi** kọ ni akoko yii; awoṣe le beere lẹẹkansi nigbamii.
+- **Maṣe beere lẹẹkansi** kọ ọ, ati Deepsand lẹhinna kọ ọna naa (ati ohun gbogbo labẹ rẹ) tabi ogun naa (ati awọn subdomains) funrararẹ, kii ṣe ni awọn ọrọ nikan. Gbogbo bulọọki wa ni atokọ ni Awọn igbanilaaye, nibi ti o ti le gbe soke lẹẹkansi.
 - Ẹbun liana tun ṣe eiyan pẹlu oke tuntun ti a so.
 
 Ka [Bawo ni apoti iyanrin ṣe n ṣiṣẹ](./security) ṣaaju fifun ni iraye si itọsọna ti o ni awọn faili ifura ninu.
@@ -99,7 +100,7 @@ Ka [Bawo ni apoti iyanrin ṣe n ṣiṣẹ](./security) ṣaaju fifun ni iraye 
 | --- | --- |
 | Ebute | Awọn ifiwe DeepCode igba inu awọn sandbox. |
 | Awọn igbanilaaye | Awọn ilana ti o pin, atokọ iyọọda nẹtiwọki ati itọpa iṣayẹwo. |
-| Awọn irinṣẹ | Awọn irinṣẹ ndin sinu aworan ise agbese. Yiyipada yiyan tun ṣe aworan naa. |
+| Awọn irinṣẹ | Awọn irinṣẹ ti a yan sinu aworan iṣẹ akanṣe, Awọn agbara akojọpọ, Awọn ede, Awọn alakoso Package, Awọn ohun elo, Imọ-ẹrọ Yiyipada. Ko si ohun ti o wa ni titan nipasẹ aiyipada, ati iyipada aṣayan tun ṣe aworan naa. |
 | Asiri | Awọn iye ti paroko ti abẹrẹ bi awọn oniyipada ayika ni ibẹrẹ. |
 | aṣayan iṣẹ-ṣiṣe | Awọn ariyanjiyan `docker run` gangan, akọọlẹ kikọ ati awọn igbiyanju egress dina. |
 

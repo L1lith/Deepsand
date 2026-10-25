@@ -35,7 +35,7 @@ The container is deliberately constrained:
 
 The sandbox can ask for more access, but it cannot grant it. A permission request is written to a spool; the host broker validates it and pauses the container. The operator sees the request and decides.
 
-Approving a directory request recreates the container with the new bind mount and resumes the session. Denying is final and is reported to the model.
+Approving a directory request recreates the container with the new bind mount and resumes the session. A refusal is one of two answers, and the model is told which: **Don't ask again** is final, while **Not now** declines this time and says the model may ask again later. A final refusal is stored on the project and enforced by the host: no mount is ever created for the path or anything under it, and a refused host becomes a deny rule covering its subdomains. Blocks are listed in Permissions and can be lifted there, because a decision with no way back is a trap rather than a choice.
 
 A request for something the sandbox already has is refused with an explanation. There is no automatic approval path, because a silent approval would be consent the operator never gave.
 

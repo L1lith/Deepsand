@@ -241,6 +241,28 @@ export function PermissionsPanel() {
     }
   }
 
+  /**
+   * Lift a permanent refusal.
+   *
+   * The block is enforced on the host, so this is the only way a blocked path or host can
+   * become usable again -- which is why it has to exist: a decision with no way back is a
+   * trap, and the whole point of the two buttons was to make "never" a deliberate choice.
+   */
+  async function unblock(kind: "path" | "host", value: string) {
+    const current = project();
+    if (!current) return;
+    setBusy(true);
+    try {
+      await api.unblockResource(current.id, kind, value);
+      await refreshProjects();
+      toast("ok", t("perm.unblockedTitle"), t("perm.unblockedBody", { value }));
+    } catch (error) {
+      toast("error", t("perm.couldNotUnblock"), describeError(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   /** Open the project's own directory in the machine's file manager. */
   async function openProjectDir() {
     const current = project();
@@ -394,6 +416,62 @@ export function PermissionsPanel() {
                 )}
               </Show>
             </div>
+
+            {/* A block is enforced by the host, so it needs a visible way back. Without
+                this list "Don't ask again" would be a rule the operator made once and
+                could never find again. */}
+            <Show
+              when={
+                (current().blockedPaths?.length ?? 0) + (current().blockedHosts?.length ?? 0) > 0
+              }
+            >
+              <div class="card">
+                <h3>{t("perm.blockedTitle")}</h3>
+                <span class="hint">{t("perm.blockedHint")}</span>
+                <Show
+                  when={
+                    (current().blockedHosts?.length ?? 0) > 0 &&
+                    policyMode(current().network) !== "allowlisted"
+                  }
+                >
+                  <div class="callout callout-warn" style={{ "margin-top": "0.6rem" }}>
+                    {t("perm.blockedNotEnforced")}
+                  </div>
+                </Show>
+                <For each={current().blockedPaths ?? []}>
+                  {(path) => (
+                    <div class="row-inline" style={{ "margin-top": "0.5rem" }}>
+                      <span class="request-path mono grow" title={path}>
+                        {path}
+                      </span>
+                      <button
+                        class="btn btn-ghost btn-sm"
+                        disabled={busy()}
+                        onClick={() => void unblock("path", path)}
+                      >
+                        {t("perm.unblock")}
+                      </button>
+                    </div>
+                  )}
+                </For>
+                <For each={current().blockedHosts ?? []}>
+                  {(host) => (
+                    <div class="row-inline" style={{ "margin-top": "0.5rem" }}>
+                      <span class="request-path mono grow" title={host}>
+                        {host}
+                      </span>
+                      <button
+                        class="btn btn-ghost btn-sm"
+                        disabled={busy()}
+                        onClick={() => void unblock("host", host)}
+                      >
+                        {t("perm.unblock")}
+                      </button>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
 
             <div class="card">
               <h3>{t("perm.insideSandbox")}</h3>

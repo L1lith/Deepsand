@@ -63,6 +63,17 @@ Mradi unaweza kuwa tayari una `AGENTS.md`; angalia kabla ya kutumia `/init` ili 
 
 Baada ya kukatiza zamu na `Esc`, unaweza kuandika ombi lingine. Sanduku la mchanga halijaanzishwa upya.
 
+## Inadondosha faili kwenye terminal
+
+Buruta faili kwenye terminal na njia yake inaandikwa kwa ajili yako.
+
+- Faili iliyo ndani ya folda ya mradi, au ndani ya saraka ambayo umeshiriki na mradi, inarejelewa ambapo sanduku la mchanga tayari linaiona (`/workspace/...` au `/grants/...`). Hakuna kitu kinachonakiliwa.
+- Faili kutoka popote pengine inakiliwa katika `/tmp/deepsand-incoming` ndani ya kisanduku cha mchanga, na Deepsand inauliza kwanza. Folda hiyo sio sehemu ya hazina yoyote, kwa hivyo faili iliyoshuka haiwezi kuishia kwenye ahadi, na inatoweka wakati sanduku la mchanga linaundwa tena. Mazungumzo yana swichi ya **Usinionye tena**, ambayo ni mpangilio sawa na **Mipangilio → Tabia → Onya kabla ya kudondosha faili kutoka nje ya mradi**.
+
+## Kukaa hadi sasa
+
+DeepCode CLI imewekwa ndani ya picha ya sandbox, na sandbox haiwezi kujisasisha yenyewe. Kabla ya kila kuanza Deepsand inauliza npm toleo jipya zaidi ni nini na, ikiwa picha ina ya zamani, hujenga upya sehemu hiyo ya picha kwanza - kwa hivyo terminal haifungui kamwe kwenye toleo ambalo tayari linakuuliza usasishe. Jibu linakumbukwa kwa robo ya saa, kwa hivyo hili ni ombi moja badala ya moja kwa kukimbia, na ikiwa npm haiwezi kufikiwa sanduku la mchanga linaanza kwenye toleo ambalo tayari linayo.
+
 ## Vipindi, mifano na kutendua
 
 - `/new` inaanza tena na mazungumzo safi. Faili za mradi hazijafutwa.
@@ -79,7 +90,8 @@ Kituo kiko ndani ya kontena, kwa hivyo kinaona mradi katika `/workspace` na sara
 Wakati DeepCode inauliza saraka nyingine, lengwa la mtandao, zana au nyenzo nyingine, Deepsand hugandisha kisanduku cha mchanga na kuonyesha kidirisha cha ruhusa.
 
 - **Ruhusu ufikiaji** itatumia ombi na kuanza tena kikao.
-- **Kataa** inakataa na kumwambia DeepCode uamuzi ni wa mwisho.
+- **Si sasa** inakataa wakati huu; DeepCode inaweza kuuliza tena baadaye.
+- **Usiulize tena** inaikataa, na Deepsand kisha inakataa njia hiyo (na kila kitu chini yake) au mwenyeji huyo (na vikoa vyake) yenyewe, sio kwa maneno tu. Kila kizuizi kimeorodheshwa katika Ruhusa, ambapo unaweza kukiinua tena.
 - Kuidhinisha saraka kunaunda tena kontena na kipandikizi kipya.
 
 Soma [Jinsi sandbox inavyofanya kazi](./security) kabla ya kushiriki saraka ambayo ina faili nyeti.

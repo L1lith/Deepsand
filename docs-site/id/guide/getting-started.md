@@ -88,7 +88,8 @@ Baca [Menggunakan terminal DeepCode](./deepcode-terminal) untuk perintah utama, 
 Ketika DeepCode memerlukan direktori, tujuan jaringan, alat, atau sumber daya lainnya, Deepsand menjeda kotak pasir dan menampilkan permintaan.
 
 - **Berikan akses** mengizinkan permintaan dan melanjutkan sesi.
-- **Membantah** menolaknya dan memberi tahu model bahwa keputusannya sudah final.
+- **Tidak sekarang** menolaknya kali ini; model mungkin bertanya lagi nanti.
+- **Jangan bertanya lagi** menolaknya, dan Deepsand kemudian menolak jalur tersebut (dan semua yang ada di bawahnya) atau host itu (dan subdomainnya) itu sendiri, tidak hanya dengan kata-kata. Setiap blok tercantum dalam Izin, tempat Anda dapat mengangkatnya kembali.
 - Hibah direktori membuat ulang kontainer dengan mount baru terpasang.
 
 Baca [Cara kerja kotak pasir](./security) sebelum memberikan akses ke direktori yang berisi file sensitif.
@@ -99,7 +100,7 @@ Baca [Cara kerja kotak pasir](./security) sebelum memberikan akses ke direktori 
 | --- | --- |
 | Terminal | Sesi DeepCode langsung di dalam kotak pasir. |
 | Izin | Direktori bersama, daftar jaringan yang diizinkan, dan jejak audit. |
-| Alat | Alat dimasukkan ke dalam gambar proyek. Mengubah pilihan akan membangun kembali gambar. |
+| Alat | Alat dimasukkan ke dalam gambar proyek, mengelompokkan Kemampuan, Bahasa, Manajer paket, Utilitas, Rekayasa Terbalik. Tidak ada yang aktif secara default, dan mengubah pilihan akan membangun kembali gambar. |
 | Rahasia | Nilai terenkripsi dimasukkan sebagai variabel lingkungan di awal. |
 | Aktivitas | Argumen `docker run` yang tepat, log build, dan upaya jalan keluar yang diblokir. |
 

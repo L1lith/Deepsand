@@ -14,7 +14,7 @@ Wannan shafin na masu haɓakawa ne waɗanda ke son siffar fasaha na tsarin. Idan
 Deepsand app ne na tebur na Tauri tare da manyan yadudduka uku:
 
 - **Tagan** sigar SolidJS ce. Yana sanya jihar kuma yana aika da niyya; ba ya yanke shawara.
-- **Layer na Tauri** yana fallasa umarnin tebur kuma yana fassara saman umarni iri ɗaya zuwa uwar garken HTTP madauki don abokan ciniki masu nisa.
+- **Layer na Tauri** yana fallasa umarnin tebur kuma yana fassara saman umarni iri ɗaya zuwa uwar garken HTTP madauki don abokan ciniki na nesa.
 - **Saukewa: `deepsand-core`** ya mallaki dokoki. Tabbatar da hanyar, shirin `docker run`, dillali mai izini, wakili na egress, ɓoyayyen kantin sayar da sirri, da kantin kayan jihar duk suna zaune a wurin.
 
 Aikace-aikacen tebur da direban layin umarni `deepsandctl` suna amfani da mahimmanci iri ɗaya, don haka ba za su iya karkata ba akan shawarar tsaro.
@@ -23,7 +23,7 @@ Aikace-aikacen tebur da direban layin umarni `deepsandctl` suna amfani da mahimm
 
 Kowane aikin yana samun nasa akwati Docker da juzu'in jiharsa. An ɗora littafin aikin a `/workspace`; sauran kundayen adireshi masu masaukin baki suna buƙatar tallafin fayyace.
 
-`policy::plan_run` yana gina cikakken `docker run` argv a wuri guda. Shafin Ayyukan yana nuna ainihin shirin, gami da hawa, iyawa, yanayin cibiyar sadarwa da hanyoyin karantawa kawai.
+`policy::plan_run` yana gina cikakken `docker run` argv a wuri guda. Shafin Ayyukan yana nuna ainihin shirin, gami da masu hawa, iyawa, yanayin cibiyar sadarwa da hanyoyin karantawa kawai.
 
 An danne kwantena da gangan:
 
@@ -31,13 +31,13 @@ An danne kwantena da gangan:
 - An ɗora spool mai amsawa da kundin adireshi na jihohi karatu-kawai.
 - An ƙi soketsan lokacin kwantena da suna.
 - Ana sauke iyakoki kafin DeepCode ya gudana, kuma an saita `no-new-privileges`.
-- Kwantena-lokacin aiki na kwantena da sauran tsaunukan da aka haramta sun kasa rufe maimakon samar da tsari mai rauni.
+- Kwantena-lokacin aiki da sauran abubuwan hawa da aka haramta sun kasa rufe maimakon samar da tsari mara ƙarfi.
 
 ## Izini
 
-Akwatin yashi na iya neman ƙarin damar shiga, amma ba zai iya ba da shi ba. Ana rubuta buƙatar izini zuwa spool; dillalin mai masaukin baki ya inganta shi kuma ya dakatar da akwati. Mai aiki yana ganin buƙatar kuma ya yanke shawara.
+Akwatin yashi na iya neman ƙarin shiga, amma ba zai iya ba da shi ba. Ana rubuta buƙatar izini zuwa spool; dillalin mai masaukin baki ya inganta shi kuma ya dakatar da akwati. Mai aiki yana ganin buƙatar kuma ya yanke shawara.
 
-Amincewa da buƙatun kundin adireshi yana sake ƙirƙirar akwati tare da sabon ɗaurin ɗaure kuma ya ci gaba da zama. Musanta shine ƙarshe kuma an ba da rahoto ga ƙirar.
+Amincewa da buƙatun kundin adireshi yana sake ƙirƙirar akwati tare da sabon ɗaurin ɗaure kuma ya ci gaba da zama. Ƙi yana ɗaya daga cikin amsoshi biyu, kuma an gaya wa samfurin wanda: **Kar a sake tambaya** shine ƙarshe, yayin da **Ba yanzu** ya ƙi wannan lokacin kuma ya ce samfurin na iya sake tambaya daga baya. Ana adana ƙima ta ƙarshe akan aikin kuma mai watsa shiri ya aiwatar da shi: ba a taɓa yin wani dutse don hanya ko wani abu a ƙarƙashinsa ba, kuma mai masaukin baki da aka ƙi ya zama ƙa'idar ƙin yarda da ke rufe reshen yanki. An jera tubalan a cikin Izini kuma ana iya ɗaga su a can, saboda shawarar da ba ta da hanyar dawowa tarko ce maimakon zaɓi.
 
 An ƙi buƙatar wani abu da akwatin yashi ya riga ya kasance tare da bayani. Babu hanyar amincewa ta atomatik, saboda amincewar shiru zai zama yarda mai aiki bai taɓa bayarwa ba.
 

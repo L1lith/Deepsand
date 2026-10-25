@@ -20,7 +20,7 @@ Saiba mais no [Página inicial do projeto DeepCode](https://deepcode.vegamo.cn/)
 3. Aguarde o início da sandbox. Se a imagem estiver faltando, Deepsand a construirá primeiro e mostrará a saída da construção em **Atividade**.
 4. O terminal DeepCode aparece quando o CLI está pronto.
 
-Parar a sandbox encerra o contêiner. Iniciar o projeto novamente retoma a conversa DeepCode anterior, quando existir.
+Parar a sandbox encerra o contêiner. Iniciar o projeto novamente retoma a conversa DeepCode anterior, quando existir uma.
 
 ## Peça a DeepCode para fazer algo
 
@@ -65,6 +65,17 @@ Um projeto já pode ter um `AGENTS.md`; verifique antes de usar `/init` para nã
 
 Após interromper uma curva com `Esc`, você pode digitar outra solicitação. A sandbox não foi reiniciada.
 
+## Soltando arquivos no terminal
+
+Arraste um arquivo para o terminal e seu caminho será digitado para você.
+
+- Um arquivo dentro da pasta do projeto, ou dentro de um diretório que você compartilhou com o projeto, é referenciado onde o sandbox já o vê (`/workspace/...` ou `/grants/...`). Nada é copiado.
+- Um arquivo de qualquer outro lugar é copiado para `/tmp/deepsand-incoming` dentro da sandbox e Deepsand pergunta primeiro. Essa pasta não faz parte de nenhum repositório, portanto, um arquivo descartado não pode acabar em um commit e desaparece quando o sandbox é recriado. A caixa de diálogo possui uma opção **Não me avise novamente**, que tem a mesma configuração de **Configurações → Comportamento → Avisar antes de descartar arquivos de fora do projeto**.
+
+## Manter-se atualizado
+
+O DeepCode CLI está instalado dentro da imagem do sandbox e o sandbox não pode ser atualizado sozinho. Antes de cada inicialização, Deepsand pergunta a npm qual é a versão mais recente e, se a imagem for mais antiga, reconstrói primeiro essa parte da imagem - para que o terminal nunca abra em uma versão que já esteja solicitando a atualização. A resposta é lembrada por um quarto de hora, portanto, esta é uma solicitação em vez de uma por execução e, se npm não puder ser alcançado, o sandbox será iniciado na versão que já possui.
+
 ## Sessões, modelos e desfazer
 
 - `/new` recomeça com uma conversa limpa. Os arquivos do projeto não são excluídos.
@@ -81,7 +92,8 @@ O terminal está dentro do contêiner, então ele vê o projeto em `/workspace` 
 Quando DeepCode solicita outro diretório, um destino de rede, uma ferramenta ou outro recurso, Deepsand congela a sandbox e mostra uma caixa de diálogo de permissão.
 
 - **Conceder acesso** aplica a solicitação e retoma a sessão.
-- **Negar** recusa e diz a DeepCode que a decisão é final.
+- **Agora não** recusa desta vez; DeepCode pode perguntar novamente mais tarde.
+- **Não pergunte novamente** recusa, e Deepsand então recusa esse caminho (e tudo abaixo dele) ou o próprio host (e seus subdomínios), não apenas em palavras. Cada bloco está listado em Permissões, onde você pode retirá-lo.
 - A aprovação de um diretório recria o contêiner com a nova montagem.
 
 Leia [Como funciona a caixa de areia](./security) antes de compartilhar um diretório que contenha arquivos confidenciais.

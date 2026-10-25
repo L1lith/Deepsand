@@ -406,6 +406,36 @@ async function main() {
   check("a denial is never announced as an approval", () => assert.doesNotMatch(denied, /APPROVED/));
 
   /* --------------------------------------------------------------------- */
+  section("directory access: not now");
+
+  // The operator was unsure, which is not the same answer as "never". The model acts on
+  // this wording and nothing else, so a "not now" that reads like a denial would make it
+  // give up on something the operator is still willing to consider.
+  const publishDefer = broker.answer("directory_access", { decision: "defer", message: "let me think" });
+  const deferredResult = await bridge.callTool("deepsand_request_directory_access", {
+    host_path: "/home/me/.ssh",
+    purpose: "Look for deploy keys.",
+  });
+  await publishDefer;
+  const deferred = textOf(deferredResult);
+
+  check("a not-now answer is not reported as a final refusal", () => {
+    assert.match(deferred, /NOT NOW/);
+    assert.doesNotMatch(deferred, /DENIED/);
+    assert.doesNotMatch(deferred, /the answer is no/);
+  });
+  check("and it says the model may ask again later", () => {
+    assert.match(deferred, /may ask again/);
+  });
+  check("and it still forbids trying to route around it right now", () => {
+    assert.match(deferred, /Do not retry it now/);
+    assert.doesNotMatch(deferred, /APPROVED/);
+  });
+  check("the operator's note is relayed with it", () => assert.match(deferred, /let me think/));
+  check("a not-now answer is a normal result, not an error", () =>
+    assert.notEqual(deferredResult.isError, true));
+
+  /* --------------------------------------------------------------------- */
   section("resource location: the 'DeepCode is requesting access to X' popup");
 
   const slow = bridge.callTool("deepsand_request_resource", {

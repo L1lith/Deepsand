@@ -13,7 +13,7 @@ Vous n'installez pas DeepCode sur votre propre ordinateur. Deepsand démarre le 
 
 Apprenez-en davantage sur le [Page d'accueil du projet DeepCode](https://deepcode.vegamo.cn/) ou sur le [Dépôt DeepCode](https://github.com/lessweb/deepcode-cli).
 
-## Démarrer une séance
+## Démarrer une session
 
 1. Sélectionnez un projet dans la barre latérale.
 2. Appuyez sur **Courir**.
@@ -65,12 +65,23 @@ Un projet peut déjà avoir un `AGENTS.md` ; vérifiez avant d'utiliser `/init`
 
 Après avoir interrompu un tour avec `Esc`, vous pouvez saisir une autre requête. Le bac à sable n'est pas redémarré.
 
+## Déposer des fichiers dans le terminal
+
+Faites glisser un fichier sur le terminal et son chemin est saisi pour vous.
+
+- Un fichier dans le dossier du projet, ou dans un répertoire que vous avez partagé avec le projet, est référencé là où le bac à sable le voit déjà (`/workspace/...` ou `/grants/...`). Rien n'est copié.
+- Un fichier provenant de n'importe où ailleurs est copié dans `/tmp/deepsand-incoming` à l'intérieur du bac à sable, et Deepsand le demande en premier. Ce dossier ne fait partie d'aucun référentiel, donc un fichier supprimé ne peut pas aboutir dans une validation et il disparaît lorsque le bac à sable est recréé. La boîte de dialogue comporte un commutateur **Ne me préviens plus**, qui correspond au même paramètre que **Paramètres → Comportement → Avertir avant de supprimer des fichiers depuis l'extérieur du projet**.
+
+## Rester à jour
+
+Le DeepCode CLI est installé dans l'image du bac à sable et le bac à sable ne peut pas se mettre à jour. Avant chaque démarrage, Deepsand demande à npm quelle est la dernière version et, si l'image en possède une plus ancienne, reconstruit d'abord cette partie de l'image — afin que le terminal ne s'ouvre jamais sur une version qui vous demande déjà de mettre à jour. La réponse est mémorisée pendant un quart d'heure, il s'agit donc d'une requête plutôt que d'une par exécution, et si npm n'est pas joignable le sandbox démarre sur la version qu'il possède déjà.
+
 ## Sessions, modèles et annulation
 
 - `/new` recommence avec une conversation claire. Les fichiers du projet ne sont pas supprimés.
 - `/resume` et `/continue` ramènent une conversation antérieure.
 - `/model` modifie le modèle, le mode de réflexion et l'effort de raisonnement pour la session. L'en-tête du projet comporte également un sélecteur de modèle et un curseur de réflexion ; **Équilibré** est la butée centrale et le réglage recommandé pour la plupart des travaux.
-- `/undo` restaure le code, la conversation ou les deux à un point antérieur. C'est le moyen le plus rapide de revenir sur un changement que vous ne souhaitiez pas.
+- `/undo` restaure le code, la conversation ou les deux à un point antérieur. C’est le moyen le plus rapide de revenir sur un changement que vous ne souhaitiez pas.
 
 L'historique des conversations se trouve dans le volume d'état Deepsand du projet, et non dans votre référentiel.
 
@@ -81,7 +92,8 @@ Le terminal se trouve à l'intérieur du conteneur, il voit donc le projet sur `
 Lorsque DeepCode demande un autre répertoire, une destination réseau, un outil ou une autre ressource, Deepsand gèle le bac à sable et affiche une boîte de dialogue d'autorisation.
 
 - **Accorder l'accès** applique la demande et reprend la session.
-- **Refuser** le refuse et dit à DeepCode que la décision est définitive.
+- **Pas maintenant** le refuse cette fois-ci ; DeepCode pourra demander à nouveau plus tard.
+- **Ne demande plus** le refuse, et Deepsand refuse alors ce chemin (et tout ce qu'il contient) ou cet hôte (et ses sous-domaines) lui-même, pas seulement en paroles. Chaque blocage est répertorié dans Autorisations, où vous pouvez le lever à nouveau.
 - L'approbation d'un répertoire recrée le conteneur avec le nouveau montage.
 
 Lisez [Comment fonctionne le bac à sable](./security) avant de partager un répertoire contenant des fichiers sensibles.

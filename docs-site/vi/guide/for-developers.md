@@ -13,7 +13,7 @@ Deepsand là ứng dụng máy tính để bàn Tauri với ba lớp chính:
 
 - **Cửa sổ** là giao diện SolidJS. Nó hiển thị trạng thái và gửi ý định; nó không quyết định chính sách.
 - **Lớp Tauri** hiển thị các lệnh trên máy tính để bàn và dịch cùng một bề mặt lệnh sang máy chủ HTTP loopback cho các máy khách từ xa.
-- **`deepsand-core`** sở hữu các quy tắc. Xác thực đường dẫn, gói `docker run`, nhà môi giới cấp phép, proxy đầu ra, kho lưu trữ bí mật được mã hóa và kho lưu trữ trạng thái đều nằm ở đó.
+- **`deepsand-core`** sở hữu các quy tắc. Xác thực đường dẫn, gói `docker run`, nhà môi giới cấp phép, proxy đầu ra, kho lưu trữ bí mật được mã hóa và kho lưu trữ trạng thái đều tồn tại ở đó.
 
 Ứng dụng dành cho máy tính để bàn và trình điều khiển dòng lệnh `deepsandctl` sử dụng cùng một lõi nên chúng không thể tách rời nhau trong một quyết định bảo mật.
 
@@ -35,7 +35,7 @@ Thùng chứa bị hạn chế có chủ ý:
 
 Hộp cát có thể yêu cầu thêm quyền truy cập nhưng không thể cấp quyền truy cập đó. Một yêu cầu cấp phép được ghi vào một ống chỉ; nhà môi giới máy chủ xác nhận nó và tạm dừng vùng chứa. Người điều hành nhìn thấy yêu cầu và quyết định.
 
-Việc phê duyệt yêu cầu thư mục sẽ tạo lại vùng chứa có liên kết gắn kết mới và tiếp tục phiên. Việc từ chối là quyết định cuối cùng và được báo cáo cho người mẫu.
+Việc phê duyệt yêu cầu thư mục sẽ tạo lại vùng chứa có liên kết gắn kết mới và tiếp tục phiên. Từ chối là một trong hai câu trả lời và mô hình được thông báo: **Đừng hỏi lại** là câu trả lời cuối cùng, trong khi **Không phải bây giờ** từ chối lần này và cho biết mô hình có thể hỏi lại sau. Lời từ chối cuối cùng được lưu trữ trong dự án và được thực thi bởi máy chủ: không có giá trị gắn kết nào được tạo cho đường dẫn hoặc bất kỳ thứ gì bên dưới nó và máy chủ bị từ chối sẽ trở thành quy tắc từ chối bao trùm các tên miền phụ của nó. Các lệnh chặn được liệt kê trong Quyền và có thể được dỡ bỏ ở đó, bởi vì một quyết định không còn đường quay lại là một cái bẫy hơn là một sự lựa chọn.
 
 Yêu cầu về thứ gì đó mà hộp cát đã có sẽ bị từ chối kèm theo lời giải thích. Không có đường dẫn phê duyệt tự động, bởi vì phê duyệt im lặng sẽ là sự đồng ý mà nhà điều hành không bao giờ đưa ra.
 
@@ -71,7 +71,7 @@ deepsandctl requests <project>
 deepsandctl network <project> <mode>
 ```
 
-`plan --offline` in argv `docker run` chính xác mà không cần khởi động vùng chứa, điều này rất hữu ích để xem lại chính sách đã thay đổi.
+`plan --offline` in đối số `docker run` chính xác mà không cần khởi động vùng chứa, điều này rất hữu ích để xem lại chính sách đã thay đổi.
 
 ## Đọc thêm
 

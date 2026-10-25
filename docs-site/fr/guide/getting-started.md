@@ -88,7 +88,8 @@ Lisez [Utilisation du terminal DeepCode](./deepcode-terminal) pour les commandes
 Lorsque DeepCode a besoin d'un répertoire, d'une destination réseau, d'un outil ou d'une autre ressource, Deepsand met le bac à sable en pause et affiche la requête.
 
 - **Accorder l'accès** autorise la demande et reprend la session.
-- **Refuser** le refuse et indique au modèle que la décision est définitive.
+- **Pas maintenant** le refuse cette fois-ci ; le modèle peut demander à nouveau plus tard.
+- **Ne demande plus** le refuse, et Deepsand refuse alors ce chemin (et tout ce qu'il contient) ou cet hôte (et ses sous-domaines) lui-même, pas seulement en paroles. Chaque blocage est répertorié dans Autorisations, où vous pouvez le lever à nouveau.
 - Une autorisation de répertoire recrée le conteneur avec le nouveau montage attaché.
 
 Lisez [Comment fonctionne le bac à sable](./security) avant d’accorder l’accès à un répertoire contenant des fichiers sensibles.
@@ -99,7 +100,7 @@ Lisez [Comment fonctionne le bac à sable](./security) avant d’accorder l’ac
 | --- | --- |
 | Borne | La session DeepCode en direct dans le bac à sable. |
 | Autorisations | Répertoires partagés, liste blanche du réseau et piste d'audit. |
-| Outils | Outils intégrés à l’image du projet. Changer la sélection reconstruit l'image. |
+| Outils | Outils intégrés à l'image du projet, regroupés Capacités, Langues, Gestionnaires de packages, Utilitaires, Rétro-ingénierie. Rien n'est activé par défaut et la modification de la sélection reconstruit l'image. |
 | Secrets | Valeurs cryptées injectées en tant que variables d'environnement au démarrage. |
 | Activité | Les arguments `docker run` exacts, le journal de construction et les tentatives de sortie bloquées. |
 

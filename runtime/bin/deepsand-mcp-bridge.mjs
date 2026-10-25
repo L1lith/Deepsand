@@ -602,6 +602,19 @@ function renderDecision(kind, response) {
   const decision = response.decision;
   const message = response.message ? `\n\nOperator note: ${response.message}` : "";
 
+  // "Not now" before "deny", because it is the softer of the two answers and must never
+  // inherit the finality of the other. The operator declined this time; they did not say
+  // never, and a model that reads "do not ask again" here stops asking about something the
+  // operator was only unsure about.
+  if (decision === "defer") {
+    return textResult(
+      `NOT NOW. The operator declined this request, but not for good: they did not rule it out. ` +
+        `Do not retry it now and do not look for another way to reach the resource - continue with ` +
+        `what you have. If it still matters later, you may ask again then, once, with a concrete ` +
+        `reason rather than a repetition of this request.${message}`,
+    );
+  }
+
   if (decision === "deny") {
     // An instruction, not a claim about the environment. The old wording said the resource
     // "is not reachable from inside this sandbox and no workaround exists", which round 3 of
@@ -769,6 +782,18 @@ async function callTool(name, args) {
       const early = earlyOutcome(outcome, "secret", "the decision");
       if (early) return early;
       const secretResponse = outcome.response ?? {};
+      // A secret is chosen by comparison, so "not now" is the most likely answer of all: the
+      // operator wants to find the right key rather than add the one named. Saying that in
+      // the same words as a final refusal would stop the model from ever asking for the
+      // secret it actually needs.
+      if (secretResponse.decision === "defer") {
+        return textResult(
+          `NOT NOW. The operator did not add that secret, and has not ruled it out${
+            secretResponse.message ? `: ${secretResponse.message}` : "."
+          } Carry on without it. If it still matters later you may ask again then, once, naming the same or a ` +
+            `better secret.`,
+        );
+      }
       if (secretResponse.decision !== "allow") {
         return textResult(
           `DENIED. The operator did not add that secret${secretResponse.message ? `: ${secretResponse.message}` : "."}`,

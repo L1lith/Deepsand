@@ -381,6 +381,8 @@ mod tests {
             credentials: Credentials::default(),
             deepcode_mode: DeepCodeMode::AllowAll,
             allowed_roots: vec![],
+            blocked_paths: vec![],
+            blocked_hosts: vec![],
             reasoning_effort: Default::default(),
             tools: None,
             requests_enabled: true,

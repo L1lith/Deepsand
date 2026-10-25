@@ -37,9 +37,9 @@ El contenedor está deliberadamente restringido:
 
 El sandbox puede solicitar más acceso, pero no puede concedérselo. Una solicitud de permiso se escribe en un spool; el intermediario host lo valida y pausa el contenedor. El operador ve la solicitud y decide.
 
-Al aprobar una solicitud de directorio se vuelve a crear el contenedor con el nuevo montaje de enlace y se reanuda la sesión. La negación es definitiva y se informa al modelo.
+Al aprobar una solicitud de directorio se vuelve a crear el contenedor con el nuevo montaje de enlace y se reanuda la sesión. Un rechazo es una de dos respuestas, y se le dice al modelo cuál: **no vuelvas a preguntar** es definitiva, mientras que **Ahora no** rechaza esta vez y dice que el modelo puede volver a preguntar más tarde. Un rechazo final se almacena en el proyecto y el host lo aplica: nunca se crea ningún montaje para la ruta ni nada debajo de él, y un host rechazado se convierte en una regla de denegación que cubre sus subdominios. Los bloqueos se enumeran en Permisos y pueden eliminarse allí, porque una decisión sin vuelta atrás es una trampa más que una elección.
 
-Una solicitud de algo que el sandbox ya tiene se rechaza con una explicación. No existe una ruta de aprobación automática, porque una aprobación silenciosa sería un consentimiento que el operador nunca dio.
+Una solicitud de algo que ya tiene el sandbox se rechaza con una explicación. No existe una ruta de aprobación automática, porque una aprobación silenciosa sería un consentimiento que el operador nunca dio.
 
 ## Redes
 

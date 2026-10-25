@@ -418,6 +418,20 @@ pub struct Project {
     /// these the grant is applied without a container restart.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allowed_roots: Vec<String>,
+    /// Host paths the operator refused with "Don't ask again", and everything beneath them.
+    ///
+    /// Stored canonical so the comparison is against the path the operator actually saw.
+    /// This is a decision the host enforces (no mount is ever created for one of these),
+    /// not a note to the model. Additive and skipped when empty, so an older build reads a
+    /// file that has one without noticing it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blocked_paths: Vec<String>,
+    /// Hosts the operator refused with "Don't ask again", and all of their subdomains.
+    ///
+    /// Kept beside the network policy rather than inside it, so a block survives a change of
+    /// mode. Its deny rules are merged into the effective allowlist at plan time.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blocked_hosts: Vec<String>,
     /// How hard the model should think. Read when the sandbox's configuration is
     /// generated, so a change takes effect for the next session.
     #[serde(default)]
@@ -501,6 +515,18 @@ impl Project {
         self.allowed_roots
             .iter()
             .any(|root| crate::paths::is_within(std::path::Path::new(root), path))
+    }
+
+    /// The allowlist the egress layer actually gets: the project's entries plus one deny
+    /// per blocked host (and one for its subdomains).
+    ///
+    /// Blocks live beside the policy so they survive a mode change, and are merged here so
+    /// there is one place that answers "what does this project's list say". A deny rule
+    /// wins over any allow, including the global list's.
+    pub fn effective_allowlist(&self) -> Vec<String> {
+        let mut entries = self.network.allowlist().to_vec();
+        entries.extend(crate::blocks::deny_entries(&self.blocked_hosts));
+        entries
     }
 }
 
@@ -726,6 +752,17 @@ pub struct AppSettings {
     /// Show a desktop notification when DeepCode asks for something.
     #[serde(default = "yes")]
     pub notify_on_request: bool,
+    /// Warn before copying in a file dropped from outside the project's directories.
+    ///
+    /// On by default. A file from anywhere on the machine is a bigger decision than one the
+    /// project can already see, and the operator is the one who can judge it; the dialog that
+    /// asks also carries a "don't warn me again" that writes this to `false`.
+    ///
+    /// Global rather than per project because it is a statement about the operator's trust in
+    /// their own machine, not about what one project may reach, and a drop should behave the
+    /// same wherever it lands.
+    #[serde(default = "yes")]
+    pub warn_on_outside_drops: bool,
     /// Default API base URL when neither the project nor the host config sets one.
     #[serde(default = "default_base_url")]
     pub default_base_url: String,
@@ -814,6 +851,7 @@ impl Default for AppSettings {
             egress_allowlist: default_egress_allowlist(),
             auto_restart_on_grant: true,
             notify_on_request: true,
+            warn_on_outside_drops: true,
             default_base_url: default_base_url(),
             default_model: default_model(),
             data_dir: None,
@@ -1175,7 +1213,14 @@ pub const REQUESTS_DISABLED_MESSAGE: &str =
 pub struct PermissionResponse {
     pub v: u32,
     pub id: String,
-    /// `allow` or `deny`.
+    /// `allow`, `deny` or `defer`.
+    ///
+    /// `deny` is final: the sandbox is told not to ask for that resource again. `defer`
+    /// is a refusal that is not final -- the operator was unsure, or not ready to decide
+    /// -- so the sandbox is told to carry on without it and that it may ask once more
+    /// later. They are separate values rather than two messages because this is the only
+    /// thing the model can act on, and telling it "do not ask again" when the operator
+    /// merely meant "not now" is a decision the operator did not make.
     pub decision: String,
     #[serde(default)]
     pub message: String,
@@ -1215,6 +1260,24 @@ impl PermissionResponse {
             v: 1,
             id: id.into(),
             decision: "deny".to_string(),
+            message: message.into(),
+            grant: None,
+            secret: None,
+            restart_required: false,
+            answered_at_ms: crate::now_ms(),
+        }
+    }
+
+    /// "Not now": a refusal that is not final.
+    ///
+    /// The request was declined this time, and the sandbox is told in those words. It is
+    /// still a refusal -- nothing is granted, and the caller reports `false` -- but the
+    /// model is allowed to ask once more later, which `deny` forbids.
+    pub fn defer(id: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            v: 1,
+            id: id.into(),
+            decision: "defer".to_string(),
             message: message.into(),
             grant: None,
             secret: None,
@@ -1345,6 +1408,38 @@ mod reasoning_effort_tests {
 /// so that every build in circulation can read the file. These tests are what make that a
 /// fact rather than a hope, because a state file that no longer loads is an operator's
 /// projects gone.
+#[cfg(test)]
+mod drop_warning_tests {
+    use super::*;
+
+    /// The warning is on unless the operator turned it off.
+    ///
+    /// This is the safe direction for a field an older state file does not have: a missing
+    /// field must read as "warn me", because defaulting to silent would turn every existing
+    /// installation into one that copies files from anywhere without asking.
+    #[test]
+    fn an_older_settings_file_still_warns_about_outside_drops() {
+        let settings: AppSettings = serde_json::from_str(r#"{"image":"deepsand/runtime:0.1.0"}"#)
+            .expect("a settings document without the field");
+        assert!(
+            settings.warn_on_outside_drops,
+            "a field that is absent must not mean silent"
+        );
+        assert!(AppSettings::default().warn_on_outside_drops);
+    }
+
+    /// Turning it off survives the state file -- otherwise the dialog's "don't warn me
+    /// again" would forget itself on the next launch.
+    #[test]
+    fn a_settings_file_that_turned_the_warning_off_stays_off() {
+        let settings: AppSettings = serde_json::from_str(
+            r#"{"image":"deepsand/runtime:0.1.0","warn_on_outside_drops":false}"#,
+        )
+        .expect("a settings document with the field");
+        assert!(!settings.warn_on_outside_drops);
+    }
+}
+
 #[cfg(test)]
 mod startup_mode_tests {
     use super::*;
@@ -1669,6 +1764,33 @@ mod agents_md_gate_tests {
         assert!(!none.contains("What the operator wants"));
     }
 
+    /// The generated file told the model that *every* refusal was final. That is a decision
+    /// the operator may not have made: "not now" exists so they can say no without saying
+    /// never, and the model can only distinguish the two if this text does.
+    #[test]
+    fn the_generated_instructions_keep_not_now_separate_from_never() {
+        let md = crate::settings::build_agents_md(
+            &project(true),
+            &[],
+            &NetworkPolicy::Internet,
+            &creds(),
+            &AppSettings::default(),
+        );
+        assert!(md.contains("`DENIED`"), "a final refusal has to be named: {md}");
+        assert!(
+            md.contains("`NOT NOW`"),
+            "and the softer one has to be named too, or the model treats it as final: {md}"
+        );
+        assert!(
+            md.contains("may ask once more"),
+            "the softer answer has to say what it permits: {md}"
+        );
+        assert!(
+            !md.contains("A refusal is final."),
+            "the sentence that made every refusal permanent must be gone: {md}"
+        );
+    }
+
     #[test]
     fn the_sandbox_is_told_when_it_cannot_ask() {
         let off = crate::settings::build_agents_md(
@@ -1714,5 +1836,69 @@ mod agents_md_gate_tests {
             md.contains("reached directly"),
             "an address entry is not proxied, and the sandbox must not be told it is: {md}"
         );
+    }
+
+    /// A blocked host must not be described as one the sandbox can reach. The list the
+    /// model reads is the one the proxy enforces, deny rules included.
+    #[test]
+    fn a_blocked_host_is_not_described_as_reachable() {
+        let mut project = project(true);
+        project.blocked_hosts = vec!["example.com".to_string()];
+        let md = crate::settings::build_agents_md(
+            &project,
+            &[],
+            &NetworkPolicy::Allowlisted { allow: vec!["api.example.org".into()] },
+            &creds(),
+            &AppSettings::default(),
+        );
+        assert!(
+            md.contains("The operator has refused these outright"),
+            "the block has to be said out loud: {md}"
+        );
+        assert!(md.contains("!example.com"), "{md}");
+        assert!(
+            md.contains("!*.example.com"),
+            "and it has to cover the subdomains: {md}"
+        );
+        assert!(md.contains("api.example.org"), "the allowed entry is still named: {md}");
+    }
+}
+
+/// "Not now" and "never" are different answers, and the difference is carried by one
+/// field: the model reads `decision` and nothing else, so the two values must not collapse
+/// into each other on the way through serde. Losing the distinction means either the model
+/// gives up on something the operator would have allowed later, or it keeps asking after the
+/// operator said never.
+#[cfg(test)]
+mod permission_response_tests {
+    use super::PermissionResponse;
+
+    #[test]
+    fn a_not_now_answer_is_not_a_final_refusal() {
+        let deferred = PermissionResponse::defer("req_abc_1234", "not sure yet");
+        let refused = PermissionResponse::deny("req_abc_1234", "not sure yet");
+
+        assert_eq!(deferred.decision, "defer");
+        assert_ne!(
+            deferred.decision, refused.decision,
+            "the two answers must differ in the field the model reads"
+        );
+        assert!(!deferred.restart_required, "nothing is attached, so nothing restarts");
+        assert!(deferred.grant.is_none());
+        assert_eq!(deferred.message, "not sure yet");
+    }
+
+    #[test]
+    fn both_answers_survive_the_trip_to_the_sandbox() {
+        for response in [
+            PermissionResponse::defer("req_abc_1234", "maybe later"),
+            PermissionResponse::deny("req_abc_1234", "never"),
+        ] {
+            let written = serde_json::to_string(&response).expect("serialise");
+            let read_back: PermissionResponse = serde_json::from_str(&written).expect("parse");
+            assert_eq!(read_back.decision, response.decision);
+            assert_eq!(read_back.id, "req_abc_1234");
+            assert_eq!(read_back.v, 1);
+        }
     }
 }

@@ -29,7 +29,7 @@ Ba kwa buƙatar shigar ko saita DeepCode kafin amfani da Deepsand. Deepsand yana
 
 Abu daya da kuke buƙata shine ƙirar API maɓallin. Sashe na gaba yana bayanin yadda ake samun maɓallin DeepSeek, ko kuna iya amfani da maɓalli daga wani mai badawa. Ajiye shi a cikin **Saituna → maɓallin API**.
 
-Idan kun riga kun yi amfani da DeepCode CLI akan wannan kwamfutar, a maimakon haka Deepsand na iya gaji samfurin, URL na tushe da maɓalli daga tsarin ku na DeepCode na yanzu. Har ila yau, wani aiki na iya ƙetare waɗannan takaddun shaida a cikin saitunan sa.
+Idan kun riga kun yi amfani da DeepCode CLI akan wannan kwamfutar, a maimakon haka Deepsand na iya gado samfurin, URL na tushe da maɓalli daga tsarin ku na DeepCode na yanzu. Har ila yau, wani aiki na iya ƙetare waɗannan takaddun shaida a cikin saitunan sa.
 
 ## Samu maɓallin API
 
@@ -48,7 +48,7 @@ Ana adana maɓalli mai faɗin ƙa'idar a cikin maɓallan tsarin aikin ku, ba a c
 3. Zaɓi kundin adireshin aiki.
 4. Ƙirƙiri aikin.
 
-Kundin tsarin aiki ya zama `/workspace` a cikin akwatin yashi. Deepsand ya ƙi hanyoyi kamar tushen tsarin fayil, kundin adireshin gidan ku, shagunan shaidar shaida da nasa kundin bayanan.
+Kundin tsarin aiki ya zama `/workspace` a cikin akwatin yashi. Deepsand ya ƙi hanyoyi kamar tushen tsarin fayil, kundin adireshin gidan ku, shagunan shaidar shaida da kundin bayanan kansa.
 
 ## Zaɓi samfuri
 
@@ -88,7 +88,8 @@ Karanta [Amfani da tashar DeepCode](./deepcode-terminal) don manyan umarni, gaje
 Lokacin da DeepCode yana buƙatar jagora, wurin da ke hanyar sadarwa, kayan aiki ko wata hanya, Deepsand yana dakatar da akwatin yashi kuma yana nuna buƙatar.
 
 - **Bada damar shiga** yana ba da damar buƙatar kuma ta ci gaba da zama.
-- **Karyata** ya ƙi shi kuma ya gaya wa ƙirar yanke shawara ta ƙarshe.
+- **Ba yanzu** ya ƙi shi a wannan lokacin; samfurin na iya sake tambaya daga baya.
+- **Kar a sake tambaya** ya ƙi shi, kuma Deepsand ya ƙi wannan hanya (da duk abin da ke ƙarƙashinsa) ko kuma mai masaukin (da ƙananan yanki) kanta, ba kawai a cikin kalmomi ba. Ana jera kowane shinge a cikin Izini, inda zaku iya sake ɗaga shi.
 - Tallafin kundin adireshi yana sake ƙirƙirar akwati tare da sabon dutsen da aka makala.
 
 Karanta [Yadda akwatin yashi ke aiki](./security) kafin ba da damar yin amfani da kundin adireshi wanda ya ƙunshi fayiloli masu mahimmanci.
@@ -99,7 +100,7 @@ Karanta [Yadda akwatin yashi ke aiki](./security) kafin ba da damar yin amfani d
 | --- | --- |
 | Tashar | Zaman DeepCode mai rai a cikin akwatin yashi. |
 | Izini | Kundin adireshi da aka raba, jerin izinin hanyar sadarwa da hanyar duba. |
-| Kayan aiki | Kayan aikin da aka gasa cikin hoton aikin. Canza zaɓi yana sake gina hoton. |
+| Kayan aiki | Kayan aikin da aka toya a cikin hoton aikin, Ƙarfafan Rukuni, Harsuna, Manajan Kunshin, Abubuwan Utilities, Injiniyan Baya. Babu wani abu da ke kunne ta tsohuwa, kuma canza zaɓin yana sake gina hoton. |
 | Sirri | Ƙimar rufaffiyar allura azaman masu canjin yanayi a farkon. |
 | Ayyuka | Madaidaicin muhawarar `docker run`, gunkin ginin da katange yunƙurin ƙuri'a. |
 

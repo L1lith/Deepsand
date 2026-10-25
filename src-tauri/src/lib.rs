@@ -19,6 +19,7 @@
 //! the desktop app and the headless `deepsandctl` cannot drift apart, because
 //! neither of them contains any policy of its own.
 
+mod cli_refresh;
 pub mod commands;
 mod host_config;
 mod tool_updates;
@@ -460,6 +461,9 @@ pub fn run() {
             commands::import_git_project,
             commands::update_project_settings,
             commands::set_requests_enabled,
+            // Lifts one of the operator's permanent refusals. Desktop-only: it widens what
+            // the sandbox can reach, and a remote client must not be able to do that.
+            commands::unblock_resource,
             commands::delete_project,
             // Removes the sandbox's state volume, never the host project. Desktop-only: a
             // remote client must not be able to destroy conversation history.

@@ -65,9 +65,20 @@ Sebuah proyek mungkin sudah memiliki `AGENTS.md`; periksa sebelum menggunakan `/
 
 Setelah menghentikan belokan dengan `Esc`, Anda dapat mengetikkan permintaan lain. Kotak pasir tidak dimulai ulang.
 
+## Menjatuhkan file ke terminal
+
+Seret file ke terminal dan jalurnya akan diketikkan untuk Anda.
+
+- File di dalam folder proyek, atau di dalam direktori yang Anda bagikan dengan proyek, dirujuk ke tempat kotak pasir sudah melihatnya (`/workspace/...` atau `/grants/...`). Tidak ada yang disalin.
+- File dari mana pun disalin ke `/tmp/deepsand-incoming` di dalam kotak pasir, dan Deepsand bertanya terlebih dahulu. Folder tersebut bukan bagian dari repositori mana pun, sehingga file yang dijatuhkan tidak dapat dimasukkan ke dalam commit, dan file tersebut akan hilang saat kotak pasir dibuat ulang. Dialog memiliki saklar **Jangan peringatkan aku lagi**, yang pengaturannya sama dengan **Pengaturan → Perilaku → Peringatkan sebelum membuang file dari luar proyek**.
+
+## Tetap up to date
+
+DeepCode CLI dipasang di dalam gambar kotak pasir, dan kotak pasir tidak dapat memperbarui dirinya sendiri. Sebelum setiap memulai, Deepsand menanyakan npm apa rilis terbaru dan, jika gambar memiliki versi yang lebih lama, buat ulang bagian gambar tersebut terlebih dahulu — sehingga terminal tidak pernah terbuka pada versi yang sudah meminta Anda untuk memperbarui. Jawabannya diingat selama seperempat jam, jadi ini adalah satu permintaan, bukan satu permintaan per proses, dan jika npm tidak dapat dijangkau, kotak pasir akan dimulai pada versi yang sudah dimilikinya.
+
 ## Sesi, model, dan pembatalan
 
-- `/new` dimulai kembali dengan percakapan yang bersih. File proyek tidak dihapus.
+- `/new` dimulai dengan percakapan yang bersih. File proyek tidak dihapus.
 - `/resume` dan `/continue` membawa kembali percakapan sebelumnya.
 - `/model` mengubah model, cara berpikir, dan upaya penalaran untuk sesi tersebut. Header proyek juga memiliki pemilih model dan penggeser pemikiran; **Seimbang** adalah titik tengah dan pengaturan yang direkomendasikan untuk sebagian besar pekerjaan.
 - `/undo` memulihkan kode, percakapan atau keduanya ke titik sebelumnya. Ini adalah cara tercepat untuk mundur dari perubahan yang tidak Anda inginkan.
@@ -76,12 +87,13 @@ Riwayat percakapan berada di volume status Deepsand proyek, bukan di repositori 
 
 ## Izin dan kotak pasir
 
-Terminal ada di dalam container, sehingga ia melihat proyek di `/workspace` dan direktori yang Anda bagikan secara eksplisit, dan tidak ada yang lain di komputer Anda.
+Terminal berada di dalam wadah, sehingga ia melihat proyek di `/workspace` dan direktori yang Anda bagikan secara eksplisit, dan tidak ada yang lain di komputer Anda.
 
 Ketika DeepCode meminta direktori lain, tujuan jaringan, alat atau sumber daya lain, Deepsand membekukan kotak pasir dan menampilkan dialog izin.
 
 - **Berikan akses** menerapkan permintaan dan melanjutkan sesi.
-- **Membantah** menolaknya dan memberi tahu DeepCode bahwa keputusannya sudah final.
+- **Tidak sekarang** menolaknya kali ini; DeepCode mungkin bertanya lagi nanti.
+- **Jangan bertanya lagi** menolaknya, dan Deepsand kemudian menolak jalur tersebut (dan semua yang ada di bawahnya) atau host itu (dan subdomainnya) itu sendiri, tidak hanya dengan kata-kata. Setiap blok tercantum dalam Izin, tempat Anda dapat mengangkatnya kembali.
 - Menyetujui direktori akan membuat ulang kontainer dengan mount baru.
 
 Baca [Cara kerja kotak pasir](./security) sebelum membagikan direktori yang berisi file sensitif.

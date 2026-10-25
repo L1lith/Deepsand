@@ -30,7 +30,7 @@ Escriba una solicitud normal y presione **Ingresar**. Por ejemplo:
 Find the failing test in this project and explain what is wrong.
 ```
 
-DeepCode puede leer y editar archivos en el espacio de trabajo, ejecutar comandos y utilizar las herramientas seleccionadas para el proyecto. Usted mantiene el control: cuando necesita algo fuera del espacio de trabajo, Deepsand pausa el entorno de pruebas y le pregunta a usted primero.
+DeepCode puede leer y editar archivos en el espacio de trabajo, ejecutar comandos y utilizar las herramientas seleccionadas para el proyecto. Usted mantiene el control: cuando necesita algo fuera del espacio de trabajo, Deepsand detiene el sandbox y le pregunta a usted primero.
 
 ## Comandos de barra principal
 
@@ -56,7 +56,7 @@ Es posible que un proyecto ya tenga un `AGENTS.md`; verifique antes de usar `/in
 
 | Clave | Acción |
 | --- | --- |
-| `Enter` | Enviar el aviso |
+| `Enter` | Enviar el mensaje |
 | `Shift+Enter` | Insertar una nueva línea |
 | `Ctrl+J` | Insertar una nueva línea |
 | `Esc` | Interrumpir el giro del modelo actual |
@@ -64,6 +64,17 @@ Es posible que un proyecto ya tenga un `AGENTS.md`; verifique antes de usar `/in
 | `Ctrl+D` dos veces | Salir de DeepCode |
 
 Después de interrumpir un turno con `Esc`, puedes escribir otra solicitud. La zona de pruebas no se reinicia.
+
+## Colocar archivos en la terminal
+
+Arrastre un archivo al terminal y su ruta se escribirá automáticamente.
+
+- Un archivo dentro de la carpeta del proyecto, o dentro de un directorio que haya compartido con el proyecto, se refiere al lugar donde el sandbox ya lo ve (`/workspace/...` o `/grants/...`). No se copia nada.
+- Un archivo de cualquier otro lugar se copia en `/tmp/deepsand-incoming` dentro del entorno sandbox y Deepsand pregunta primero. Esa carpeta no forma parte de ningún repositorio, por lo que un archivo eliminado no puede terminar en una confirmación y desaparece cuando se vuelve a crear la zona de pruebas. El cuadro de diálogo tiene un interruptor **no me avises otra vez**, que tiene la misma configuración que **Configuración → Comportamiento → Advertir antes de soltar archivos desde fuera del proyecto**.
+
+## Mantenerse actualizado
+
+DeepCode CLI está instalado dentro de la imagen del entorno sandbox y el entorno sandbox no puede actualizarse por sí solo. Antes de cada inicio, Deepsand le pregunta a npm cuál es la última versión y, si la imagen tiene una anterior, primero reconstruye esa parte de la imagen, de modo que el terminal nunca se abre en una versión que ya le solicita que actualice. La respuesta se recuerda durante un cuarto de hora, por lo que se trata de una solicitud en lugar de una por ejecución, y si no se puede acceder a npm, el entorno de pruebas se inicia en la versión que ya tiene.
 
 ## Sesiones, modelos y deshacer
 
@@ -81,7 +92,8 @@ La terminal está dentro del contenedor, por lo que ve el proyecto en `/workspac
 Cuando DeepCode solicita otro directorio, un destino de red, una herramienta u otro recurso, Deepsand congela la zona de pruebas y muestra un cuadro de diálogo de permiso.
 
 - **Conceder acceso** aplica la solicitud y reanuda la sesión.
-- **Denegar** lo rechaza y le dice a DeepCode que la decisión es definitiva.
+- **Ahora no** lo rechaza esta vez; Es posible que DeepCode vuelva a preguntar más tarde.
+- **no vuelvas a preguntar** lo rechaza, y Deepsand luego rechaza esa ruta (y todo lo que hay debajo de ella) o ese host (y sus subdominios), no solo con palabras. Cada bloque aparece en Permisos, donde puedes eliminarlo nuevamente.
 - Al aprobar un directorio se recrea el contenedor con el nuevo montaje.
 
 Lea [Cómo funciona la caja de arena](./security) antes de compartir un directorio que contenga archivos confidenciales.

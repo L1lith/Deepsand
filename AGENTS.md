@@ -38,6 +38,7 @@ npm run app:dev         # app with hot reload
 | `npm run docs:preview` | build the docs and serve the production output locally |
 | `npm run docs:build` | build the static documentation site |
 | `npm run docs:translate` | regenerate every localized documentation page and UI label |
+| `npm run docs:check` | validate the translator's per-locale overrides against the English source, without network |
 
 ## Where things live
 
@@ -131,6 +132,30 @@ These are load-bearing. Breaking one is how this project gets a CVE.
     project whose `requests_enabled` is false, and **that check must live on the
     host, not only in the bridge**: the bridge is the agent's own child process, so
     its copy of the flag saves a wasted tool call and decides nothing.
+
+    **A refusal has two shapes, and the model is told which one it got.** `deny` is
+    final; `defer` means "not now" and says the model may ask once more later. The
+    difference has to be its own value on the wire (`PermissionResponse`, the
+    `answer_request` payload, the bridge's `renderDecision`, and the generated
+    `config/AGENTS.md`), not a sentence in the operator's note: the model acts on
+    `decision` and nothing else, so collapsing the two means either it gives up on
+    something the operator would allow later, or it keeps asking after they said
+    never. Closing the dialog is `defer`, because an accidental Escape is not a
+    decision the operator cannot take back. Everything unrecognised is `deny`, so a
+    typo can only produce the stricter answer.
+
+    **A `deny` is enforced by the host, not by the model's compliance.** A refused
+    directory is stored in `Project::blocked_paths` (canonical, covering everything
+    beneath it) and a refused destination in `blocked_hosts` (covering its
+    subdomains). Three places check it: `auto_refusal` refuses the request before a
+    dialog can appear, `Store::add_grant` refuses the mount (a path that is never
+    mounted is unreachable whatever the agent does), and the network approval path
+    refuses a covered entry. Where the mode has an egress proxy,
+    `effective_allowlist()` turns each host block into `!host` and `!*.host`, so the
+    connection itself is refused; `internet` and `full` mode have no proxy, the
+    Permissions tab says so, and there a block is a request block rather than a
+    network one. Every block has an "Allow again" control -- a decision with no way
+    back is a trap, which is the same rule as the tray icon. A `defer` stores nothing.
 12. **LF line endings for everything Linux reads or executes.** `.gitattributes`
     enforces this. A shell script with a CRLF shebang fails inside the container
     with `bash\r: No such file or directory` and the sandbox never starts.
@@ -145,6 +170,21 @@ These are load-bearing. Breaking one is how this project gets a CVE.
     no projects left. All four are asserted in `store::durability_tests`; a replay
     against a real data directory is what caught the empty-backup case, so run the
     tests against real data when the failure being fixed was real.
+
+    **"Cannot be read" means the bytes could not be obtained, not that they were
+    obtained and were not text.** `fs::read` then `String::from_utf8`: an I/O failure
+    is transient and gets `Unreadable`, a decode failure is damage and gets `Corrupt`.
+    Using `read_to_string` collapsed the two, so a state file with its first page
+    overwritten was reported as "possibly locked this instant", which returns before
+    the rolling backup, the staged write and the dated copies are consulted -- an
+    empty project list with five readable copies in the same folder. Also: `save`
+    promotes the live file into the backup slot only if it still parses as a state
+    document, because promoting whatever is in the live slot is how one damaged file
+    becomes two; the recovery chain includes `state.json.tmp` / `state.json.bak.tmp`,
+    because a crash between `sync_all` and the rename leaves a complete, durable
+    document there; and `snapshot_if_stale` serialises the state in memory rather
+    than copying the live file, because a dated copy of the damage is worse than no
+    dated copy -- one machine's newest was 13,166 bytes of NULs.
 14. **The state file must stay readable by older builds, because the installed app
     and a development build share one data directory.** An older build cannot read a
     serde variant or field it has never heard of, and it reports the whole file as
@@ -223,7 +263,12 @@ These are load-bearing. Breaking one is how this project gets a CVE.
   The translator protects fenced code, inline code, Markdown link syntax, bold spans, product
   names, Vue component tags and `<script>` blocks, so a translation cannot break a command, a
   link, formatting or the download picker. `DOCS_TRANSLATE_PAGES=download.md npm run
-  docs:translate` retranslates one page without touching the rest. It also translates the home
+  docs:translate` retranslates one page without touching the rest; `DOCS_TRANSLATE_LANGS=es`
+  restricts the run to one locale. Hand-written corrections belong in the `OVERRIDES` map in
+  `translate-docs.mjs` -- a frontmatter path, an exact English source line, or a UI label -- never
+  in a generated locale file. Overrides are applied after the translator and a stale path or line
+  fails the run, so they cannot silently disappear; `npm run docs:check` performs that check
+  without calling the translator. It also translates the home
   page's YAML frontmatter (hero, actions and feature cards). The home page is deliberately
   written for a general audience; `what-is-deepsand.md` carries the plain-language explanation and
   `for-developers.md` the architecture, while `security.md` is the detailed boundary. It writes
@@ -386,8 +431,9 @@ These are load-bearing. Breaking one is how this project gets a CVE.
   see time passing -- so an entry older than `TOOL_CACHE_MAX_AGE` (two weeks) is emptied before
   the build, which installs the tools again and refills it. That is "up to date, only when
   necessary": immediate when the selection or the installer changes, fortnightly otherwise. The
-  DeepCode CLI is exempt and refreshes on every build, bounded by npm's fetch limits and
-  non-fatal when a copy exists, because for that one tool "latest" is the point. The cache is
+  DeepCode CLI is not cached here at all: it is resolved from npm and pinned on every start, as
+  its own section below explains, and the install is bounded by npm's fetch limits and non-fatal
+  when a copy exists. The cache is
   emptied *only* when a build that used it failed for a reason that is about the build -- a
   daemon that went away is neither the cache's fault nor the build's, and emptying on one of
   those would throw away minutes of compiling for nothing.
@@ -397,13 +443,22 @@ These are load-bearing. Breaking one is how this project gets a CVE.
   tools step did: it took the cached path on every build, installed nothing, and wrote a label
   naming every tool that was *asked for*. Images here were labelled `htmlq,puppeteer,wrangler`
   with none of the three in them -- confirmed against real images and reproduced with a build.
-  `htmlq` is on by default, so this was every project, and the feature's own promise that "a bad
+  `htmlq` was on by default then, so this was every project, and the feature's own promise that "a bad
   entry heals itself" was false: an incomplete entry never failed, so nothing healed it. The
   app's rule is `toolcache::cache_is_usable` -- marker present and recent -- and
   `runtime_dockerfile.rs` now asserts that the build asks the same question. The npm globals are
   additionally asked of npm one at a time (`npm ls -g --depth=0`), because a marker can be right
   about the entry and wrong about one package, and a cache is an accelerator rather than an
   authority: that is what lets a partial entry heal itself instead of becoming an image that lies.
+* **`Project::tools` has three meanings, and `None` is not "no opinion".** `Some(list)` is what
+  the operator chose, including `Some([])`. `None` means "this project predates the tool system"
+  and resolves to `legacy_selection()` -- six utilities frozen by name, so an old project keeps
+  the image its tools were built into. A *new* project therefore stores `Some([])`: it stored
+  `None` for a while, which quietly installed those six utilities while the Tools panel's own
+  default was the empty list, and `default_selection()` was called from nowhere but a test. There
+  is no per-tool "on by default" flag any more, for the same reason: one flag answered both "what
+  does a new project get" and "what does an old one keep", and the answers were already different.
+  A tool added to the catalogue is off everywhere until somebody selects it.
 * **A label is a claim about the image, and a claim about the image has to be checkable.** The
   tools step ends with `LABEL deepsand.tools="$INSTALL_TOOLS"`, and that label is what
   `deepsand_sandbox_info` reports to the agent as the truth about what it has. So a build that
@@ -504,14 +559,32 @@ These are load-bearing. Breaking one is how this project gets a CVE.
   asks the operating system for this process's own children by name (`docker*`) and ends them,
   and it is called at the start of `shutdown_cleanup` -- before the polite work, because the
   polite work is what has a budget and can be abandoned.
-* **Attaching is the operator's action, and it is bounded.** Pasted or dropped files are copied
-  into the sandbox's own `~/.deepcode/attachments` -- never into the workspace, which is the
-  operator's repository -- and are size-capped on both sides. A path already inside the
-  workspace is *named* rather than copied, but only after `canonicalize`, so a symlink cannot
-  pretend to be inside it. One file failing is reported without losing the others: attaching
-  three and dropping all three because the fourth was a directory is worse than three and a
-  reason. The paste path is captured on the terminal's host element before xterm's own listener,
-  because text paste already works and only a clipboard with *files* needs intercepting.
+* **Attaching is the operator's action, and it is bounded.** What a dropped file becomes depends
+  on where it came from, and `attachments::in_sandbox_path` is the one place that decides:
+  * Inside the workspace **or a grant** it is *named* at the mount path (`/workspace/...`,
+    `/grants/<slug>/...`) and copied nowhere. A grant is a directory the sandbox can already
+    see, so the rule is the same for both -- for a while only the workspace was checked and a
+    file from a granted directory was silently copied into `~/.deepcode/attachments` instead.
+    The comparison is on `canonicalize`d paths, so a symlink or `..` cannot pretend to be inside
+    one, and grants are compared on a separator boundary so `/srv/app-old` is not inside
+    `/srv/app`.
+  * From **anywhere else** it is outside every permitted directory. The host does not copy it
+    and returns it in `AttachmentView::outside`; the window shows what is at stake and calls
+    again with `confirmed_outside`. Nothing is written before that yes, so declining costs
+    nothing. The dialog's "don't warn me again" writes the global `warn_on_outside_drops`
+    setting, which Settings also shows -- a decision made once must be findable later, not only
+    reachable by triggering the dialog again.
+  * Once confirmed it goes to `/tmp/deepsand-incoming`, on the container's tmpfs: outside every
+    mount, so it can never be swept into a `git add -A` of a permitted repository, and gone when
+    the container is recreated, because these are inputs to a conversation rather than project
+    files. `write_file_into_container` chowns what it writes to uid 1000, so the agent can read
+    (and, for a file it is meant to work on, edit) it.
+  Pasted *bytes* (a clipboard image) have no host path, so they still go to
+  `~/.deepcode/attachments`. Everything is size-capped on both sides. One file failing is
+  reported without losing the others: attaching three and dropping all three because the fourth
+  was a directory is worse than three and a reason. The paste path is captured on the terminal's
+  host element before xterm's own listener, because text paste already works and only a
+  clipboard with *files* needs intercepting.
 * **A per-project model is `credentials.model`, and `None` means "defer to configuration".**
   One field, so the header dropdown and the project's own credentials cannot disagree, and
   clearing the choice puts the configured model back rather than leaving the last one behind
@@ -644,12 +717,29 @@ These are load-bearing. Breaking one is how this project gets a CVE.
   how this was caught.
 * **The image's slow step depends on the tool selection, not on the app.** The
   tools layer (`apt` plus `cargo install`, e.g. htmlq) is ~70 s and only rebuilds
-  when a project's tools change; the DeepCode layer rebuilds on *every* image build
-  because the app passes a fresh `DEEPCODE_REFRESH`. Both are covered by BuildKit
-  cache mounts for apt's lists/archives and npm's cache, which is why the apt
+  when a project's tools change; the DeepCode layer is keyed by the CLI version the host
+  resolved, so it rebuilds when that version moves -- not on every build. Both are covered by
+  BuildKit cache mounts for apt's lists/archives and npm's cache, which is why the apt
   branches must not `rm -rf /var/lib/apt/lists/*` any more: that would empty a cache
   rather than shrink a layer. Cargo's registry is deliberately *not* mounted — the
   tools step deletes `$CARGO_HOME`, and deleting a mounted path fails the build.
+* **The contained CLI is brought up to date before every start, from the host.** It lives in the
+  image, the rootfs is read-only, and its own update prompt appears *inside the terminal* where
+  it cannot be acted on -- so an image built weeks ago asks an unanswerable question. The rule is
+  `cli.rs` + `cli_refresh.rs`: resolve `dist-tags.latest` from npm (cached for
+  `cli::CHECK_INTERVAL`, fifteen minutes, in `buildcache/deepcode-cli`), compare it with the
+  image's `deepsand.deepcode.version` label, and rebuild that one layer before the container is
+  created. Four things about it are load-bearing. The label is the *only* source of "what the
+  image has" -- asking a container would need one to exist, and this is decided before there is
+  one; a missing or `latest` label means *unknown*, which counts as out of date, because
+  "probably fine" is how a stale CLI is never noticed. A registry that cannot be reached yields
+  no version and therefore no rebuild: the sandbox starts on the image it has, since a stale CLI
+  is a nuisance and a Run that refuses to start is not. The wait is on `builds_in_flight`, not on
+  `image_present`, because the tag exists the whole time (it is the old image). And a failed
+  refresh never fails the start -- it is logged, and the operator gets a sandbox. When a version
+  *is* resolved, `DEEPCODE_REFRESH` is `pinned`, which makes the layer's cache key the version
+  itself; only an unresolved build passes a timestamp, because an unpinned `@latest` install is
+  the one thing the layer cache cannot see.
 * **Moving or renaming the checkout needs `cargo clean`, and that includes the
   release profile.** Two things bake the absolute path of the working directory into
   build output: `env!("CARGO_MANIFEST_DIR")` in the test that reads

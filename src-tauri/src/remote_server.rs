@@ -694,13 +694,17 @@ async fn dispatch(
             to_value(commands::set_egress_allowlist_impl(state, arg(args, "hosts")?).await?)
         }
         "build_runtime_image" => {
+            // The version is resolved here too, so a build asked for over HTTP produces the
+            // same image a local build would: labelled with the CLI it actually installed.
+            let cli_version = crate::cli_refresh::latest_version(&commands::data_dir_of(state)).await;
             to_value(commands::build_runtime_image_impl(
-            app,
-            state,
-            optional(args, "projectId")?,
-            optional(args, "buildTools")?,
-            false,
-        )?)
+                app,
+                state,
+                optional(args, "projectId")?,
+                optional(args, "buildTools")?,
+                false,
+                cli_version,
+            )?)
         }
         "cleanup_orphans" => to_value(commands::cleanup_orphans_impl(state)?),
 

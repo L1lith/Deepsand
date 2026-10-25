@@ -30,7 +30,7 @@ An approved tool is added to the project's image. **It is not installed yet.** T
 
 These are the ids. Anything not in this list does not exist as far as Deepsand is concerned.
 
-**Usually present already** — the operator gets these by default:
+**Commonly selected** — do not assume they are here; `deepsand_sandbox_info` reports the tools this image actually has:
 
 | id | what it is |
 |---|---|

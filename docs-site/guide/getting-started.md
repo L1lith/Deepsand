@@ -88,7 +88,8 @@ Read [Using the DeepCode terminal](./deepcode-terminal) for the main commands, k
 When DeepCode needs a directory, a network destination, a tool or another resource, Deepsand pauses the sandbox and shows the request.
 
 - **Grant access** allows the request and resumes the session.
-- **Deny** refuses it and tells the model the decision is final.
+- **Not now** refuses it this time; the model may ask again later.
+- **Don't ask again** refuses it, and Deepsand then refuses that path (and everything under it) or that host (and its subdomains) itself, not just in words. Every block is listed in Permissions, where you can lift it again.
 - A directory grant recreates the container with the new mount attached.
 
 Read [How the sandbox works](./security) before granting access to a directory that contains sensitive files.
@@ -99,7 +100,7 @@ Read [How the sandbox works](./security) before granting access to a directory t
 | --- | --- |
 | Terminal | The live DeepCode session inside the sandbox. |
 | Permissions | Shared directories, the network allowlist and the audit trail. |
-| Tools | Tools baked into the project image. Changing the selection rebuilds the image. |
+| Tools | Tools baked into the project image, grouped Capabilities, Languages, Package managers, Utilities, Reverse Engineering. Nothing is on by default, and changing the selection rebuilds the image. |
 | Secrets | Encrypted values injected as environment variables at start. |
 | Activity | The exact `docker run` arguments, the build log and blocked egress attempts. |
 

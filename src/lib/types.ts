@@ -137,7 +137,6 @@ export interface ToolView {
   /** The project's own page, opened in the machine's browser from the tool row. */
   homepage: string | null;
   provider: string;
-  defaultOn: boolean;
   enabled: boolean;
   /** False when this tool cannot be installed into the runtime image at all. */
   available: boolean;
@@ -184,6 +183,11 @@ export interface AttachmentView {
   paths: string[];
   /** What could not be attached, each with its reason. */
   problems: string[];
+  /**
+   * Host paths outside every permitted directory, returned instead of copied when the
+   * operator has asked to be warned. The window confirms, then calls again.
+   */
+  outside: string[];
 }
 
 /** One model the configured API offers. */
@@ -279,6 +283,12 @@ export interface AppSettings {
   egress_allowlist: string[];
   auto_restart_on_grant: boolean;
   notify_on_request: boolean;
+  /**
+   * Warn before copying in a file dropped from outside the project's directories. On by
+   * default; the drop dialog's "don't warn me again" turns it off, and Settings can put it
+   * back.
+   */
+  warn_on_outside_drops: boolean;
   default_base_url: string;
   default_model: string;
   data_dir?: string | null;
@@ -320,6 +330,13 @@ export interface ProjectView {
   userPrompt: string;
   /** Whether the sandbox may ask for permissions at all. On unless turned off. */
   requestsEnabled: boolean;
+  /**
+   * Host paths the operator refused with "Don't ask again", each covering everything
+   * beneath it. Absent when there are none, because the backend skips empty lists.
+   */
+  blockedPaths?: string[];
+  /** Hosts refused with "Don't ask again", each covering its subdomains. */
+  blockedHosts?: string[];
   containerName: string;
   running: boolean;
   /**
@@ -461,7 +478,12 @@ export interface PermissionRequestView {
    * `title` per kind, and `description` carries the destinations or tool names for
    * those two.
    */
-  kind: "directory_access" | "locate_resource" | "network_access" | "tool_install";
+  kind:
+    | "directory_access"
+    | "locate_resource"
+    | "network_access"
+    | "tool_install"
+    | "secret";
   title: string;
   description: string;
   purpose: string | null;
@@ -493,7 +515,11 @@ export interface BlockedEgressView {
 
 export interface DecisionPayload {
   requestId: string;
-  decision: "allow" | "deny";
+  /**
+   * `deny` is final: the model is told not to ask for this resource again.
+   * `defer` is "not now": refused this time, and the model may ask again later.
+   */
+  decision: "allow" | "deny" | "defer";
   message: string;
   hostPath?: string | null;
   access?: "read" | "write" | null;

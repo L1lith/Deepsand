@@ -60,7 +60,7 @@ Você pode alterar o modelo em **Configurações**, no cabeçalho do projeto, ou
 
 O controle deslizante de pensamento está próximo ao seletor de modelo no cabeçalho do projeto. Ele controla quanto raciocínio o modelo faz antes de responder.
 
-- **Desligado:** sem pensar. O mais rápido, mas o menos cuidadoso.
+- **Desligado:** sem pensar. Mais rápido, mas menos cuidadoso.
 - **Rápido:** um pouco de reflexão, para pequenas edições bem especificadas.
 - **Equilibrado:** pensamento moderado e parada intermediária. Este é o padrão sensato para o trabalho real.
 - Raciocínio máximo **Profundo:**. Mais lento e mais caro.
@@ -88,7 +88,8 @@ Leia [Usando o terminal DeepCode](./deepcode-terminal) para os comandos principa
 Quando DeepCode precisa de um diretório, um destino de rede, uma ferramenta ou outro recurso, Deepsand pausa o sandbox e mostra a solicitação.
 
 - **Conceder acesso** permite a solicitação e retoma a sessão.
-- **Negar** recusa e informa ao modelo que a decisão é final.
+- **Agora não** recusa desta vez; o modelo pode perguntar novamente mais tarde.
+- **Não pergunte novamente** recusa, e Deepsand então recusa esse caminho (e tudo abaixo dele) ou o próprio host (e seus subdomínios), não apenas em palavras. Cada bloco está listado em Permissões, onde você pode retirá-lo.
 - Uma concessão de diretório recria o contêiner com a nova montagem anexada.
 
 Leia [Como funciona a caixa de areia](./security) antes de conceder acesso a um diretório que contém arquivos confidenciais.
@@ -99,7 +100,7 @@ Leia [Como funciona a caixa de areia](./security) antes de conceder acesso a um 
 | --- | --- |
 | Terminais | A sessão DeepCode ao vivo dentro do sandbox. |
 | Permissões | Diretórios compartilhados, lista de permissões da rede e trilha de auditoria. |
-| Ferramentas | Ferramentas inseridas na imagem do projeto. Alterar a seleção reconstrói a imagem. |
+| Ferramentas | Ferramentas incorporadas à imagem do projeto, recursos agrupados, idiomas, gerenciadores de pacotes, utilitários, engenharia reversa. Nada está ativado por padrão e alterar a seleção reconstrói a imagem. |
 | Segredos | Valores criptografados injetados como variáveis ​​de ambiente no início. |
 | Atividade | Os argumentos `docker run` exatos, o log de construção e as tentativas de saída bloqueadas. |
 

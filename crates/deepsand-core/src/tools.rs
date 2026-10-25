@@ -135,6 +135,47 @@ impl ToolCategory {
             ToolCategory::ReverseEngineering => "Reverse Engineering",
         }
     }
+
+    /// The order the Tools panel puts these sections in.
+    ///
+    /// Stated rather than inherited from the catalogue: sections used to appear in the order
+    /// their first tool happened to be appended, which is the history of the file rather than a
+    /// decision. Capabilities lead because they are what an operator comes here to add -- a
+    /// browser, a screen, the web; utilities and the reverse-engineering suites close, because
+    /// they are chosen for one job and usually already known by name.
+    ///
+    /// A category missing from this list sorts last rather than disappearing, so adding one
+    /// shows up as a section in the wrong place instead of a section nobody ever sees.
+    pub const DISPLAY_ORDER: [ToolCategory; 5] = [
+        ToolCategory::Capability,
+        ToolCategory::Language,
+        ToolCategory::PackageManager,
+        ToolCategory::Utility,
+        ToolCategory::ReverseEngineering,
+    ];
+
+    /// Where this category sits in the panel.
+    pub fn display_rank(self) -> usize {
+        Self::DISPLAY_ORDER
+            .iter()
+            .position(|category| *category == self)
+            .unwrap_or(usize::MAX)
+    }
+}
+
+/// The catalogue in the order the Tools panel shows it.
+///
+/// By section, and inside a section in the order the tools are written in `CATALOG`. The panel
+/// groups consecutive entries by category, so this is the whole of the ordering rule -- there is
+/// no second list in the frontend to drift from it.
+pub fn catalogue_in_display_order() -> Vec<&'static Tool> {
+    let mut tools: Vec<((usize, usize), &'static Tool)> = CATALOG
+        .iter()
+        .enumerate()
+        .map(|(index, tool)| ((tool.category.display_rank(), index), tool))
+        .collect();
+    tools.sort_by_key(|(key, _)| *key);
+    tools.into_iter().map(|(_, tool)| tool).collect()
 }
 
 impl Default for ToolCategory {
@@ -152,8 +193,6 @@ pub struct Tool {
     pub provider: Provider,
     /// What the provider is asked to install. A space-separated list for `apt`.
     pub package: &'static str,
-    /// On for a new project unless switched off.
-    pub default_on: bool,
     /// Hosts the tool needs to reach while it is enabled.
     pub hosts: &'static [&'static str],
     /// What switching this on costs, when that is more than a moment.
@@ -284,7 +323,6 @@ pub const CATALOG: &[Tool] = &[
         category: ToolCategory::Utility,
         provider: Provider::Apt,
         package: "jq",
-        default_on: true,
         hosts: &[],
         cost: None,
         base: Base::Debian,
@@ -296,7 +334,6 @@ pub const CATALOG: &[Tool] = &[
         category: ToolCategory::Utility,
         provider: Provider::Apt,
         package: "ripgrep",
-        default_on: true,
         hosts: &[],
         cost: None,
         base: Base::Debian,
@@ -308,7 +345,6 @@ pub const CATALOG: &[Tool] = &[
         category: ToolCategory::Utility,
         provider: Provider::Apt,
         package: "curl",
-        default_on: true,
         hosts: &[],
         cost: None,
         base: Base::Debian,
@@ -320,7 +356,6 @@ pub const CATALOG: &[Tool] = &[
         category: ToolCategory::Utility,
         provider: Provider::Apt,
         package: "zip unzip",
-        default_on: true,
         hosts: &[],
         cost: None,
         base: Base::Debian,
@@ -332,7 +367,6 @@ pub const CATALOG: &[Tool] = &[
         category: ToolCategory::Utility,
         provider: Provider::Cargo,
         package: "htmlq",
-        default_on: true,
         hosts: &[],
         cost: None,
         base: Base::Debian,
@@ -345,7 +379,6 @@ pub const CATALOG: &[Tool] = &[
         category: ToolCategory::Utility,
         provider: Provider::Apt,
         package: "git",
-        default_on: true,
         hosts: &[],
         cost: None,
         base: Base::Debian,
@@ -358,7 +391,6 @@ pub const CATALOG: &[Tool] = &[
         category: ToolCategory::ReverseEngineering,
         provider: Provider::Npm,
         package: "rea-agents",
-        default_on: false,
         // Deliberately empty. REA reads local files; enabling it must not open a network path,
         // and the agent's existing egress policy is what governs a target that needs one.
         hosts: &[],
@@ -372,7 +404,6 @@ pub const CATALOG: &[Tool] = &[
         category: ToolCategory::ReverseEngineering,
         provider: Provider::Npm,
         package: "dejared-mcp",
-        default_on: false,
         // Deliberately empty. The JAR is pre-downloaded during the image build, so a sandbox with
         // this tool never needs a route to GitHub at run time. A target JAR is a local file.
         hosts: &[],
@@ -389,7 +420,6 @@ pub const CATALOG: &[Tool] = &[
         // owns the install.
         provider: Provider::Source,
         package: "",
-        default_on: false,
         // Deliberately empty. The build downloads what it needs; at run time the server only
         // reads local SWF files and writes the output paths the operator asks for.
         hosts: &[],
@@ -406,7 +436,6 @@ pub const CATALOG: &[Tool] = &[
         category: ToolCategory::Capability,
         provider: Provider::BuiltIn,
         package: "",
-        default_on: false,
         // The three hosts DeepCode resolves its search API to. Allowed only while
         // this tool is on, so switching search off closes them again.
         hosts: &[
@@ -425,7 +454,6 @@ pub const CATALOG: &[Tool] = &[
         category: ToolCategory::Language,
         provider: Provider::AptRepo,
         package: "nodejs",
-        default_on: false,
         hosts: &["deb.nodesource.com"],
         cost: None,
         base: Base::Debian,
@@ -437,7 +465,6 @@ pub const CATALOG: &[Tool] = &[
         category: ToolCategory::PackageManager,
         provider: Provider::Npm,
         package: "npm",
-        default_on: false,
         hosts: &["registry.npmjs.org"],
         cost: None,
         base: Base::Debian,
@@ -449,7 +476,6 @@ pub const CATALOG: &[Tool] = &[
         category: ToolCategory::Capability,
         provider: Provider::Apt,
         package: "xvfb x11-utils x11-apps",
-        default_on: false,
         hosts: &[],
         cost: None,
         base: Base::Debian,
@@ -461,7 +487,6 @@ pub const CATALOG: &[Tool] = &[
         category: ToolCategory::Capability,
         provider: Provider::Npm,
         package: "puppeteer",
-        default_on: false,
         hosts: &["registry.npmjs.org", "storage.googleapis.com"],
         cost: Some("Adds about 850 MB to this project's image, and a couple of minutes to the next build: a browser, unpacked, plus the libraries it links against."),
         base: Base::Debian,
@@ -473,7 +498,6 @@ pub const CATALOG: &[Tool] = &[
         category: ToolCategory::PackageManager,
         provider: Provider::Npm,
         package: "wrangler",
-        default_on: false,
         hosts: &["registry.npmjs.org", "api.cloudflare.com"],
         cost: None,
         base: Base::Debian,
@@ -485,7 +509,6 @@ pub const CATALOG: &[Tool] = &[
         category: ToolCategory::Language,
         provider: Provider::Apt,
         package: "python3 python3-pip python3-venv",
-        default_on: false,
         hosts: &["pypi.org", "files.pythonhosted.org"],
         cost: None,
         base: Base::Debian,
@@ -497,7 +520,6 @@ pub const CATALOG: &[Tool] = &[
         category: ToolCategory::Language,
         provider: Provider::AptRepo,
         package: "cargo",
-        default_on: false,
         hosts: &["sh.rustup.rs", "static.rust-lang.org", "crates.io", "static.crates.io"],
         cost: Some("Minutes of compiling the first time this image is built, plus the Rust toolchain."),
         base: Base::Debian,
@@ -509,7 +531,6 @@ pub const CATALOG: &[Tool] = &[
         category: ToolCategory::Language,
         provider: Provider::AptRepo,
         package: "golang-go",
-        default_on: false,
         hosts: &["go.dev", "proxy.golang.org", "sum.golang.org"],
         cost: None,
         base: Base::Debian,
@@ -524,7 +545,6 @@ pub const CATALOG: &[Tool] = &[
         category: ToolCategory::PackageManager,
         provider: Provider::BuiltIn,
         package: "",
-        default_on: false,
         hosts: &["deb.debian.org", "security.debian.org"],
         cost: None,
         base: Base::Debian,
@@ -536,7 +556,6 @@ pub const CATALOG: &[Tool] = &[
         category: ToolCategory::PackageManager,
         provider: Provider::Apk,
         package: "",
-        default_on: false,
         hosts: &["dl-cdn.alpinelinux.org"],
         cost: None,
         base: Base::Alpine,
@@ -548,7 +567,6 @@ pub const CATALOG: &[Tool] = &[
         category: ToolCategory::PackageManager,
         provider: Provider::Brew,
         package: "",
-        default_on: false,
         hosts: &["brew.sh", "github.com", "*.githubusercontent.com"],
         cost: None,
         base: Base::Debian,
@@ -562,7 +580,6 @@ pub const CATALOG: &[Tool] = &[
         category: ToolCategory::PackageManager,
         provider: Provider::Nix,
         package: "",
-        default_on: false,
         hosts: &["nixos.org", "cache.nixos.org", "releases.nixos.org"],
         cost: None,
         base: Base::Debian,
@@ -606,14 +623,18 @@ pub fn default_selection() -> Vec<String> {
 
 /// The tools a project from before the tool system is given.
 ///
-/// This list used to be the default for everything. A project with no stored selection has
-/// to keep resolving to the image it already has -- the one its tools were built into -- so
-/// the old list lives here, for `resolve(None)` only. New projects never see it, and the
-/// only way to reach it is to have been created before there was a choice.
+/// This list used to be "whatever the catalogue marked `default_on`". It is written out here
+/// instead, and frozen: a project with no stored selection has to keep resolving to the image
+/// it already has -- the one its tools were built into -- so changing what a *new* project gets
+/// must never change what an old one gets. New projects see `default_selection`, which is
+/// empty, and there is no per-tool default flag any more: one flag answered both questions,
+/// and the answers were already different.
 fn legacy_selection() -> Vec<String> {
-    CATALOG
+    const LEGACY_DEFAULTS: &[&str] = &["git", "jq", "ripgrep", "curl", "zip", "htmlq"];
+    LEGACY_DEFAULTS
         .iter()
-        .filter(|tool| tool.default_on && is_available(tool))
+        .filter_map(|id| find(id))
+        .filter(|tool| is_available(tool))
         .map(|tool| tool.id.to_string())
         .collect()
 }
@@ -850,6 +871,48 @@ mod tests {
         }
     }
 
+    /// A project created before the tool system has no stored selection, and has to keep
+    /// resolving to the tools its image already contains. That list is frozen in
+    /// `legacy_selection` precisely so "nothing is on by default" for a new project cannot
+    /// quietly move an old project onto a different image.
+    #[test]
+    fn a_project_from_before_the_tool_system_keeps_the_tools_its_image_has() {
+        let resolved: Vec<&str> = resolve(None).iter().map(|tool| tool.id).collect();
+        assert_eq!(resolved, ["curl", "git", "htmlq", "jq", "ripgrep", "zip"]);
+        assert!(
+            default_selection().is_empty(),
+            "and a new project still gets nothing"
+        );
+    }
+
+    /// The Tools panel's section order is a decision, not the order tools happened to be added
+    /// to the catalogue. The frontend groups consecutive entries, so this is the whole rule.
+    #[test]
+    fn the_tool_sections_are_listed_in_the_order_the_operator_asked_for() {
+        let shown = catalogue_in_display_order();
+        assert_eq!(shown.len(), CATALOG.len(), "reordering must not lose a tool");
+
+        let mut sections: Vec<ToolCategory> = shown.iter().map(|tool| tool.category).collect();
+        sections.dedup();
+        assert_eq!(
+            sections,
+            ToolCategory::DISPLAY_ORDER.to_vec(),
+            "every section present, in this order: capabilities, languages, package managers, \
+             utilities, reverse engineering"
+        );
+
+        // Inside a section, the catalogue's own order is kept.
+        let package_managers: Vec<&str> = shown
+            .iter()
+            .filter(|tool| tool.category == ToolCategory::PackageManager)
+            .map(|tool| tool.id)
+            .collect();
+        assert_eq!(
+            package_managers,
+            ["npm", "wrangler", "apt", "apk", "brew", "nix"]
+        );
+    }
+
     /// `tree` was explicitly excluded from the defaults.
     #[test]
     fn tree_is_not_in_the_catalogue() {
@@ -891,7 +954,6 @@ mod tests {
         let tool = find("rea").expect("rea is in the catalogue");
         assert_eq!(tool.provider, Provider::Npm);
         assert_eq!(tool.package, "rea-agents");
-        assert!(!tool.default_on, "a reverse-engineering suite is a choice");
         assert!(
             tool.hosts.is_empty(),
             "REA analyses local files; enabling it must not widen the sandbox's egress"
@@ -908,7 +970,6 @@ mod tests {
         let tool = find("dejared").expect("dejared is in the catalogue");
         assert_eq!(tool.provider, Provider::Npm);
         assert_eq!(tool.package, "dejared-mcp");
-        assert!(!tool.default_on, "a decompiler is a choice");
         assert!(
             tool.hosts.is_empty(),
             "the JAR is pre-downloaded at build time; enabling the tool must not widen egress"
@@ -925,7 +986,6 @@ mod tests {
         let tool = find("ffdec").expect("ffdec is in the catalogue");
         assert_eq!(tool.provider, Provider::Source);
         assert_eq!(tool.package, "", "the source step owns the install, not a provider");
-        assert!(!tool.default_on, "a decompiler is a choice");
         assert!(
             tool.hosts.is_empty(),
             "the build downloads the source; the running sandbox needs no network"

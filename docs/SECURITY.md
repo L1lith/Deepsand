@@ -408,6 +408,9 @@ The most load-bearing ones:
 | `a_project_image_extends_the_base_tag_rather_than_replacing_it` | a plan names the project's image, never the stem |
 | `a_project_settings_image_is_the_project_tag_and_nothing_else_moves` | one derivation, and it changes only the image |
 | `a_request_is_never_answered_without_an_explicit_decision` | dialog spoofing cannot become a silent grant |
+| `a_not_now_answer_is_not_a_final_refusal` | "not now" and "never" are different answers, and the model is told which it got |
+| `both_answers_survive_the_trip_to_the_sandbox` | the distinction survives serde, so it cannot collapse on the wire |
+| `the_generated_instructions_keep_not_now_separate_from_never` | the file every project carries does not call every refusal final |
 | `resolve_announces_what_it_dropped_rather_than_dropping_it_silently` | the env passthrough cannot smuggle an unrelated key in |
 | `a_named_port_is_allowed_and_every_other_port_is_refused` | a port-qualified entry narrows rather than widens |
 | `an_entry_without_a_port_covers_every_port` | the documented port semantics, asserted rather than implied |
@@ -416,10 +419,29 @@ The most load-bearing ones:
 | `a_directory_inside_the_workspace_is_already_covered` | a request the sandbox did not need to make never reaches the operator |
 | `a_write_request_for_a_read_only_grant_is_not_covered` | auto-refusal only where there is nothing left to decide |
 | `a_state_file_that_cannot_be_opened_is_not_corruption` | a file that cannot be read is never moved aside, and never replaced with defaults |
+| `undecodable_bytes_in_the_live_file_do_not_stop_the_rolling_backup_being_tried` | damage in the file is not a momentary lock, and must not skip every spare copy |
+| `the_staged_write_of_an_interrupted_save_is_what_brings_the_state_back` | the write a crash interrupted was already synced, and is the freshest copy there is |
+| `a_damaged_live_file_is_never_promoted_into_the_rolling_backup` | the slot that survives a bad day is never built out of the damage |
+| `a_damaged_dated_copy_does_not_count_as_todays_copy` | a file with today's name and no contents cannot occupy today's slot |
 | `a_nul_filled_state_file_falls_back_to_the_rolling_backup` | the torn write a power loss leaves behind |
 | `a_valid_state_misjudged_as_corrupt_comes_back_by_itself` | the state that was wrongly set aside is rescued, not lost |
 | `an_empty_rolling_backup_does_not_hide_a_set_aside_copy` | an empty fallback cannot stand in for a copy that has projects |
 | `a_substitute_store_never_overwrites_the_rolling_backup` | an unreadable configuration cannot cost you the last good copy |
+| `a_blocked_path_can_never_become_a_grant` | "Don't ask again" is enforced where the mount is created, so no caller can route around it |
+| `a_blocked_path_covers_everything_below_it` | a refused directory covers every path under it, and only through a real separator |
+| `a_blocked_host_covers_its_subdomains_and_nothing_else` | a refused host covers its subdomains, and a lookalike domain is a different host |
+| `a_blocked_host_survives_the_merge_into_the_effective_allowlist` | the block reaches the list the proxy and the plan both read |
+| `a_request_inside_a_blocked_path_is_refused_before_the_operator_sees_it` | a blocked request never opens a dialog again |
+| `a_request_for_a_blocked_host_or_subdomain_is_refused` | the same, for a destination and its subdomains |
+| `a_file_in_a_granted_directory_is_named_at_its_grant_mount` | a granted directory is named like the workspace, not silently copied somewhere else |
+| `a_sibling_whose_name_shares_a_prefix_is_not_inside_the_grant` | being "inside" is decided by a path separator, not a string prefix |
+| `an_older_settings_file_still_warns_about_outside_drops` | an existing installation does not become silently permissive |
+| `a_label_that_says_nothing_counts_as_out_of_date` | an image that cannot say which CLI it has is refreshed, not assumed current |
+| `without_a_resolved_latest_nothing_is_rebuilt` | a registry that cannot be reached never turns a Run into a failure |
+| `the_check_is_cached_for_its_interval_and_no_longer` | the registry is asked once per interval, not once per start |
+| `the_checked_package_and_label_are_the_ones_the_image_carries` | the package and the label the host reads are the ones the image writes |
+| `a_blocked_host_is_not_described_as_reachable` | the sandbox is not told a refused destination is available |
+| `blocks_survive_a_reload_and_become_deny_rules` | a block outlives a restart and is lifted only on purpose |
 | `a_projects_own_model_wins_and_having_none_defers_to_configuration` | choosing a model is per project, and clearing it goes back to the configured one |
 | `every_way_the_list_can_fail_says_what_to_do_about_it` | no enumeration, a refused key, rate limiting and an API's own error each get words that say what to do |
 | `a_key_quoted_back_by_the_api_does_not_reach_the_message` | an API that quotes the key it refused cannot put it in the window or the log |

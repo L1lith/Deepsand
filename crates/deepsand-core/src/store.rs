@@ -37,7 +37,9 @@ pub struct Store {
     /// Surfaced so the app can say so. Recovering silently would leave the operator
     /// wondering why a recent change is missing.
     recovered_from_backup: bool,
-    /// The set-aside file this state was rescued from, when it came from one.
+    /// The file this state was rescued from, when it came from one rather than from the
+    /// live file: the staged write of an interrupted save, a dated copy, or a copy that was
+    /// set aside as corrupt. Reported by name so the operator knows how far back it goes.
     recovered_from_salvage: Option<PathBuf>,
     /// Whether `save` may promote the current `state.json` into the backup slot.
     ///
@@ -153,6 +155,26 @@ impl Store {
             }
         }
 
+        // Then the write a crash interrupted: `save` writes the whole document to a
+        // staging name, syncs it, and only then renames it into place. A crash between
+        // the sync and the rename leaves a complete, durable, valid document under that
+        // name -- the freshest copy that exists anywhere, newer than the rolling backup
+        // and newer than any dated copy -- and until now nothing ever looked at it. A
+        // fresh process then saw `state.json` damaged, both spare copies ignored, and
+        // started empty while the operator's last eight projects sat in `state.json.tmp`
+        // beside it.
+        if state.is_none() {
+            for path in staging_copies(&data_dir) {
+                if let ReadOutcome::Loaded(parsed) = read_state(&path) {
+                    if !parsed.projects.is_empty() {
+                        recovered_from_salvage = Some(path);
+                        state = Some(parsed);
+                        break;
+                    }
+                }
+            }
+        }
+
         // Then the dated copies, newest first. Both the live file and its rolling backup can
         // be lost to one crash, and this is what survives it: the state as of an earlier day,
         // named in the notice so the operator can see how far back it goes.
@@ -223,8 +245,14 @@ impl Store {
     ///
     /// One rolling backup is not enough against the failure this machine produces: it lost the
     /// contents of `state.json` twice, and one crash can catch a file and its rotation
-    /// together. This is what is left when both are gone -- the state as of some earlier day --
-    /// and the file is a few KB, written from the file that was just read successfully.
+    /// together. This is what is left when both are gone -- the state as of some earlier day.
+    ///
+    /// What is written is the state this store holds in memory, not a copy of whatever
+    /// happens to be in `state.json`. Copying the file was the first version, guarded by a
+    /// "no NULs" test, and the newest dated copy on a real data directory was 13,166 bytes
+    /// of nothing but NULs: the test that was supposed to recognise damage had already
+    /// failed once. A document serialised from memory cannot contain damage, so this no
+    /// longer has to guess.
     ///
     /// Best effort by design: nothing here may stop the app from starting.
     fn snapshot_if_stale(&self) {
@@ -239,20 +267,21 @@ impl Store {
         }
 
         let existing = snapshots(&self.data_dir);
-        if let Some((_, newest)) = existing.first() {
-            let age = crate::now_ms() - *newest as i64;
+        // Only a copy that can still be read counts as "today's". A damaged file has a fresh
+        // name and no contents, and treating it as the day's copy means no good one is made.
+        let newest = existing
+            .iter()
+            .find(|(path, _)| usable_dated_copy(path))
+            .map(|(_, stamp)| *stamp);
+        if let Some(newest) = newest {
+            let age = crate::now_ms() - newest as i64;
             if age < DAY_MS {
                 return;
             }
         }
-        let Ok(bytes) = std::fs::read(self.data_dir.join("state.json")) else {
+        let Ok(bytes) = serde_json::to_string_pretty(&self.state) else {
             return;
         };
-        // An empty or NUL-filled file is exactly the thing this is protection against, and
-        // copying it would put the damage in the slot that is supposed to survive it.
-        if bytes.is_empty() || bytes.contains(&0) {
-            return;
-        }
         let _ = std::fs::write(
             snapshot_path(&self.data_dir, crate::now_ms().max(0) as u64),
             bytes,
@@ -361,14 +390,26 @@ fn migrate(state: &mut StoreDocument) {
         // Only when this store's state actually came from a file. A fallback store is a
         // substitute for something that could not be read, and copying a substitute into
         // the backup slot destroys the last good copy while looking careful.
+        //
+        // And only when the live file still *is* a state file. The backup is the thing that
+        // is supposed to end a bad day, so it cannot be built out of whatever is lying in
+        // the live slot: a live file damaged in place would otherwise be copied over the
+        // last good backup on the very next save, turning one damaged copy into two. The
+        // backup is the copy that exists to survive the damage, and a backup holding the
+        // damage is not a backup.
         if self.may_rotate_backup && path.exists() {
-            let backup = self.data_dir.join("state.json.bak");
-            let staged = self.data_dir.join("state.json.bak.tmp");
-            if std::fs::copy(&path, &staged).is_ok() {
-                if let Ok(handle) = std::fs::OpenOptions::new().write(true).open(&staged) {
-                    let _ = handle.sync_all();
+            if let Some(promotable) = promotable_state(&path) {
+                let backup = self.data_dir.join("state.json.bak");
+                let staged = self.data_dir.join("state.json.bak.tmp");
+                let written = (|| -> std::io::Result<()> {
+                    use std::io::Write as _;
+                    let mut file = std::fs::File::create(&staged)?;
+                    file.write_all(&promotable)?;
+                    file.sync_all()
+                })();
+                if written.is_ok() {
+                    let _ = std::fs::rename(&staged, &backup);
                 }
-                let _ = std::fs::rename(&staged, &backup);
             }
         }
 
@@ -442,15 +483,19 @@ fn migrate(state: &mut StoreDocument) {
             },
             deepcode_mode: DeepCodeMode::AllowAll,
             allowed_roots: Vec::new(),
+            blocked_paths: Vec::new(),
+            blocked_hosts: Vec::new(),
             requests_enabled: true,
             resume_on_launch: false,
             was_running: false,
             notes: String::new(),
             reasoning_effort: ReasoningEffort::default(),
-            // `None` rather than the defaults spelled out, so a project keeps
-            // tracking the catalogue: adding a utility to the defaults should reach
-            // every project that never expressed an opinion about tools.
-            tools: None,
+            // An explicit empty selection, not `None`. `None` means "this project predates
+            // the tool system" and resolves to the frozen legacy list -- so writing it here
+            // installed six utilities the operator never asked for, while the Tools panel's
+            // own idea of the default was an empty list. `Some([])` is the real "nothing
+            // selected", and it is what a new project gets.
+            tools: Some(crate::tools::default_selection()),
             // A new project follows the app-wide prompt, which is what makes setting one
             // app-wide take effect everywhere rather than everywhere-but-new-projects.
             user_prompt_mode: UserPromptMode::default(),
@@ -608,6 +653,20 @@ fn migrate(state: &mut StoreDocument) {
         let root = paths::canonical_existing_dir(host_path)?;
         paths::guard_mountable(&root, &self.guards)?;
 
+        // A blocked path is checked here rather than only where the dialog is answered:
+        // this is the one function that creates a mount, so every caller -- the request
+        // dialog, the Permissions tab, a future one -- goes through it. A path that is
+        // never mounted is unreachable no matter what the agent asks for.
+        if let Some(blocked) = crate::blocks::blocked_path(&project.blocked_paths, &root) {
+            return Err(SandboxError::policy(format!(
+                "{} is blocked for this project, together with everything under it ({}). \
+                 The operator chose \"Don't ask again\" for it. Remove the block in Permissions \
+                 before it can be shared again.",
+                root.display(),
+                blocked
+            )));
+        }
+
         let workspace = PathBuf::from(&project.root_dir);
         if paths::is_within(&workspace, &root) {
             return Err(SandboxError::policy(format!(
@@ -671,6 +730,65 @@ fn migrate(state: &mut StoreDocument) {
             .push(grant.clone());
         self.save()?;
         Ok(grant)
+    }
+
+    /* --------------------------------------------------------------------- */
+    /* Blocked resources                                                     */
+    /* --------------------------------------------------------------------- */
+
+    /// Record a permanent refusal of a host path and everything beneath it.
+    ///
+    /// Returns whether anything changed, so callers can skip a proxy refresh or an audit
+    /// line for a decision that was already in place.
+    pub fn block_path(&mut self, project_id: &str, host_path: &str) -> Result<bool> {
+        let changed = {
+            let project = self.project_mut(project_id)?;
+            crate::blocks::add_path(project, Path::new(host_path))
+        };
+        if changed {
+            self.save()?;
+        }
+        Ok(changed)
+    }
+
+    /// Record permanent refusals of hosts, each covering its own subdomains.
+    pub fn block_hosts(&mut self, project_id: &str, hosts: &[String]) -> Result<bool> {
+        let changed = {
+            let project = self.project_mut(project_id)?;
+            crate::blocks::add_hosts(project, hosts.iter().cloned())
+        };
+        if changed {
+            self.save()?;
+        }
+        Ok(changed)
+    }
+
+    /// Remove a block, which is the only way back from one. `kind` is `path` or `host`.
+    pub fn unblock(&mut self, project_id: &str, kind: &str, value: &str) -> Result<bool> {
+        let changed = {
+            let project = self.project_mut(project_id)?;
+            match kind {
+                "path" => {
+                    let before = project.blocked_paths.len();
+                    project.blocked_paths.retain(|entry| entry != value);
+                    project.blocked_paths.len() != before
+                }
+                "host" => {
+                    let before = project.blocked_hosts.len();
+                    project.blocked_hosts.retain(|entry| entry != value);
+                    project.blocked_hosts.len() != before
+                }
+                other => {
+                    return Err(SandboxError::policy(format!(
+                        "'{other}' is not a kind of block; expected 'path' or 'host'."
+                    )))
+                }
+            }
+        };
+        if changed {
+            self.save()?;
+        }
+        Ok(changed)
     }
 
     pub fn update_grant_access(&mut self, project_id: &str, grant_id: &str, access: Access) -> Result<Grant> {
@@ -751,6 +869,52 @@ fn migrate(state: &mut StoreDocument) {
 /// `state.snapshot-<epoch ms>.json`, the dated copies `Store::snapshot_if_stale` keeps.
 fn snapshot_path(data_dir: &Path, stamp: u64) -> PathBuf {
     data_dir.join(format!("state.snapshot-{stamp}.json"))
+}
+
+/// The staging names `save` writes before renaming: `state.json.tmp` for the live file and
+/// `state.json.bak.tmp` for the rolling backup, newest first.
+///
+/// A staged file is only ever read here, never renamed or deleted. If it is chosen, the
+/// store's next `save` reuses the same name and moves its own bytes into place, which is
+/// exactly what the interrupted save was about to do anyway.
+fn staging_copies(data_dir: &Path) -> Vec<PathBuf> {
+    let mut found: Vec<(std::time::SystemTime, PathBuf)> =
+        ["state.json.tmp", "state.json.bak.tmp"]
+            .iter()
+            .map(|name| data_dir.join(name))
+            .filter_map(|path| {
+                let modified = std::fs::metadata(&path).ok()?.modified().ok()?;
+                Some((modified, path))
+            })
+            .collect();
+    found.sort_by(|a, b| b.0.cmp(&a.0));
+    found.into_iter().map(|(_, path)| path).collect()
+}
+
+/// The bytes of a live file that may be promoted into the rolling backup, if any.
+///
+/// Promotion copies the *previous* document into the slot that has to survive a bad day, so
+/// what is copied has to be a document. Anything else -- NULs, random bytes, half a write --
+/// leaves the existing backup exactly where it is: one damaged copy and one good one beats
+/// two damaged ones, and the good one is the whole point of the slot.
+fn promotable_state(path: &Path) -> Option<Vec<u8>> {
+    let bytes = std::fs::read(path).ok()?;
+    serde_json::from_slice::<StoreDocument>(&bytes).ok()?;
+    Some(bytes)
+}
+
+/// Whether a dated copy is worth counting as one.
+///
+/// The freshness rule asks "is there a copy from today". A file that cannot be read is not
+/// a copy from today: on a real data directory the newest dated copy was an entire file of
+/// NULs, so it both blocked the day's fresh copy and could not be used for anything. The
+/// contents are checked before the answer is given, so a damaged slot cannot stand in for
+/// a good one.
+fn usable_dated_copy(path: &Path) -> bool {
+    std::fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<StoreDocument>(&bytes).ok())
+        .is_some_and(|doc| !doc.projects.is_empty())
 }
 
 /// Every dated copy in the directory, newest first.
@@ -860,10 +1024,29 @@ fn read_state(path: &Path) -> ReadOutcome {
     // A read that fails for a reason other than "there is no file" is retried before it
     // is believed. A sharing violation lasts milliseconds; believing the first one is
     // what cost an operator their projects.
+    //
+    // The bytes are read first and decoded second, because those two are different
+    // questions with opposite answers. An *I/O* failure is transient -- the file may be
+    // locked for a moment and perfect afterwards -- so it is retried and reported as
+    // `Unreadable`, and the file is left alone. A *decode* failure is not transient: the
+    // bytes were read and they are not a state file, now or in a second. Folding it into
+    // `Unreadable` is what made a damaged file skip the rolling backup, the staged write
+    // and every dated copy, and land on an empty project list: `read_to_string` reports
+    // invalid UTF-8 as an ordinary io error, and the branch that handles io errors is the
+    // one that gives up.
     let mut last: Option<String> = None;
     for attempt in 0..3 {
-        match std::fs::read_to_string(path) {
-            Ok(raw) => {
+        match std::fs::read(path) {
+            Ok(bytes) => {
+                let raw = match String::from_utf8(bytes) {
+                    Ok(raw) => raw,
+                    Err(err) => {
+                        return ReadOutcome::Corrupt(format!(
+                            "it is not text: the bytes are not valid UTF-8 (the first bad byte is at offset {})",
+                            err.utf8_error().valid_up_to()
+                        ))
+                    }
+                };
                 // The version is left as it was found: `migrate` needs it to tell an old
                 // file from a current one, and clobbering it here made every file look
                 // current.
@@ -1395,6 +1578,276 @@ mod durability_tests {
         assert_eq!(after, good, "the rolling backup must survive a substitute");
         assert!(dir.join("state.json").exists(), "and the app must still write its own file");
     }
+
+    /// A workspace directory that is definitely not inside the data directory, since the
+    /// path guards refuse one that overlaps it.
+    fn workspace_beside(dir: &Path, name: &str) -> PathBuf {
+        let path = dir
+            .parent()
+            .expect("parent")
+            .join(format!("{}-ws-{name}", dir.file_name().unwrap().to_string_lossy()));
+        std::fs::create_dir_all(&path).expect("workspace");
+        path
+    }
+
+    /// The real incident, in the shape it actually arrived.
+    ///
+    /// `state.json` had its first 4096 bytes replaced with bytes that are not text; everything
+    /// after them was intact. `read_to_string` reported that as an io error, which was being
+    /// read as "the file may be locked this instant", and that answer returns *before* the
+    /// rolling backup, the staged write and every dated copy are consulted. The operator got
+    /// an empty project list while five readable copies sat in the same folder.
+    ///
+    /// Undecodable bytes are not a momentary lock: they were read, and they are not a state
+    /// file, now or in a second. They are damage, and damage is what the rest of this file
+    /// exists to recover from.
+    #[test]
+    fn undecodable_bytes_in_the_live_file_do_not_stop_the_rolling_backup_being_tried() {
+        let donor = scratch("non-text-donor");
+        let good = state_with_projects(&donor, 3);
+
+        let dir = scratch("non-text");
+        std::fs::write(dir.join("state.json.bak"), &good).unwrap();
+
+        // Replace the first page and leave the rest: the exact shape found on disk.
+        let mut damaged = good.clone().into_bytes();
+        let smear = [0x86u8, 0xd0, 0x77, 0x1d, 0xca, 0xb2, 0xe8, 0xff];
+        for (index, byte) in damaged.iter_mut().take(4096).enumerate() {
+            *byte = smear[index % smear.len()];
+        }
+        std::fs::write(dir.join("state.json"), &damaged).unwrap();
+
+        let store = Store::load(&dir).expect("a damaged live file must not stop the load");
+        assert_eq!(store.projects().len(), 3, "the rolling backup has them");
+        assert!(store.recovered_from_backup(), "and the app must say where they came from");
+        // The damaged bytes are kept: they are evidence, and this is the file the operator
+        // is told about.
+        let evidence = std::fs::read_dir(&dir).unwrap().flatten().any(|entry| {
+            entry.file_name().to_string_lossy().starts_with("state.corrupt-")
+        });
+        assert!(evidence, "the damaged live file must be set aside, not overwritten in place");
+    }
+
+    /// A crash during `save` leaves a complete document under the staging name: the bytes
+    /// were written and `sync_all`'d, and only the rename that follows them was interrupted.
+    ///
+    /// That is the freshest copy that can exist -- newer than the rolling backup, newer than
+    /// any dated copy -- and nothing used to look at it. When the live file and its rotation
+    /// are both lost to the same crash, the staged write is what still has every project.
+    #[test]
+    fn the_staged_write_of_an_interrupted_save_is_what_brings_the_state_back() {
+        let donor = scratch("staged-donor");
+        let good = state_with_projects(&donor, 4);
+
+        let dir = scratch("staged");
+        // Both copies a single crash can take together.
+        std::fs::write(dir.join("state.json"), [0xfeu8, 0xed].repeat(2048)).unwrap();
+        std::fs::write(dir.join("state.json.bak"), [0xfeu8, 0xed].repeat(2048)).unwrap();
+        // The write that was in flight, fully written and synced, never renamed.
+        std::fs::write(dir.join("state.json.tmp"), &good).unwrap();
+
+        let store = Store::load(&dir).expect("a synced copy beside the file is not nothing");
+        assert_eq!(store.projects().len(), 4, "every project that was in the staged write");
+        assert!(
+            store
+                .recovered_from_salvage()
+                .is_some_and(|path| path.file_name().unwrap() == "state.json.tmp"),
+            "and the notice must name the staged copy, got {:?}",
+            store.recovered_from_salvage()
+        );
+    }
+
+    /// The rolling backup is what ends a bad day, so it cannot be built out of whatever is
+    /// in the live slot. Damage that happens between two saves used to be copied straight
+    /// over the last good backup on the next save, turning one damaged copy into two.
+    #[test]
+    fn a_damaged_live_file_is_never_promoted_into_the_rolling_backup() {
+        let dir = scratch("promotion");
+        let workspace = workspace_beside(&dir, "promotion");
+        let mut store = Store::load(&dir).expect("store");
+        store
+            .create_project("kept", &workspace.to_string_lossy())
+            .expect("project");
+        store.save().expect("first save");
+        // A second save promotes the first, which holds the project, into the backup.
+        store.save().expect("second save");
+        let good_backup = std::fs::read(dir.join("state.json.bak")).expect("backup");
+        assert!(
+            serde_json::from_slice::<StoreDocument>(&good_backup).is_ok(),
+            "the fixture has to start from a real backup"
+        );
+
+        // The live file is damaged after this store last read it.
+        std::fs::write(dir.join("state.json"), [0x00u8, 0xff].repeat(512)).unwrap();
+        store.save().expect("the app must still be able to write");
+
+        let after = std::fs::read(dir.join("state.json.bak")).expect("backup after save");
+        assert_eq!(
+            after, good_backup,
+            "a damaged live file must not replace the last good copy with itself"
+        );
+    }
+
+    /// The dated copy is written from the state in memory, not from the bytes on disk.
+    ///
+    /// Copying the file was the first version, guarded by a "no NULs" test. The newest dated
+    /// copy on the data directory this was found on was 13,166 bytes of nothing but NULs, so
+    /// that guard had already failed once in production. A document serialised from memory
+    /// cannot contain damage, whatever the live file looks like.
+    #[test]
+    fn a_dated_copy_is_never_a_copy_of_a_damaged_live_file() {
+        let dir = scratch("snapshot-damage");
+        let workspace = workspace_beside(&dir, "snapshot-damage");
+        let mut store = Store::load(&dir).expect("store");
+        store
+            .create_project("kept", &workspace.to_string_lossy())
+            .expect("project");
+        store.save().expect("save");
+
+        // The live file is destroyed, and there is no dated copy yet, so one is due.
+        std::fs::write(dir.join("state.json"), vec![0u8; 4096]).unwrap();
+        store.snapshot_if_stale();
+
+        let copies = snapshots(&dir);
+        assert_eq!(copies.len(), 1, "today's copy must still be written");
+        let bytes = std::fs::read(&copies[0].0).expect("read dated copy");
+        assert!(!bytes.contains(&0), "a dated copy of NULs is not a dated copy");
+        let doc: StoreDocument = serde_json::from_slice(&bytes).expect("it has to be a state file");
+        assert_eq!(doc.projects.len(), 1, "and it has to be the state this store holds");
+    }
+
+    /// A damaged file with a fresh name is not today's copy. Counting it as one means no good
+    /// copy is made that day, which is exactly what happened before the next crash.
+    #[test]
+    fn a_damaged_dated_copy_does_not_count_as_todays_copy() {
+        let dir = scratch("snapshot-block");
+        let workspace = workspace_beside(&dir, "snapshot-block");
+        let mut store = Store::load(&dir).expect("store");
+        store
+            .create_project("kept", &workspace.to_string_lossy())
+            .expect("project");
+        store.save().expect("save");
+
+        // Named for today, and full of nothing.
+        let stamp = crate::now_ms().max(0) as u64;
+        std::fs::write(snapshot_path(&dir, stamp), vec![0u8; 4096]).unwrap();
+        store.snapshot_if_stale();
+
+        assert!(
+            snapshots(&dir).iter().any(|(path, _)| usable_dated_copy(path)),
+            "the damaged slot must not stand in for the day's copy"
+        );
+    }
+
+    /// "Don't ask again" has to be enforced by the host, and the only thing that actually
+    /// stops a path being reachable is that no mount is ever created for it. Asserted at
+    /// the one function that creates mounts, so no caller can route around it.
+    #[test]
+    fn a_blocked_path_can_never_become_a_grant() {
+        let dir = scratch("blocked-grant");
+        let workspace = workspace_beside(&dir, "blocked-grant");
+        let target = scratch("blocked-grant-target");
+        let nested = target.join("deploy");
+        std::fs::create_dir_all(&nested).expect("nested dir");
+
+        let mut store = Store::load(&dir).expect("store");
+        let project = store
+            .create_project("blocked", &workspace.to_string_lossy())
+            .expect("project");
+        assert!(
+            store
+                .block_path(&project.id, &target.to_string_lossy())
+                .expect("block the path"),
+            "the block is new"
+        );
+
+        // The path itself, and everything under it, which is what "the same resource"
+        // means after a refusal.
+        for candidate in [&target, &nested] {
+            let err = store
+                .add_grant(
+                    &project.id,
+                    &candidate.to_string_lossy(),
+                    Access::ReadOnly,
+                    "refused",
+                    "",
+                    GrantSource::User,
+                )
+                .expect_err("a blocked path must not become a mount");
+            assert!(err.to_string().contains("blocked"), "got: {err}");
+        }
+        assert!(store.grants(&project.id).is_empty(), "nothing was attached");
+
+        // Lifting the block is the way back, and it has to actually restore the ability.
+        store.unblock(&project.id, "path", &target.to_string_lossy()).expect("unblock");
+        store
+            .add_grant(
+                &project.id,
+                &target.to_string_lossy(),
+                Access::ReadOnly,
+                "allowed",
+                "",
+                GrantSource::User,
+            )
+            .expect("a lifted block must let the grant through");
+        let _ = std::fs::remove_dir_all(&target);
+    }
+
+    /// A block is stored state, and what the plan reads is derived from it. Both halves
+    /// matter: a block that is forgotten after a restart protects nothing, and one that is
+    /// remembered but never becomes a rule is the "it says no but it still works" gap.
+    #[test]
+    fn blocks_survive_a_reload_and_become_deny_rules() {
+        let dir = scratch("blocked-reload");
+        let workspace = workspace_beside(&dir, "blocked-reload");
+        let target = scratch("blocked-reload-target");
+
+        let project_id = {
+            let mut store = Store::load(&dir).expect("store");
+            let project = store
+                .create_project("blocked", &workspace.to_string_lossy())
+                .expect("project");
+            assert!(store
+                .block_path(&project.id, &target.to_string_lossy())
+                .expect("block path"));
+            assert!(store
+                .block_hosts(&project.id, &["example.com".to_string()])
+                .expect("block host"));
+            project.id
+        };
+
+        let reloaded = Store::load(&dir).expect("reload");
+        let after = reloaded.project(&project_id).expect("project");
+        assert_eq!(after.blocked_paths.len(), 1, "the path block survived the restart");
+        assert_eq!(after.blocked_hosts, vec!["example.com".to_string()]);
+
+        let entries = after.effective_allowlist();
+        assert!(
+            entries.contains(&"!example.com".to_string()),
+            "the host has to be a rule the egress layer reads: {entries:?}"
+        );
+        assert!(
+            entries.contains(&"!*.example.com".to_string()),
+            "and a subdomain has to be covered too: {entries:?}"
+        );
+
+        // A host block is enforced only where a proxy exists, so the honest thing is that
+        // the list carries it and the UI says which mode can act on it.
+        let mut unlocked = reloaded;
+        assert!(unlocked
+            .unblock(&project_id, "host", "example.com")
+            .expect("unblock"));
+        assert!(unlocked.project(&project_id).unwrap().blocked_hosts.is_empty());
+        assert!(
+            !unlocked
+                .project(&project_id)
+                .unwrap()
+                .effective_allowlist()
+                .contains(&"!example.com".to_string()),
+            "lifting the block must remove the rule too"
+        );
+        let _ = std::fs::remove_dir_all(&target);
+    }
 }
 
 /// The sidebar's order is the stored array's order, so these are claims about that array —
@@ -1547,5 +2000,53 @@ mod rename_tests {
         let mut store = Store::load(&dir).expect("store");
         assert!(store.rename_project("no-such-project", "name").is_err());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// What a project is created with when nobody has chosen anything yet.
+#[cfg(test)]
+mod project_defaults_tests {
+    use super::*;
+
+    /// A new project asks for no tools, and the stored shape is what says so.
+    ///
+    /// `None` is not this. It is the marker for a project that predates the tool system, and it
+    /// resolves to a frozen list of six utilities -- so a project created with `None` installed
+    /// tools nobody asked for, which is the opposite of what the Tools panel said the default
+    /// was. `Some([])` is the real empty selection, and it is explicit so that adding a tool to
+    /// the catalogue later cannot silently switch it on here.
+    #[test]
+    fn a_new_project_selects_no_tools_at_all() {
+        let dir = std::env::temp_dir().join(format!(
+            "deepsand-new-project-tools-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        let workspace = std::env::temp_dir().join(format!(
+            "deepsand-new-project-tools-ws-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&workspace).expect("workspace");
+
+        let mut store = Store::load(&dir).expect("store");
+        let project = store
+            .create_project("fresh", &workspace.to_string_lossy())
+            .expect("project");
+
+        assert_eq!(
+            project.tools,
+            Some(Vec::new()),
+            "an empty selection, stated rather than implied"
+        );
+        let resolved: Vec<&str> = crate::tools::resolve(project.tools.as_deref())
+            .iter()
+            .map(|tool| tool.id)
+            .collect();
+        assert!(
+            resolved.is_empty(),
+            "a new project must not install anything: {resolved:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&workspace);
     }
 }

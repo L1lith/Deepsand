@@ -88,6 +88,14 @@ pub struct ProjectView {
     /// Whether the sandbox may ask for permissions at all. Surfaced so the Permissions
     /// tab can show and change it, and so a request dialog can offer to turn it off.
     pub requests_enabled: bool,
+    /// Host paths the operator refused permanently, and everything beneath them. Shown in
+    /// Permissions so a block is something they can see and undo, rather than a rule they
+    /// have to remember making.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blocked_paths: Vec<String>,
+    /// Hosts the operator refused permanently, and all of their subdomains.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blocked_hosts: Vec<String>,
     /// Derived, for the sidebar and header.
     pub container_name: String,
     pub running: bool,
@@ -125,6 +133,10 @@ impl ProjectView {
             user_prompt: project.user_prompt.clone(),
             notes: project.notes.clone(),
             requests_enabled: project.requests_enabled,
+            // The operator's permanent refusals, so the Permissions tab can show what is
+            // blocked and offer the only way back. Skipped when empty in the JSON.
+            blocked_paths: project.blocked_paths.clone(),
+            blocked_hosts: project.blocked_hosts.clone(),
             container_name: project.container_name(),
             running,
             paused,
@@ -300,8 +312,8 @@ pub struct ToolView {
     /// a test asserts every catalogue entry has one, so it should not happen.
     pub homepage: Option<String>,
     pub provider: String,
-    /// On for a new project unless switched off.
-    pub default_on: bool,
+    /// Whether this project has the tool selected. Nothing is selected for a new project:
+    /// the list is empty until the operator chooses.
     pub enabled: bool,
     /// False when the tool cannot be installed into this image at all.
     pub available: bool,
@@ -374,6 +386,10 @@ pub struct AttachmentView {
     /// attaching three files and losing all three because the fourth was a directory is worse
     /// than attaching three and saying why not the fourth.
     pub problems: Vec<String>,
+    /// Host paths that are outside every permitted directory, when the operator has asked to
+    /// be warned. Nothing has been copied for these: the window shows what is at stake and
+    /// calls again with confirmation, so saying no costs nothing.
+    pub outside: Vec<String>,
 }
 
 /// A project's model setting, as the header's dropdown needs it.
@@ -500,7 +516,11 @@ impl From<&Grant> for GrantView {
 #[serde(rename_all = "camelCase")]
 pub struct DecisionPayload {
     pub request_id: String,
-    /// "allow" or "deny"
+    /// `allow`, `deny`, or `defer`.
+    ///
+    /// `deny` is final and the sandbox is told not to ask again; `defer` is "not now",
+    /// which the sandbox may ask about once more later. Anything unrecognised is treated
+    /// as `deny`.
     pub decision: String,
     #[serde(default)]
     pub message: String,

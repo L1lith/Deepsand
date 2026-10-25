@@ -88,7 +88,8 @@ Soma [Kwa kutumia terminal ya DeepCode](./deepcode-terminal) kwa amri kuu, mikat
 Wakati DeepCode inahitaji saraka, lengwa la mtandao, zana au nyenzo nyingine, Deepsand husitisha kisanduku cha mchanga na kuonyesha ombi.
 
 - **Ruhusu ufikiaji** inaruhusu ombi na kuanza tena kikao.
-- **Kataa** inaikataa na inamwambia mwanamitindo kwamba uamuzi ni wa mwisho.
+- **Si sasa** inakataa wakati huu; mfano anaweza kuuliza tena baadaye.
+- **Usiulize tena** inaikataa, na Deepsand kisha inakataa njia hiyo (na kila kitu chini yake) au mwenyeji huyo (na vikoa vyake) yenyewe, sio kwa maneno tu. Kila kizuizi kimeorodheshwa katika Ruhusa, ambapo unaweza kukiinua tena.
 - Ruzuku ya saraka huunda tena kontena na kipachiko kipya kilichoambatishwa.
 
 Soma [Jinsi sandbox inavyofanya kazi](./security) kabla ya kutoa ufikiaji wa saraka ambayo ina faili nyeti.
@@ -99,7 +100,7 @@ Soma [Jinsi sandbox inavyofanya kazi](./security) kabla ya kutoa ufikiaji wa sar
 | --- | --- |
 | Kituo | Kipindi cha moja kwa moja cha DeepCode ndani ya kisanduku cha mchanga. |
 | Ruhusa | Saraka zinazoshirikiwa, orodha ya ruhusa ya mtandao na njia ya ukaguzi. |
-| Zana | Zana zilizowekwa kwenye picha ya mradi. Kubadilisha uteuzi hujenga upya picha. |
+| Zana | Zana zilizowekwa kwenye picha ya mradi, Uwezo uliowekwa katika vikundi, Lugha, Wasimamizi wa Vifurushi, Huduma, Uhandisi wa Kugeuza. Hakuna kilichowashwa kwa chaguo-msingi, na kubadilisha uteuzi hujenga upya picha. |
 | Siri | Thamani zilizosimbwa kwa njia fiche zilizoingizwa kama vigeu vya mazingira mwanzoni. |
 | Shughuli | Hoja halisi za `docker run`, kumbukumbu ya muundo na majaribio yaliyozuiwa ya kutoka. |
 

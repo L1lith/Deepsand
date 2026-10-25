@@ -16,6 +16,9 @@
 //! * [`seccomp`] proves the profile being applied is the profile the image carries.
 
 pub mod allowlist;
+pub mod attachments;
+pub mod blocks;
+pub mod cli;
 pub mod broker;
 pub mod covered;
 pub mod credentials;

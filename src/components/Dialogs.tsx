@@ -98,6 +98,13 @@ function requestTitle(request: PermissionRequestView): string {
       return t("request.title.network", { target });
     case "tool_install":
       return t("request.title.tool", { target });
+    // Without this case a secret request falls through to the backend's own English title,
+    // and the body below used to label it "Tools requested" -- which is how a secret
+    // request came to look like a tool request.
+    case "secret":
+      return request.secretName
+        ? t("request.title.secretNamed", { target: request.secretName })
+        : t("request.title.secretUnnamed");
     default:
       return request.title;
   }
@@ -112,6 +119,11 @@ export function PermissionDialog(props: { request: PermissionRequestView; queued
   // should be a deliberate act, not a keystroke that inherits the larger ask.
   const [access, setAccess] = createSignal<"read" | "write">("read");
   const [note, setNote] = createSignal("");
+  // The secret request is the one kind whose answer carries data back. The sandbox may
+  // suggest a name, or even a value, but neither is trusted: the operator confirms or
+  // replaces both here, and an empty value is not an approval.
+  const [secretName, setSecretName] = createSignal(request().secretName ?? "");
+  const [secretValue, setSecretValue] = createSignal(request().secretValue ?? "");
     const [busy, setBusy] = createSignal(false);
   const [check, setCheck] = createSignal<{ ok: boolean; text: string } | null>(null);
 
@@ -131,6 +143,8 @@ export function PermissionDialog(props: { request: PermissionRequestView; queued
     setPath(current.claimedPath ?? "");
     setAccess("read");
     setNote("");
+    setSecretName(current.secretName ?? "");
+    setSecretValue(current.secretValue ?? "");
     setBusy(false);
     if (current.claimedPath) void verify(current.claimedPath);
     else setCheck(null);
@@ -167,8 +181,17 @@ export function PermissionDialog(props: { request: PermissionRequestView; queued
 
   const blocked = createMemo(() => check()?.ok === false);
 
-  async function decide(decision: "allow" | "deny") {
+  /**
+   * Three answers, not two.
+   *
+   * `deny` is final and `defer` is "not now"; the difference is what the model is told it
+   * may do next, so it has to be a different value on the wire rather than a note. Closing
+   * the dialog is the soft one: an accidental Escape must not be a decision the operator
+   * cannot take back for the rest of the session.
+   */
+  async function decide(decision: "allow" | "deny" | "defer") {
     setBusy(true);
+    const isSecret = request().kind === "secret";
     try {
       const allowed = await api.answerRequest({
         requestId: request().id,
@@ -176,18 +199,35 @@ export function PermissionDialog(props: { request: PermissionRequestView; queued
         message: note(),
         hostPath: decision === "allow" ? path() : null,
         access: decision === "allow" ? access() : null,
-        secretName: request().secretName ?? null,
-        secretValue: request().secretValue ?? null,
+        // The operator's own entries win over the sandbox's suggestion, and an empty
+        // field is sent as empty rather than dropped: the host has to see that there is
+        // nothing to store, instead of quietly storing the value the model proposed.
+        secretName: isSecret && decision === "allow" ? secretName().trim() : null,
+        secretValue: isSecret && decision === "allow" ? secretValue() : null,
         restart: true,
       });
       if (decision === "allow" && allowed) {
-        toast(
-          "ok",
-          t("request.sharedTitle"),
-          t("request.sharedBody", { name: baseName(path()) }),
-        );
+        if (isSecret) {
+          toast(
+            "ok",
+            t("request.secretSavedTitle"),
+            t("request.secretSavedBody", { name: secretName().trim() }),
+          );
+        } else {
+          toast(
+            "ok",
+            t("request.sharedTitle"),
+            t("request.sharedBody", { name: baseName(path()) }),
+          );
+        }
+      } else if (decision === "allow") {
+        // The host refused to apply it. That used to be silent: nothing was granted, the
+        // dialog closed, and the operator was left believing it had worked.
+        toast("warn", t("request.notAppliedTitle"), t("request.notAppliedBody"));
       } else if (decision === "deny") {
         toast("info", t("request.deniedTitle"), t("request.deniedBody"));
+      } else if (decision === "defer") {
+        toast("info", t("request.notNow"), t("request.deferredBody"));
       }
     } catch (error) {
       toast("error", t("request.couldNotDeliver"), describeError(error));
@@ -233,7 +273,7 @@ export function PermissionDialog(props: { request: PermissionRequestView; queued
     <Modal
       title={requestTitle(request())}
       subtitle={t("request.project", { name: request().projectName })}
-      onClose={() => void decide("deny")}
+      onClose={() => void decide("defer")}
       footer={
         <>
           <span class="left">
@@ -255,7 +295,20 @@ export function PermissionDialog(props: { request: PermissionRequestView; queued
               {t("request.stopAsking")}
             </button>
           </span>
-          <button class="btn btn-danger" disabled={busy()} onClick={() => void decide("deny")}>
+          <button
+            class="btn"
+            disabled={busy()}
+            title={t("request.notNowHint")}
+            onClick={() => void decide("defer")}
+          >
+            {t("request.notNow")}
+          </button>
+          <button
+            class="btn btn-danger"
+            disabled={busy()}
+            title={t("request.denyHint")}
+            onClick={() => void decide("deny")}
+          >
             {t("request.deny")}
           </button>
           <button
@@ -263,7 +316,16 @@ export function PermissionDialog(props: { request: PermissionRequestView; queued
             // Only a directory request needs a path. Requiring one for every kind left the
             // button dead for the kinds that have no path at all: a network request could
             // not be approved, because the field it was waiting for is never shown.
-            disabled={busy() || blocked() || (isDirectoryKind() && !path().trim())}
+            //
+            // A secret needs both halves for the same reason: approving one with an empty
+            // value is not an approval, and the host refuses it -- which used to be a
+            // silent no-op rather than a disabled button.
+            disabled={
+              busy() ||
+              blocked() ||
+              (isDirectoryKind() && !path().trim()) ||
+              (request().kind === "secret" && (!secretName().trim() || !secretValue()))
+            }
             onClick={() => void decide("allow")}
           >
             {t("request.grant")}
@@ -324,7 +386,7 @@ export function PermissionDialog(props: { request: PermissionRequestView; queued
         </div>
         </Show>
 
-        <Show when={!isDirectoryKind()}>
+        <Show when={request().kind === "network_access" || request().kind === "tool_install"}>
           <div class="field">
             <label>
               {request().kind === "network_access"
@@ -339,6 +401,41 @@ export function PermissionDialog(props: { request: PermissionRequestView; queued
               <span class="hint">{t("request.toolHint")}</span>
             </Show>
           </div>
+        </Show>
+
+        {/* A secret request is the one kind whose answer carries data back, and it had no
+            form at all: the dialog offered only "Grant access", which sent the sandbox's
+            own suggestion and, when the sandbox had no value to suggest, saved nothing and
+            said nothing. Both fields are the operator's to confirm. */}
+        <Show when={request().kind === "secret"}>
+          <div class="field">
+            <label for="perm-secret-name">{t("request.secretName")}</label>
+            <input
+              id="perm-secret-name"
+              class="mono"
+              type="text"
+              autocomplete="off"
+              spellcheck={false}
+              placeholder={t("request.secretNamePlaceholder")}
+              value={secretName()}
+              onInput={(event) => setSecretName(event.currentTarget.value)}
+            />
+          </div>
+          <div class="field">
+            <label for="perm-secret-value">{t("request.secretValue")}</label>
+            <input
+              id="perm-secret-value"
+              type="password"
+              autocomplete="off"
+              placeholder={t("request.secretValuePlaceholder")}
+              value={secretValue()}
+              onInput={(event) => setSecretValue(event.currentTarget.value)}
+            />
+            <span class="hint">{t("request.secretHint")}</span>
+          </div>
+          <Show when={!secretName().trim() || !secretValue()}>
+            <div class="callout callout-warn">{t("request.secretRequired")}</div>
+          </Show>
         </Show>
 
         <Show when={isDirectoryKind()}>
@@ -2005,6 +2102,20 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
             />
             {t("settings.autoRestart")}
           </label>
+          {/* The same switch the drop dialog's "don't warn me again" writes. Kept here as well
+              because a decision made once should be findable afterwards, not only reversible by
+              triggering the dialog again. */}
+          <label class="row-inline small" style={{ "margin-top": "0.4rem" }}>
+            <input
+              type="checkbox"
+              checked={draft().warn_on_outside_drops}
+              onChange={(event) =>
+                setDraft({ ...draft(), warn_on_outside_drops: event.currentTarget.checked })
+              }
+            />
+            {t("settings.warnOutside")}
+          </label>
+          <span class="hint">{t("settings.warnOutsideHint")}</span>
         </div>
 
         <AutostartSection />

@@ -31,13 +31,13 @@ Le conteneur est volontairement contraint :
 - Le spool de réponse et le répertoire d'état sont montés en lecture seule.
 - Les sockets d’exécution du conteneur sont rejetées par leur nom.
 - Les capacités sont supprimées avant l'exécution de DeepCode et `no-new-privileges` est défini.
-- Les sockets d'exécution du conteneur et autres montages interdits ne se ferment pas plutôt que de produire un plan plus faible.
+- Les sockets d'exécution du conteneur et autres montages interdits échouent à la fermeture plutôt que de produire un plan plus faible.
 
 ## Autorisations
 
-Le bac à sable peut demander un accès supplémentaire, mais il ne peut pas l'accorder. Une demande d'autorisation est écrite dans un spool ; le courtier hôte le valide et met le conteneur en pause. L'opérateur voit la demande et décide.
+Le bac à sable peut demander plus d'accès, mais il ne peut pas l'accorder. Une demande d'autorisation est écrite dans un spool ; le courtier hôte le valide et met le conteneur en pause. L'opérateur voit la demande et décide.
 
-L'approbation d'une demande de répertoire recrée le conteneur avec le nouveau montage de liaison et reprend la session. Le refus est définitif et est signalé au modèle.
+L'approbation d'une demande de répertoire recrée le conteneur avec le nouveau montage de liaison et reprend la session. Un refus est l'une des deux réponses possibles, et on indique au modèle laquelle : **Ne demande plus** est définitive, tandis que **Pas maintenant** refuse cette fois et indique que le modèle pourra demander à nouveau plus tard. Un refus final est stocké sur le projet et appliqué par l'hôte : aucun montage n'est jamais créé pour le chemin ou quoi que ce soit en dessous, et un hôte refusé devient une règle de refus couvrant ses sous-domaines. Les blocages sont répertoriés dans les autorisations et peuvent y être levés, car une décision sans retour est un piège plutôt qu'un choix.
 
 Une demande concernant quelque chose que le bac à sable possède déjà est refusée avec une explication. Il n’existe pas de processus d’approbation automatique, car une approbation silencieuse serait un consentement que l’opérateur n’a jamais donné.
 
@@ -77,6 +77,6 @@ deepsandctl network <project> <mode>
 
 ## En savoir plus
 
-- [Le modèle de sécurité complète](https://github.com/L1lith/Deepsand/blob/master/docs/SECURITY.md)
+- [Le modèle de sécurité totale](https://github.com/L1lith/Deepsand/blob/master/docs/SECURITY.md)
 - [Notes d'architecture](https://github.com/L1lith/Deepsand/blob/master/docs/ARCHITECTURE.md)
 - [Comment fonctionne le bac à sable](./security)

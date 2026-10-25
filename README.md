@@ -25,7 +25,7 @@ Create a project, name it, point it at a working directory:
 │                      │                                                  │
 │                      │   ● DeepCode is trying to access                 │
 │                      │     C:\Users\me\Documents\brand                  │
-│                      │     [Deny]  [Grant access]                       │
+│                      │     [Not now] [Don't ask again] [Grant access]   │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -45,8 +45,9 @@ DeepCode knows it cannot see everything, and it has an API for saying so:
 | *"I need the my-website repo — but this sandbox can't tell me where that is"* | **"DeepCode is requesting access to the my-website repo"** with a folder picker, because only you know where it lives |
 
 Approving recreates the container with the new mount attached and resumes the
-session, so the conversation continues where it left off. Denying is final and
-DeepCode is told so.
+session, so the conversation continues where it left off. Refusing has two forms:
+**Don't ask again** is final and DeepCode is told so, while **Not now** refuses
+this time and says DeepCode may ask again later.
 
 ## What you control per project
 
@@ -57,7 +58,7 @@ codebase do not have to share one.
 | --- | --- | --- |
 | Network mode | `deepsandctl network <project> <mode>`, with the app-wide default in **Settings** | `allowlisted` (default), with a list of hostnames, addresses and ports; `internet` for anything; `none` for nothing; or `full`. |
 | DeepCode mode | Project settings | `strict` additionally makes DeepCode prompt for network, MCP and out-of-workspace access in the terminal, on top of the container boundary. |
-| Tools | Tools tab | Per-tool switches, plus **Enable all** / **Disable all** for each section and globally. The selection decides how the image is built, so the next Run rebuilds it — with its progress shown. |
+| Tools | Tools tab | Per-tool switches, plus **Enable all** / **Disable all** for each section and globally. **Nothing is enabled by default**: a new project installs no tools until you choose. Sections are ordered Capabilities, Languages, Package managers, Utilities, Reverse Engineering. The selection decides how the image is built, so the next Run rebuilds it — with its progress shown. |
 | Model | Header dropdown | **Defer to Config** by default, which runs whatever your configuration resolves to. Otherwise one of the models the configured API reports, or a name you type in yourself. Saved and pushed into a running sandbox, like the thinking intensity. |
 | Thinking intensity | Tools tab | `none` / `low` / `high` / `max`, or deferring to your host `settings.json`. Pushed into a running sandbox as well as saved for the next start. |
 | Secrets | Secrets tab | Per project. Encrypted at rest with the operating system's keystore, injected as environment variables at start. Values travel one way only: the interface shows names and lengths, never the value. |

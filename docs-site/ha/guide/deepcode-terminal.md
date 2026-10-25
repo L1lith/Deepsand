@@ -65,6 +65,17 @@ Wataƙila wani aikin yana da `AGENTS.md`; duba kafin amfani da `/init` don kada 
 
 Bayan katse juyowa tare da `Esc`, zaku iya rubuta wani buƙatun. Ba a sake kunna akwatin yashi ba.
 
+## Zazzage fayiloli zuwa cikin tasha
+
+Jawo fayil zuwa tashar tashar kuma an buga maka hanyarsa.
+
+- Fayil ɗin da ke cikin babban fayil ɗin aikin, ko cikin kundin adireshi da kuka raba tare da aikin, ana nufin inda akwatin yashi ya riga ya gan shi (`/workspace/...` ko `/grants/...`). Babu wani abu da aka kwafi.
+- Ana kwafin fayil daga ko'ina zuwa `/tmp/deepsand-incoming` a cikin akwatin yashi, kuma Deepsand ya fara tambaya. Wannan babban fayil ɗin baya cikin kowane ma'ajiya, don haka fayil ɗin da aka sauke ba zai iya ƙarewa cikin alƙawarin ba, kuma yana ɓacewa lokacin da aka sake ƙirƙirar akwatin yashi. Maganar tana da maɓallin **Kar ku sake gargadeni**, wanda shine saiti ɗaya da **Saituna → Halayyar → Gargaɗi kafin zubar da fayiloli daga wajen aikin**.
+
+## Ci gaba da sabuntawa
+
+An shigar da DeepCode CLI a cikin hoton sandbox, kuma akwatin yashi ba zai iya sabunta kansa ba. Kafin kowane farawa Deepsand ya tambayi npm menene sabon sakin kuma, idan hoton yana da tsoho, yana sake gina wannan ɓangaren hoton da farko - don haka tashar ba ta buɗe akan sigar da ta riga ta nemi sabuntawa. Ana tunawa da amsar na kwata na awa daya, don haka wannan buƙatu ɗaya ce maimakon ɗaya a kowace gudu, kuma idan npm ba za a iya isa ga akwatin yashi yana farawa akan sigar da ta rigaya yake da ita ba.
+
 ## Zama, samfuri kuma gyara
 
 - `/new` yana farawa tare da tattaunawa mai tsafta. Ba a share fayilolin aikin ba.
@@ -81,7 +92,8 @@ Tashar yana cikin akwati, don haka yana ganin aikin a `/workspace` da kundayen a
 Lokacin da DeepCode ya nemi wani kundin adireshi, wurin sadarwa, kayan aiki ko wata hanya, Deepsand yana daskare akwatin yashi kuma yana nuna maganganun izini.
 
 - **Bada damar shiga** ya yi amfani da buƙatar kuma ya ci gaba da zama.
-- **Karyata** ya ƙi shi kuma ya gaya wa DeepCode shawarar ta ƙare.
+- **Ba yanzu** ya ƙi shi a wannan lokacin; DeepCode na iya sake tambaya daga baya.
+- **Kar a sake tambaya** ya ƙi shi, kuma Deepsand ya ƙi wannan hanya (da duk abin da ke ƙarƙashinsa) ko kuma mai masaukin (da ƙananan yanki) kanta, ba kawai a cikin kalmomi ba. Ana jera kowane shinge a cikin Izini, inda zaku iya sake ɗaga shi.
 - Amincewa da kundin adireshi yana sake ƙirƙirar akwati tare da sabon dutsen.
 
 Karanta [Yadda akwatin yashi ke aiki](./security) kafin raba kundin adireshi wanda ya ƙunshi fayiloli masu mahimmanci.
@@ -89,7 +101,7 @@ Karanta [Yadda akwatin yashi ke aiki](./security) kafin raba kundin adireshi wan
 ## Idan tashar ba ta fara ba
 
 - **Hoton ya ɓace:** Deepsand ya fara gina shi. Kalli **Ayyuka** don gina ci gaba.
-- **Docker Desktop baya gudu ko ya makale:** fara shi kuma jira injin ya gama farawa. Idan Docker Desktop yana gudana amma injinsa baya amsawa, sake kunna Docker Desktop. Yi amfani da in-app **Sake kunna Docker Desktop…** iko lokacin da Deepsand ya nuna shi. In ba haka ba, a kan Windows dama-danna Docker whale a cikin sanarwar yankin kuma zaɓi **Sake kunnawa**; akan macOS yi amfani da gunkin menu na Docker; akan Linux bude menu na **Shirya matsala** na Docker Desktop. Sake kunna Docker Desktop yana ƙare kowane akwati akan injin. Duba [Bayanan Bayani na Docker](./faq#what-if-docker-desktop-is-not-running-or-has-stopped-responding).
+- **Docker Desktop baya gudu ko makale:** fara shi kuma jira injin ya gama farawa. Idan Docker Desktop yana gudana amma injinsa baya amsawa, sake kunna Docker Desktop. Yi amfani da in-app **Sake kunna Docker Desktop…** iko lokacin da Deepsand ya nuna shi. In ba haka ba, a kan Windows dama-danna Docker whale a cikin sanarwar yankin kuma zaɓi **Sake kunnawa**; akan macOS yi amfani da gunkin menu na Docker; akan Linux bude menu na **Shirya matsala** na Docker Desktop. Sake kunna Docker Desktop yana ƙare kowane akwati akan injin. Duba [Bayanan Bayani na Docker](./faq#what-if-docker-desktop-is-not-running-or-has-stopped-responding).
 - **Maɓallin API ya ɓace ko ƙi:** yana buɗe **Saituna** kuma ya adana maɓalli mai aiki.
 - **DeepCode ya fita:** sake danna **Gudu**. Za a iya ci gaba da zaman da ya gabata tare da `/resume`.
 

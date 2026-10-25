@@ -363,12 +363,43 @@ pub fn build_agents_md(
                 "You can reach the public internet over IP. The host machine, the local network and\n\
                  cloud metadata addresses (169.254.169.254) are refused by an address filter."
                     .to_string(),
-            NetworkPolicy::Allowlisted { allow } => format!(
-                "Your egress is allowlisted: a hostname you are allowed goes through a filtering \
-                 proxy, and an address the operator named (such as `192.168.1.50:5432`) is reached \
-                 directly. You can only reach: {}.",
-                if allow.is_empty() { "nothing yet".to_string() } else { allow.join(", ") }
-            ),
+            NetworkPolicy::Allowlisted { .. } => {
+                // The entries come from the policy this call was given (which is the merged,
+                // effective one where a caller has one), and the project's blocks are added
+                // as deny rules. A list that called a blocked host "reachable" would be
+                // telling the model something untrue about its own sandbox -- which is how it
+                // learns to distrust the true statements too.
+                let mut entries: Vec<String> = network_mode.allowlist().to_vec();
+                entries.extend(crate::blocks::deny_entries(&project.blocked_hosts));
+                let allowed: Vec<&str> = entries
+                    .iter()
+                    .map(String::as_str)
+                    .filter(|entry| !entry.starts_with('!'))
+                    .collect();
+                let denied: Vec<&str> = entries
+                    .iter()
+                    .map(String::as_str)
+                    .filter(|entry| entry.starts_with('!'))
+                    .collect();
+                let mut text = format!(
+                    "Your egress is allowlisted: a hostname you are allowed goes through a filtering \
+                     proxy, and an address the operator named (such as `192.168.1.50:5432`) is reached \
+                     directly. You can only reach: {}.",
+                    if allowed.is_empty() {
+                        "nothing yet".to_string()
+                    } else {
+                        allowed.join(", ")
+                    }
+                );
+                if !denied.is_empty() {
+                    text.push_str(&format!(
+                        " The operator has refused these outright, and a refusal wins over any \
+                         allowance -- do not ask for them: {}.",
+                        denied.join(", ")
+                    ));
+                }
+                text
+            }
             NetworkPolicy::Full =>
                 "You have unrestricted network access, including the host machine, because the\n\
                  operator chose that explicitly."
@@ -407,8 +438,10 @@ pub fn build_agents_md(
          finds the request and `deepsand_check_request` reads it.\n\n\
          When the operator approves new access, Deepsand recreates your container to attach the new\n\
          mount and resumes this session. The approved directory appears under `/grants/<name>`.\n\n\
-         A refusal is final. Do not retry it, and do not look for another route - there genuinely is\n\
-         not one.\n\n\
+         There are two refusals, and they mean different things. `DENIED` is final for that resource: do not retry it, do not rephrase it, and do not look for another route - there genuinely is\n\
+         not one. `NOT NOW` is a refusal that is not final: the operator was unsure or not ready.\n\
+         Carry on without it, and if it still matters later you may ask once more, with a concrete\n\
+         reason rather than a repetition. Never repeat either answer in a loop.\n\n\
          A skill named `deepsand-permissions` is installed in this sandbox. Load it whenever you\n  \
          are unsure which request to make, or before concluding that something is unreachable; it\n  \
          covers the `PENDING` case and how to read an approval reply.\n",
@@ -445,7 +478,14 @@ pub fn build_sandbox_snapshot(
         image: String::new(),
         workspace_mount: Project::workspace_mount().to_string(),
         network_mode: network_mode.mode_str().to_string(),
-        egress_allowlist: network_mode.allowlist().to_vec(),
+        // Deny rules from the operator's blocks are part of what the sandbox is allowed
+        // to know, but only where the mode honours a list: in internet mode there is no
+        // proxy, so an entry there would describe a rule that is not in force.
+        egress_allowlist: if network_mode.honours_allowlist() {
+            project.effective_allowlist()
+        } else {
+            Vec::new()
+        },
         requests_enabled: project.requests_enabled,
         // Only meaningful when the flag is off, and empty when it is on: the bridge
         // keys off the flag and relays this text, so an empty string here is the

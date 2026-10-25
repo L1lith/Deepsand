@@ -660,18 +660,21 @@ ENV PATH="/home/deepcode/.cargo/bin:/home/deepcode/.local/bin:/home/deepcode/.ni
 # ---------------------------------------------------------------------------
 # DeepCode CLI
 #
-# Last, and that placement is the point. $DEEPCODE_REFRESH changes on every build so
-# that `@latest` really means latest, and any instruction after it is invalidated with
-# it. At the end of the file that costs one layer; anywhere earlier it cost the whole
-# image, which is what made every launch rebuild all of the tool steps.
+# Last, and that placement is the point: anything after it is invalidated whenever this layer
+# is, and at the end of the file that costs one layer rather than the whole image.
+#
+# The app resolves `latest` from npm on every start and passes it as DEEPCODE_CLI_VERSION, so
+# the version here is pinned to what the registry actually offered. DEEPCODE_REFRESH is then
+# `pinned`, which makes this layer's cache key the version itself: a build for another reason
+# (a tool change) reuses it, and a new release changes the key. Only when the app could not
+# reach npm does it pass a timestamp instead, because an unpinned `@latest` install is the one
+# case the layer cache cannot see. An npm cache mount backs both, so even an unpinned install
+# fetches only what changed.
 # ---------------------------------------------------------------------------
 ARG DEEPCODE_REFRESH=0
-# This layer runs on every image build, by design: the app passes a fresh DEEPCODE_REFRESH
-# so that "latest" means latest rather than latest-when-the-layer-was-cached. An npm cache
-# survives that, so the install fetches only what actually changed.
 RUN --mount=type=cache,target=/root/.npm,sharing=locked \
     set -eux; \
-    echo "deepsand: refreshing DeepCode (build $DEEPCODE_REFRESH)"; \
+    echo "deepsand: installing DeepCode (refresh $DEEPCODE_REFRESH)"; \
     # A refresh that cannot reach the registry must not fail a build that already has a
     # working copy -- from the tools cache or from this image's own layer. It is still a
     # failure with no copy at all: an image without the CLI starts and does nothing.
@@ -688,6 +691,11 @@ RUN --mount=type=cache,target=/root/.npm,sharing=locked \
 
 LABEL deepsand.tools="$INSTALL_TOOLS"
 LABEL deepsand.deepcode.refresh="$DEEPCODE_REFRESH"
+# What was actually asked for, so the host can tell whether this image's CLI is still current
+# without starting a container to ask it. The host passes the version it resolved from npm and
+# compares it with this label on every start; when they differ it rebuilds this layer first.
+# See crates/deepsand-core/src/cli.rs.
+LABEL deepsand.deepcode.version="$DEEPCODE_CLI_VERSION"
 
 RUN set -eux; \
     chown -R 1000:1000 /home/deepcode/.cargo /home/deepcode/.rustup /home/deepcode/.linuxbrew /home/deepcode/.nix-profile 2>/dev/null || true

@@ -6,8 +6,9 @@
 //! It never installs anything itself: that needs Docker and an image, and a check that runs on a
 //! timer has no business starting a build.
 //!
-//! The DeepCode CLI is not part of this, deliberately: it is refreshed on every build already,
-//! so a cache entry being "out of date" never means the CLI is.
+//! The DeepCode CLI is not part of this, deliberately: it is not a tool, it is not in these
+//! entries (the listing is taken before it is installed), and its freshness is decided on every
+//! start by `cli_refresh` rather than by emptying a cache and waiting for a rebuild.
 
 use std::time::Duration;
 

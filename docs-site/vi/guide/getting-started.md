@@ -88,7 +88,8 @@ Tab **Phần cuối** là phiên DeepCode CLI trực tiếp. Nhập yêu cầu v
 Khi DeepCode cần một thư mục, đích mạng, công cụ hoặc tài nguyên khác, Deepsand sẽ tạm dừng hộp cát và hiển thị yêu cầu.
 
 - **Cấp quyền truy cập** cho phép yêu cầu và tiếp tục phiên.
-- **Từ chối** từ chối và cho mô hình biết quyết định cuối cùng.
+- **Không phải bây giờ** từ chối lần này; người mẫu có thể hỏi lại sau.
+- **Đừng hỏi lại** từ chối nó và Deepsand sau đó từ chối đường dẫn đó (và mọi thứ bên dưới nó) hoặc chính máy chủ đó (và các tên miền phụ của nó), không chỉ bằng lời nói. Mọi khối đều được liệt kê trong Quyền, nơi bạn có thể nâng lại khối đó.
 - Cấp thư mục sẽ tạo lại vùng chứa có gắn kết mới.
 
 Đọc [Cách hộp cát hoạt động](./security) trước khi cấp quyền truy cập vào thư mục chứa các tệp nhạy cảm.
@@ -99,7 +100,7 @@ Khi DeepCode cần một thư mục, đích mạng, công cụ hoặc tài nguy�
 | --- | --- |
 | Nhà ga | Phiên DeepCode trực tiếp bên trong hộp cát. |
 | Quyền | Thư mục được chia sẻ, danh sách cho phép mạng và đường dẫn kiểm tra. |
-| Công cụ | Công cụ được đưa vào hình ảnh dự án. Thay đổi lựa chọn sẽ xây dựng lại hình ảnh. |
+| Công cụ | Các công cụ được đưa vào hình ảnh dự án, được nhóm Khả năng, Ngôn ngữ, Trình quản lý gói, Tiện ích, Kỹ thuật đảo ngược. Theo mặc định, không có gì được bật và việc thay đổi lựa chọn sẽ xây dựng lại hình ảnh. |
 | Bí mật | Các giá trị được mã hóa được đưa vào dưới dạng biến môi trường khi bắt đầu. |
 | Hoạt động | Các đối số `docker run` chính xác, nhật ký xây dựng và các lần thử đi ra bị chặn. |
 

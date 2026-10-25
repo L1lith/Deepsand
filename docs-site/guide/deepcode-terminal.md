@@ -63,6 +63,17 @@ A project may already have an `AGENTS.md`; check before using `/init` so you do 
 
 After interrupting a turn with `Esc`, you can type another request. The sandbox is not restarted.
 
+## Dropping files into the terminal
+
+Drag a file onto the terminal and its path is typed in for you.
+
+- A file inside the project folder, or inside a directory you have shared with the project, is referred to where the sandbox already sees it (`/workspace/...` or `/grants/...`). Nothing is copied.
+- A file from anywhere else is copied into `/tmp/deepsand-incoming` inside the sandbox, and Deepsand asks first. That folder is not part of any repository, so a dropped file cannot end up in a commit, and it disappears when the sandbox is recreated. The dialog has a **Don't warn me again** switch, which is the same setting as **Settings → Behaviour → Warn before dropping files from outside the project**.
+
+## Staying up to date
+
+The DeepCode CLI is installed inside the sandbox image, and the sandbox cannot update itself. Before each start Deepsand asks npm what the latest release is and, if the image has an older one, rebuilds that part of the image first — so the terminal never opens on a version that is already asking you to update. The answer is remembered for a quarter of an hour, so this is one request rather than one per run, and if npm cannot be reached the sandbox starts on the version it already has.
+
 ## Sessions, models and undo
 
 - `/new` starts over with a clean conversation. The project files are not deleted.
@@ -79,7 +90,8 @@ The terminal is inside the container, so it sees the project at `/workspace` and
 When DeepCode asks for another directory, a network destination, a tool or another resource, Deepsand freezes the sandbox and shows a permission dialog.
 
 - **Grant access** applies the request and resumes the session.
-- **Deny** refuses it and tells DeepCode the decision is final.
+- **Not now** refuses it this time; DeepCode may ask again later.
+- **Don't ask again** refuses it, and Deepsand then refuses that path (and everything under it) or that host (and its subdomains) itself, not just in words. Every block is listed in Permissions, where you can lift it again.
 - Approving a directory recreates the container with the new mount.
 
 Read [How the sandbox works](./security) before sharing a directory that contains sensitive files.
