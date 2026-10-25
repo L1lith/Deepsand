@@ -204,3 +204,10 @@ jobs:
           releaseId: ${{ needs.create-release.outputs.id }}
           releaseDraft: true
           prerelease: false
+          # The matrix names a target for each macOS job, and nothing passed it here. Both
+          # macOS jobs therefore built for the runner's own architecture -- `macos-latest` is
+          # arm64 -- so both produced `Deepsand_<version>_aarch64.dmg`, both tried to upload the
+          # same asset name, and the loser failed with `ReleaseAsset already_exists`. The
+          # visible effect was a red run; the invisible one was that no Intel Mac build has
+          # ever been published and `latest.json` has never had a `darwin-x86_64` entry.
+          args: ${{ matrix.args }}
