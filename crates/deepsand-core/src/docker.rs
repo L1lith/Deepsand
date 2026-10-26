@@ -15,6 +15,15 @@ use std::process::{Command, Stdio};
 pub const LABEL_MANAGED: &str = "deepsand.managed=1";
 pub const LABEL_PROJECT_PREFIX: &str = "deepsand.project=";
 
+/// Label recording the pid of the Deepsand process that started the container.
+///
+/// A container is not abandoned because *this* process has no session for it. `deepsandctl`
+/// starts sandboxes, and so does a second instance pointed at its own data directory, and both
+/// are supported entry points. Without this label the running window's sweep would call their
+/// containers ownerless and delete them two minutes later. The sweep reads the pid and leaves
+/// the container alone while that process is still running.
+pub const LABEL_OWNER: &str = "deepsand.owner_pid";
+
 /// How long one engine-restart step may take before it is ended.
 ///
 /// `docker desktop stop` waits for the engine to go down, which is the slow one; the rest
@@ -1081,7 +1090,12 @@ impl Docker {
                 crate::now_ms()
             ));
             let read = (|| -> ProbeAttempt {
-                match self.probe_step(&Self::sharing_probe_create_args(image, dir, &name)) {
+                match self.probe_step(&Self::sharing_probe_create_args(
+                    image,
+                    dir,
+                    &name,
+                    std::process::id(),
+                )) {
                     ProbeStep::Silent => return ProbeAttempt::Silent,
                     ProbeStep::Answered(Err(why)) => return ProbeAttempt::Refused(why),
                     ProbeStep::Answered(Ok(_)) => {}
@@ -1187,13 +1201,18 @@ impl Docker {
     /// daemon that has stopped answering is exactly what leaves a container nobody owns. Three of
     /// these were found on this machine after one stalled probe, invisible to `prune_orphans`
     /// because they carried no label to be found by.
-    fn sharing_probe_create_args(image: &str, dir: &Path, name: &str) -> Vec<String> {
+    ///
+    /// It records its owner as well: a probe left behind by a process that has since died is
+    /// residue, but one belonging to a live `deepsandctl` is not this window's to remove.
+    fn sharing_probe_create_args(image: &str, dir: &Path, name: &str, owner_pid: u32) -> Vec<String> {
         vec![
             "create".to_string(),
             "--name".to_string(),
             name.to_string(),
             "--label".to_string(),
             LABEL_MANAGED.to_string(),
+            "--label".to_string(),
+            format!("{LABEL_OWNER}={owner_pid}"),
             "--network=none".to_string(),
             "-v".to_string(),
             format!("{}:/deepsand-probe:ro", dir.display()),
@@ -1392,16 +1411,21 @@ impl Docker {
             .collect())
     }
 
-    /// Remove Deepsand containers that no live session owns.
+    /// Remove Deepsand containers that nothing owns.
     ///
-    /// This is the blunt version used when nothing can be running: at startup and on the way
-    /// out, every container of ours is residue. The running app uses
-    /// [`crate::docker::abandonment_reason`] with a grace period instead, because there a
-    /// container may be seconds old and simply not registered yet.
-    pub fn prune_orphans(&self, runtime_image: &str, keep: &[String]) -> Vec<String> {
+    /// Used at startup and on the way out, when this process has no sessions at all. It used to
+    /// mean "every container of ours is residue", which stopped being true once `deepsandctl`
+    /// and a second instance could be running their own sandboxes: the caller decides, with the
+    /// same owner rule the sweep uses. A container left by a dead process is removed; one whose
+    /// owner is still running is kept.
+    pub fn prune_orphans(
+        &self,
+        runtime_image: &str,
+        keep: impl Fn(&ManagedContainer) -> bool,
+    ) -> Vec<String> {
         let mut removed = Vec::new();
         for container in self.container_inventory(runtime_image).unwrap_or_default() {
-            if !keep.iter().any(|k| k == &container.name) {
+            if !keep(&container) {
                 self.remove_container(&container.name);
                 removed.push(container.name);
             }
@@ -1434,6 +1458,12 @@ pub struct ManagedContainer {
     pub created_ms: Option<i64>,
     /// Whether the container carried `deepsand.managed=1`.
     pub labelled: bool,
+    /// The pid of the Deepsand process that started it, from `deepsand.owner_pid`.
+    ///
+    /// `None` for a container from a build that predates the label. Unknown is not abandoned:
+    /// [`abandonment_reason`] leaves such a container alone, and only the startup and shutdown
+    /// purges -- where no other process is expected to be starting sandboxes -- act on it.
+    pub owner_pid: Option<u32>,
 }
 
 impl ManagedContainer {
@@ -1443,17 +1473,37 @@ impl ManagedContainer {
     }
 }
 
+/// What the sweep knows about the process that started a container.
+///
+/// Liveness is answered by the app, not here: the core must stay testable without starting a
+/// process, and the caller is the one that can read the host's process list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OwnerState {
+    /// Started by this process. Its own leftovers are the sweep's business.
+    ThisProcess,
+    /// Another Deepsand process that is still running. `deepsandctl run` is the usual case.
+    AliveElsewhere,
+    /// The process that started it is gone, so nobody can be using it.
+    Gone,
+    /// No owner recorded: a container from a build before the label existed.
+    Unknown,
+}
+
 /// Why this container is abandoned, or `None` when it is not.
 ///
 /// The codes are values rather than sentences because the window translates them; the host
 /// does not know which language the operator reads.
 ///
-/// Three things protect a container from a sweep. A live session owns it by name. A start is
+/// Four things protect a container from a sweep. A live session owns it by name. A start is
 /// in flight for its project, which covers the moment between `docker run` and registration.
-/// And it is younger than the grace period, which covers probes and a registration that has
-/// not landed yet. Anything else of ours with no owner is residue.
+/// It is younger than the grace period, which covers probes and a registration that has not
+/// landed yet. And its owner is either still running or unknown, because a container started
+/// by `deepsandctl` or by another Deepsand instance is in use even though *this* process has
+/// no session for it. Only a container this process started, or one whose owner is provably
+/// gone, is residue.
 pub fn abandonment_reason(
     container: &ManagedContainer,
+    owner: OwnerState,
     live: &[String],
     starting: &[String],
     known_projects: &[String],
@@ -1467,6 +1517,9 @@ pub fn abandonment_reason(
         if starting.iter().any(|id| id == project) {
             return None;
         }
+    }
+    if matches!(owner, OwnerState::AliveElsewhere | OwnerState::Unknown) {
+        return None;
     }
     let Some(created) = container.created_ms else {
         // An age we could not read is not evidence of abandonment. The startup and shutdown
@@ -1521,6 +1574,9 @@ fn parse_ps_container(line: &str, runtime_image: &str) -> Option<ManagedContaine
     }
     let labelled = label_value(&row.labels, "deepsand.managed").as_deref() == Some("1");
     let project_id = label_value(&row.labels, "deepsand.project").filter(|value| !value.is_empty());
+    // A label that is not a number is treated as missing rather than as owner 0: unknown is
+    // kept by the sweep, while "owned by pid 0" would look authoritative and never be alive.
+    let owner_pid = label_value(&row.labels, LABEL_OWNER).and_then(|value| value.parse().ok());
     let ours = labelled
         || (name.starts_with("deepsand-") && same_runtime_repository(&row.image, runtime_image));
     if !ours {
@@ -1534,6 +1590,7 @@ fn parse_ps_container(line: &str, runtime_image: &str) -> Option<ManagedContaine
         project_id,
         created_ms: parse_docker_timestamp(&row.created_at),
         labelled,
+        owner_pid,
     })
 }
 
@@ -2541,6 +2598,7 @@ mod probe_args_tests {
             "deepsand/runtime:tag",
             Path::new("C:/Users/05L1/Projects/WebSLC-Site"),
             "deepsand-sharing-1",
+            4242,
         );
         assert_eq!(argv.first().map(String::as_str), Some("create"));
         assert!(
@@ -2559,6 +2617,12 @@ mod probe_args_tests {
         assert!(
             argv.iter().any(|arg| arg == LABEL_MANAGED),
             "the probe container has to carry the managed label: {argv:?}"
+        );
+        // And its owner, so a probe left by a dead process is residue while one belonging to a
+        // live `deepsandctl` is not this window's to delete.
+        assert!(
+            argv.contains(&format!("{LABEL_OWNER}=4242")),
+            "the probe container has to record who started it: {argv:?}"
         );
     }
 
@@ -2976,6 +3040,7 @@ mod container_inventory_tests {
             project_id: project.map(str::to_string),
             created_ms: Some(crate::now_ms() - age_ms),
             labelled: true,
+            owner_pid: Some(std::process::id()),
         }
     }
 
@@ -2983,14 +3048,26 @@ mod container_inventory_tests {
     /// "young" test checks rather than a comfortable margin.
     const OLD: i64 = CONTAINER_GRACE_MS + 1;
 
+    /// The common case: a container this process started, which no session owns any more.
     fn reason(
         value: &ManagedContainer,
         live: &[String],
         starting: &[String],
         known: &[String],
     ) -> Option<&'static str> {
+        reason_owned(value, OwnerState::ThisProcess, live, starting, known)
+    }
+
+    fn reason_owned(
+        value: &ManagedContainer,
+        owner: OwnerState,
+        live: &[String],
+        starting: &[String],
+        known: &[String],
+    ) -> Option<&'static str> {
         abandonment_reason(
             value,
+            owner,
             live,
             starting,
             known,
@@ -3087,6 +3164,54 @@ mod container_inventory_tests {
         );
     }
 
+    /// `deepsandctl run`, and a second instance with its own data directory, both start
+    /// sandboxes this process has no session for. They are in use, so the sweep must not
+    /// consider them at all -- not even after the grace period.
+    #[test]
+    fn a_container_another_live_process_owns_is_never_abandoned() {
+        assert_eq!(
+            reason_owned(
+                &container("deepsand-demo", Some("p1"), OLD),
+                OwnerState::AliveElsewhere,
+                &[],
+                &[],
+                &["p1".to_string()]
+            ),
+            None
+        );
+    }
+
+    /// The same container whose owner has exited is residue: nobody can be using it.
+    #[test]
+    fn a_container_whose_owner_is_gone_is_abandoned() {
+        assert_eq!(
+            reason_owned(
+                &container("deepsand-demo", Some("p1"), OLD),
+                OwnerState::Gone,
+                &[],
+                &[],
+                &["p1".to_string()]
+            ),
+            Some("no-session")
+        );
+    }
+
+    /// A container from a build before the label existed has no owner to check. Unknown is
+    /// not evidence of abandonment, so the running sweep leaves it alone.
+    #[test]
+    fn a_container_with_no_owner_record_is_left_alone() {
+        assert_eq!(
+            reason_owned(
+                &container("deepsand-demo", Some("p1"), OLD),
+                OwnerState::Unknown,
+                &[],
+                &[],
+                &["p1".to_string()]
+            ),
+            None
+        );
+    }
+
     fn row(names: &str, image: &str, labels: &str) -> String {
         serde_json::json!({
             "Names": names,
@@ -3139,6 +3264,41 @@ mod container_inventory_tests {
         )
         .expect("the label is Deepsand's own claim about the container");
         assert_eq!(parsed.project_id.as_deref(), Some("p1"));
+    }
+
+    #[test]
+    fn the_owner_pid_is_read_from_the_label_and_absence_is_not_zero() {
+        let owned = parse_ps_container(
+            &row(
+                "deepsand-demo",
+                "deepsand/runtime:0.1.0-abc",
+                "deepsand.managed=1,deepsand.project=p1,deepsand.owner_pid=4242",
+            ),
+            "deepsand/runtime:0.1.0",
+        )
+        .expect("a labelled container is ours");
+        assert_eq!(owned.owner_pid, Some(4242));
+
+        let unlabelled = parse_ps_container(
+            &row("deepsand-demo", "deepsand/runtime:0.1.0-abc", "deepsand.managed=1"),
+            "deepsand/runtime:0.1.0",
+        )
+        .unwrap();
+        assert_eq!(
+            unlabelled.owner_pid, None,
+            "a container from before the label is unknown, not owned by pid 0"
+        );
+
+        let garbled = parse_ps_container(
+            &row(
+                "deepsand-demo",
+                "deepsand/runtime:0.1.0-abc",
+                "deepsand.managed=1,deepsand.owner_pid=not-a-pid",
+            ),
+            "deepsand/runtime:0.1.0",
+        )
+        .unwrap();
+        assert_eq!(garbled.owner_pid, None);
     }
 
     #[test]

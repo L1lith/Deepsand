@@ -25,6 +25,7 @@ mod host_config;
 mod tool_updates;
 mod tray;
 mod instance;
+mod owners;
 pub mod remote_server;
 mod state;
 mod update;

@@ -262,14 +262,16 @@ pub struct ContainerView {
     pub project_id: Option<String>,
     pub project_name: Option<String>,
     pub created_at_ms: Option<i64>,
-    /// Whether a live session in this process owns the container.
+    /// Whether a live session owns the container: this process's, or another Deepsand
+    /// process's that is still running (`deepsandctl`, or a second instance).
     ///
     /// A separate answer from `abandoned_reason`, because they are different questions. A
     /// container can be running and abandoned -- the app that owned it was killed -- and one
     /// can be stopped while still owned, in the moment between a Stop and the teardown. The
     /// window shows both so "not running" is never read as "will be deleted".
     pub in_use: bool,
-    /// `project-missing`, `no-session` or `previous-run`; `None` when a live session owns it.
+    /// `project-missing`, `no-session` or `previous-run`; `None` when the container is in use
+    /// or its owner cannot be judged.
     pub abandoned_reason: Option<String>,
 }
 

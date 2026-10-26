@@ -595,6 +595,7 @@ fn build_plan(store: &Store, project: &Project, resume: bool, offline: bool) -> 
         model_endpoints: &model_addrs,
         mcp_wait_ms: 45_000,
         resume,
+        owner_pid: std::process::id(),
     })
 }
 

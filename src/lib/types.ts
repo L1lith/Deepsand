@@ -525,14 +525,16 @@ export interface ContainerView {
   projectName: string | null;
   createdAtMs: number | null;
   /**
-   * Whether a live session in this process owns the container. Separate from `abandonedReason`:
-   * a container can be running and abandoned, or stopped and still owned for the moment it
-   * takes to tear down.
+   * Whether a live session owns the container: this app's, or another Deepsand process's that is
+   * still running (`deepsandctl`, or a second instance). Separate from `abandonedReason`: a
+   * container can be running and abandoned, or stopped and still owned for the moment it takes
+   * to tear down.
    */
   inUse: boolean;
   /**
-   * Why the sweep considers this container abandoned, or `null` when a live session owns it.
-   * A code rather than a sentence, because the host writes no interface language.
+   * Why the sweep considers this container abandoned, or `null` when it is in use or its owner
+   * cannot be judged. A code rather than a sentence, because the host writes no interface
+   * language.
    */
   abandonedReason: "project-missing" | "no-session" | "previous-run" | null;
 }

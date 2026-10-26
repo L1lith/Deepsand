@@ -9,7 +9,7 @@ use crate::state::*;
 use deepsand_core::allowlist;
 use deepsand_core::broker::Broker;
 use deepsand_core::credentials::{self, ResolvedCredentials};
-use deepsand_core::docker::Docker;
+use deepsand_core::docker::{Docker, OwnerState};
 use deepsand_core::git::{Git, GitCredential};
 use deepsand_core::model::*;
 use deepsand_core::paths;
@@ -1152,6 +1152,7 @@ fn prepare_plan(
         model_endpoints: &endpoints,
         mcp_wait_ms: 45_000,
         resume,
+        owner_pid: std::process::id(),
     })
     .map_err(fail)?;
 
@@ -5813,9 +5814,10 @@ pub fn shutdown_cleanup(state: &AppState) {
     // place the operator can see or stop it.
     stop_all_remote_servers(state);
 
-    // Anything still carrying Deepsand's label belongs to a session that was lost --
-    // a panic, or a start that failed after the container was created. Nothing is
-    // running any more, so everything left is residue.
+    // Anything still carrying Deepsand's label and this process's owner pid belongs to a
+    // session that was lost -- a panic, or a start that failed after the container was created.
+    // A container belonging to a live `deepsandctl`, or to an instance whose data directory is
+    // elsewhere, is not ours to end here; `cleanup_orphans_impl` asks who owns it.
     if let Ok(removed) = cleanup_orphans_impl(state) {
         if !removed.is_empty() {
             tracing::info!(count = removed.len(), "removed sandbox containers on exit");
@@ -5824,15 +5826,24 @@ pub fn shutdown_cleanup(state: &AppState) {
 }
 
 pub fn cleanup_orphans_impl(state: &AppState) -> CmdResult<Vec<String>> {
-
     let docker = state.docker().map_err(fail)?;
-    // "Keep" means a container a live session owns. Passing every known project's
-    // container name -- as this used to -- meant a stale container from a project that
-    // still exists was never treated as an orphan, however long it had been dead, and
-    // it went on holding the name.
-    let expected = state.live_container_names();
+    let live = state.live_container_names();
+    let running = crate::owners::running_deepsand_pids();
+    let this_pid = std::process::id();
     let image = store(state).settings().image.clone();
-    Ok(docker.prune_orphans(&image, &expected))
+    // "Keep" is a name a live session owns, or a container whose owner is still running, or
+    // one that predates the owner label and cannot be judged. Passing every known project's
+    // container name -- as this once did -- meant a stale container from a project that still
+    // exists was never an orphan, however long it had been dead. But treating everything else
+    // as residue is what would have deleted a `deepsandctl` sandbox on the next launch.
+    Ok(docker.prune_orphans(&image, |container| {
+        live.iter().any(|name| name == &container.name)
+            || !matches!(
+                crate::owners::state_of(container.owner_pid, this_pid, running.as_ref()),
+                deepsand_core::docker::OwnerState::ThisProcess
+                    | deepsand_core::docker::OwnerState::Gone
+            )
+    }))
 }
 
 /// How often the running app asks Docker what Deepsand owns and removes what nothing owns.
@@ -5843,9 +5854,10 @@ pub const CONTAINER_SWEEP_PERIOD: Duration = Duration::from_secs(60);
 
 /// Every container Deepsand created, each flagged with why it is abandoned.
 ///
-/// The flag comes from [`deepsand_core::docker::abandonment_reason`], which is where the three
-/// protections live: a live session by name, a start in flight for the project, and the grace
-/// period that covers a container which simply has not registered yet.
+/// The flag comes from [`deepsand_core::docker::abandonment_reason`], which is where the four
+/// protections live: a live session by name, a start in flight for the project, the grace
+/// period that covers a container which simply has not registered yet, and an owner that is
+/// either this process or provably gone.
 fn container_views(state: &AppState) -> CmdResult<Vec<ContainerView>> {
     let docker = state.docker().map_err(fail)?;
     let (image, known, names) = {
@@ -5862,13 +5874,17 @@ fn container_views(state: &AppState) -> CmdResult<Vec<ContainerView>> {
     };
     let live = state.live_container_names();
     let starting = state.starting_projects();
+    let running = crate::owners::running_deepsand_pids();
+    let this_pid = std::process::id();
     let now = deepsand_core::now_ms();
     let containers = docker.container_inventory(&image).map_err(fail)?;
     Ok(containers
         .into_iter()
         .map(|container| {
+            let owner = crate::owners::state_of(container.owner_pid, this_pid, running.as_ref());
             let reason = deepsand_core::docker::abandonment_reason(
                 &container,
+                owner,
                 &live,
                 &starting,
                 &known,
@@ -5880,7 +5896,10 @@ fn container_views(state: &AppState) -> CmdResult<Vec<ContainerView>> {
                     .project_id
                     .as_ref()
                     .and_then(|id| names.get(id).cloned()),
-                in_use: live.iter().any(|name| name == &container.name),
+                // Owned by this process with a session, or owned by another Deepsand
+                // process that is still running. Either way it is not one to remove.
+                in_use: live.iter().any(|name| name == &container.name)
+                    || owner == OwnerState::AliveElsewhere,
                 project_id: container.project_id,
                 name: container.name,
                 image: container.image,

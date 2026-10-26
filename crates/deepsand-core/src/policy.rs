@@ -17,7 +17,7 @@
 //!    the host store and re-validated here, so a compromised sandbox cannot
 //!    smuggle a mount in through the request spool.
 
-use crate::docker::{LABEL_MANAGED, LABEL_PROJECT_PREFIX};
+use crate::docker::{LABEL_MANAGED, LABEL_OWNER, LABEL_PROJECT_PREFIX};
 use crate::error::{Result, SandboxError};
 use crate::model::*;
 use crate::paths::{self, PathGuards};
@@ -135,6 +135,14 @@ pub struct PlanInput<'a> {
     pub mcp_wait_ms: u32,
     /// Verified to be true only when the session volume really has an index.
     pub resume: bool,
+    /// The pid of the process that will run this plan, written into the container as
+    /// `deepsand.owner_pid`.
+    ///
+    /// The sweep uses it to tell a container this process abandoned from one that
+    /// `deepsandctl` or another Deepsand instance is still using. It is an input rather than
+    /// `std::process::id()` read inside `plan_run` so a test can assert the label without
+    /// depending on the test runner's own pid.
+    pub owner_pid: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -548,6 +556,9 @@ pub fn plan_run(input: &PlanInput<'_>) -> Result<RunPlan> {
     args.push(LABEL_MANAGED.to_string());
     args.push("--label".into());
     args.push(format!("{LABEL_PROJECT_PREFIX}{}", project.id));
+    // Who started it, so a sweep in another process can tell a live sandbox from residue.
+    args.push("--label".into());
+    args.push(format!("{LABEL_OWNER}={}", input.owner_pid));
     args.push("--workdir".into());
     args.push(Project::workspace_mount().to_string());
     // Root for exactly as long as the entrypoint needs, then irreversible drop.
@@ -829,6 +840,7 @@ mod tests {
             model_endpoints: &[],
                 mcp_wait_ms: 45_000,
                 resume: false,
+                owner_pid: std::process::id(),
             }
         }
     }
@@ -1101,6 +1113,7 @@ mod tests {
             model_endpoints: &[],
             mcp_wait_ms: 1000,
             resume: false,
+            owner_pid: std::process::id(),
         };
         let plan = plan_run(&input).unwrap();
         assert!(plan.args.iter().any(|a| a == "--cap-add=NET_ADMIN"));
@@ -1141,6 +1154,7 @@ mod tests {
             model_endpoints: &[],
             mcp_wait_ms: 1000,
             resume: false,
+            owner_pid: std::process::id(),
         })
         .expect("a plan with an env file");
 
@@ -1188,10 +1202,33 @@ mod tests {
             model_endpoints: &[],
             mcp_wait_ms: 1000,
             resume: false,
+            owner_pid: std::process::id(),
         })
         .expect("a plan");
 
         assert!(!plan.args.iter().any(|arg| arg == "--env-file"));
+    }
+
+    /// The container records the pid that started it, so a sweep running in another process
+    /// can tell a sandbox `deepsandctl` is still using from residue. Without this label the
+    /// window's sweep would delete a headless sandbox two minutes after it started.
+    #[test]
+    fn a_plan_records_the_process_that_started_it() {
+        let fixture = Fixture::new("owner-label");
+        let app = fixture.app();
+        let status = docker_status();
+
+        let plan = plan_run(&PlanInput {
+            owner_pid: 4242,
+            ..fixture.input(&app, &status)
+        })
+        .expect("a plan");
+
+        assert!(
+            has_pair(&plan, "--label", "deepsand.owner_pid=4242"),
+            "the plan has to name its owner: {:?}",
+            plan.args
+        );
     }
 
     /// `none` means the model endpoint and nothing else, and it must refuse to build
@@ -1224,6 +1261,7 @@ mod tests {
                 model_endpoints: endpoints,
                 mcp_wait_ms: 1000,
                 resume: false,
+                owner_pid: std::process::id(),
             })
         };
 
@@ -1285,6 +1323,7 @@ mod tests {
             model_endpoints: &[],
             mcp_wait_ms: 1000,
             resume: false,
+            owner_pid: std::process::id(),
         };
         let err = plan_run(&bare).unwrap_err();
         assert!(err.to_string().contains("egress proxy"), "{err}");
@@ -1340,6 +1379,7 @@ mod tests {
             model_endpoints: &[],
             mcp_wait_ms: 1000,
             resume: false,
+            owner_pid: std::process::id(),
         })
         .unwrap();
 

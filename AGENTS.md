@@ -582,16 +582,29 @@ These are load-bearing. Breaking one is how this project gets a CVE.
   polite work is what has a budget and can be abandoned.
 * **A container inventory has one rule, one list and one timer, and only the rule decides.**
   `docker::abandonment_reason` is that rule: a container is abandoned only when no live session
-  owns its name, no start is in flight for its project, and it is older than
-  `CONTAINER_GRACE_MS` (two minutes). Those three protections are what make a periodic sweep
-  safe -- a start creates its container before the session is registered, and a sharing probe
-  creates one for a few seconds. `remove_abandoned_containers_impl` runs it, the Activity panel
-  shows the same list on demand, and `lib.rs` repeats it every minute; the startup and shutdown
-  paths still use the blunt `prune_orphans`, because there "nothing is running" is known rather
-  than inferred. Ownership is the `deepsand.managed` label **or** a `deepsand-` name with an
-  image from the configured repository: the second test exists because a build that predates the
-  probe's label left five containers the label alone could never see. And the inventory is
-  bounded by `INVENTORY_LEASH`, not the command timeout -- a repeated sweep against a daemon
+  owns its name, no start is in flight for its project, **its owner is this process or provably
+  gone**, and it is older than `CONTAINER_GRACE_MS` (two minutes). Those protections are what
+  make a periodic sweep safe -- a start creates its container before the session is registered,
+  and a sharing probe creates one for a few seconds.
+
+  **A container is not abandoned because *this* process has no session for it.**
+  `deepsandctl run` starts sandboxes, and so does a second instance with its own data directory;
+  neither registers a session in the window. Every plan and every sharing probe therefore
+  records `deepsand.owner_pid` (the process that will `docker run`), and `owners::state_of` turns
+  that into one of four answers: this process, another Deepsand process that is still running,
+  gone, or unknown (a container from a build before the label). The rule removes only the first
+  and the third. Liveness is the process table (`tasklist` / `ps -eo pid=,comm=`), filtered to
+  executables whose name starts with `deepsand` -- a pid reused by an unrelated program counts
+  as dead, so a crashed sandbox is still cleaned up. **An unreadable process list means every
+  other owner is assumed alive**: not being able to see a process is not evidence that it is
+  gone, and the wrong answer deletes somebody's running sandbox. `prune_orphans` at startup and
+  exit uses the same answer; it is no longer "everything of ours is residue", because that
+  deleted a live `deepsandctl` sandbox on the next launch.
+
+  Ownership of a container *itself* is the `deepsand.managed` label **or** a `deepsand-` name
+  with an image from the configured repository: the second test exists because a build that
+  predates the probe's label left five containers the label alone could never see. The inventory
+  is bounded by `INVENTORY_LEASH`, not the command timeout -- a repeated sweep against a daemon
   that has stopped answering must not leave a blocked thread behind on every tick.
 * **Attaching is the operator's action, and it is bounded.** What a dropped file becomes depends
   on where it came from, and `attachments::in_sandbox_path` is the one place that decides:
