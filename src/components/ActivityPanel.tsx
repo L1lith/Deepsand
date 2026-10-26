@@ -7,15 +7,14 @@
  * that could not be applied on this platform.
  */
 
-import { createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import * as api from "../lib/api";
 import { baseName, formatTimestamp, shortPath } from "../lib/format";
-import { networkModeLabel } from "../lib/types";
+import { networkModeLabel, type ContainerView } from "../lib/types";
 import { t } from "../i18n";
 import {
   clearBlockedEgress,
   describeError,
-  refreshProjects,
   selectedProject,
   store,
   toast,
@@ -30,6 +29,61 @@ export function ActivityPanel() {
   // Asked for rather than assembled here, so the window does not have its own idea of where
   // that file is.
   const [logPath, setLogPath] = createSignal<string | null>(null);
+  // The host's inventory of Deepsand's own containers. A sweep runs every minute in the
+  // backend; this is the same list, on demand, so the operator can see what it is working on.
+  const [containers, setContainers] = createSignal<ContainerView[]>([]);
+  const [containersBusy, setContainersBusy] = createSignal(false);
+  const abandoned = createMemo(() =>
+    containers().filter((container) => container.abandonedReason !== null),
+  );
+
+  onMount(() => {
+    void refreshContainers();
+  });
+
+  /** The host writes codes, not sentences: it has no idea which language this window is in. */
+  function abandonedReasonText(code: string): string {
+    switch (code) {
+      case "project-missing":
+        return t("activity.abandonedProjectMissing");
+      case "no-session":
+        return t("activity.abandonedNoSession");
+      case "previous-run":
+        return t("activity.abandonedPreviousRun");
+      default:
+        return code;
+    }
+  }
+
+  async function refreshContainers() {
+    setContainersBusy(true);
+    try {
+      setContainers(await api.listContainers());
+    } catch (error) {
+      toast("error", t("activity.couldNotReadContainers"), describeError(error));
+    } finally {
+      setContainersBusy(false);
+    }
+  }
+
+  async function removeAbandoned() {
+    setContainersBusy(true);
+    try {
+      const removed = await api.removeAbandonedContainers();
+      toast(
+        removed.length > 0 ? "ok" : "info",
+        removed.length > 0
+          ? t("activity.removedAbandoned", { count: removed.length })
+          : t("activity.nothingAbandoned"),
+        removed.join(", "),
+      );
+      await refreshContainers();
+    } catch (error) {
+      toast("error", t("activity.couldNotRemoveAbandoned"), describeError(error));
+    } finally {
+      setContainersBusy(false);
+    }
+  }
 
   async function showPlan() {
     const current = project();
@@ -58,22 +112,6 @@ export function ActivityPanel() {
     }
   }
 
-  async function cleanup() {
-    try {
-      const removed = await api.cleanupOrphans();
-      toast(
-        removed.length > 0 ? "ok" : "info",
-        removed.length > 0
-          ? t("activity.removedContainers", { count: removed.length })
-          : t("activity.nothingToClean"),
-        removed.join(", "),
-      );
-      await refreshProjects();
-    } catch (error) {
-      toast("error", t("activity.cleanupFailed"), describeError(error));
-    }
-  }
-
   return (
     <div class="panel">
       <Show when={store.startupNotice}>
@@ -99,6 +137,81 @@ export function ActivityPanel() {
         </Show>
         <Show when={plan()}>
           {(text) => <pre class="output" style={{ "margin-top": "0.7rem" }}>{text()}</pre>}
+        </Show>
+      </div>
+
+      <div class="card">
+        <h3>{t("activity.containers")}</h3>
+        <p>{t("activity.containersDetail")}</p>
+        <div class="row-inline" style={{ "margin-top": "0.6rem" }}>
+          <button
+            class="btn btn-ghost"
+            disabled={containersBusy()}
+            onClick={() => void refreshContainers()}
+          >
+            {t("activity.refreshContainers")}
+          </button>
+          <button
+            class="btn"
+            disabled={containersBusy() || abandoned().length === 0}
+            onClick={() => void removeAbandoned()}
+          >
+            {t("activity.removeAbandoned")}
+          </button>
+        </div>
+        <Show
+          when={containers().length > 0}
+          fallback={
+            <div class="empty">
+              {containersBusy() ? t("common.checking") : t("activity.noContainers")}
+            </div>
+          }
+        >
+          <table style={{ "margin-top": "0.7rem" }}>
+            <thead>
+              <tr>
+                <th>{t("activity.containerName")}</th>
+                <th>{t("activity.containerState")}</th>
+                <th>{t("activity.containerProject")}</th>
+                <th>{t("activity.containerStatus")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <For each={containers()}>
+                {(container) => (
+                  <tr>
+                    <td class="path">{container.name}</td>
+                    <td>
+                      <span class="badge">{container.state}</span>
+                      {/* Two different questions, shown as two badges: "in use" is about a
+                          live session, "abandoned" is about having no owner. A stopped
+                          container is not automatically abandoned, and a running one is not
+                          automatically in use. */}
+                      <Show when={container.inUse}>
+                        <span class="badge badge-ok" style={{ "margin-left": "0.35rem" }}>
+                          {t("activity.containerInUse")}
+                        </span>
+                      </Show>
+                      <Show when={container.abandonedReason}>
+                        {(reason) => (
+                          <>
+                            <span class="badge badge-warn" style={{ "margin-left": "0.35rem" }}>
+                              {t("activity.containerAbandoned")}
+                            </span>
+                            <div class="faint small">{abandonedReasonText(reason())}</div>
+                          </>
+                        )}
+                      </Show>
+                    </td>
+                    <td class="small">
+                      {container.projectName ?? container.projectId ?? "—"}
+                    </td>
+                    <td class="small muted">{container.status}</td>
+                  </tr>
+                )}
+              </For>
+            </tbody>
+          </table>
         </Show>
       </div>
 
@@ -279,9 +392,6 @@ export function ActivityPanel() {
           </tbody>
         </table>
         <div class="row-inline" style={{ "margin-top": "0.7rem" }}>
-          <button class="btn" onClick={() => void cleanup()}>
-            {t("activity.removeContainers")}
-          </button>
           <button class="btn btn-ghost" onClick={() => void reveal()}>
             {t("activity.showDataFolder")}
           </button>

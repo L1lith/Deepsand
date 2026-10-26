@@ -580,6 +580,19 @@ These are load-bearing. Breaking one is how this project gets a CVE.
   asks the operating system for this process's own children by name (`docker*`) and ends them,
   and it is called at the start of `shutdown_cleanup` -- before the polite work, because the
   polite work is what has a budget and can be abandoned.
+* **A container inventory has one rule, one list and one timer, and only the rule decides.**
+  `docker::abandonment_reason` is that rule: a container is abandoned only when no live session
+  owns its name, no start is in flight for its project, and it is older than
+  `CONTAINER_GRACE_MS` (two minutes). Those three protections are what make a periodic sweep
+  safe -- a start creates its container before the session is registered, and a sharing probe
+  creates one for a few seconds. `remove_abandoned_containers_impl` runs it, the Activity panel
+  shows the same list on demand, and `lib.rs` repeats it every minute; the startup and shutdown
+  paths still use the blunt `prune_orphans`, because there "nothing is running" is known rather
+  than inferred. Ownership is the `deepsand.managed` label **or** a `deepsand-` name with an
+  image from the configured repository: the second test exists because a build that predates the
+  probe's label left five containers the label alone could never see. And the inventory is
+  bounded by `INVENTORY_LEASH`, not the command timeout -- a repeated sweep against a daemon
+  that has stopped answering must not leave a blocked thread behind on every tick.
 * **Attaching is the operator's action, and it is bounded.** What a dropped file becomes depends
   on where it came from, and `attachments::in_sandbox_path` is the one place that decides:
   * Inside the workspace **or a grant** it is *named* at the mount path (`/workspace/...`,
@@ -696,6 +709,18 @@ These are load-bearing. Breaking one is how this project gets a CVE.
   a frozen container refuses `exec` and cannot take a signal; and nothing may be left frozen when
   the app goes away, so `stop_session_internal` thaws and clears, and an orphan sweep at startup
   removes whatever a crash left behind.
+* **The store lock is not re-entrant, and a synchronous command holds it on the UI thread.**
+  `store(&state)` locks `AppState::store`, so calling it while a `MutexGuard` from the same
+  thread is alive deadlocks instead of failing. The secret branch of `answer_request` did
+  exactly that, and because the command was a plain `fn` it ran on the UI thread: pressing
+  "Grant access" for a secret froze the whole window, saved nothing, wrote no answer and left
+  the request file on disk -- so the sandbox stayed paused and the same dialog came back after
+  every launch. Read what you need from the guard, drop it, then do the keystore work; the
+  command is `async` now so nothing that may block holds the window. Two follow-ons came from
+  the same report. Every path that answers a request must also clear it -- the secret branch
+  did not, on either outcome -- and a request left behind is re-announced on the next tick and
+  after every restart, so `scan_detailed` now treats an existing response as the truth: it
+  drops the leftover request instead of showing a decision that was already taken.
 * **Bind mounts cannot be added to a running container.** An approval recreates
   the container and resumes the session from the named volume. DeepCode's
   `--last` calls `process.exit(1)` when there is no session, so the session index

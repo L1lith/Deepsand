@@ -16,6 +16,7 @@ import type {
   AppSettings,
   AttachmentView,
   BlockedEgressView,
+  ContainerView,
   Credentials,
   DecisionPayload,
   DeepCodeMode,
@@ -96,6 +97,10 @@ export async function logUiEvent(level: "error" | "warn" | "info", message: stri
 /** Where the app writes what it says about itself. */
 export const logFilePath = () => call<string>("log_file_path");
 export const cleanupOrphans = () => call<string[]>("cleanup_orphans");
+/** Deepsand's containers, flagged with why any of them is abandoned. */
+export const listContainers = () => call<ContainerView[]>("list_containers");
+/** Remove the containers no live session owns (the host applies the grace period). */
+export const removeAbandonedContainers = () => call<string[]>("remove_abandoned_containers");
 
 export const getSettings = () => call<AppSettings>("get_settings");
 export const setSettings = (settings: AppSettings) => call<AppSettings>("set_settings", { settings });

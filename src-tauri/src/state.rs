@@ -245,6 +245,34 @@ pub struct BlockedEgressView {
     pub reason: String,
 }
 
+/// One of Deepsand's containers, as the Activity panel shows it.
+///
+/// Only containers Deepsand created appear here, and `abandoned_reason` is a code rather than a
+/// sentence: the host has no idea which language the operator reads, and the window already
+/// translates everything else it shows.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerView {
+    pub name: String,
+    pub image: String,
+    /// Docker's lowercase state: running, paused, created, exited, dead.
+    pub state: String,
+    /// Docker's own line, e.g. "Up 12 minutes".
+    pub status: String,
+    pub project_id: Option<String>,
+    pub project_name: Option<String>,
+    pub created_at_ms: Option<i64>,
+    /// Whether a live session in this process owns the container.
+    ///
+    /// A separate answer from `abandoned_reason`, because they are different questions. A
+    /// container can be running and abandoned -- the app that owned it was killed -- and one
+    /// can be stopped while still owned, in the moment between a Stop and the teardown. The
+    /// window shows both so "not running" is never read as "will be deleted".
+    pub in_use: bool,
+    /// `project-missing`, `no-session` or `previous-run`; `None` when a live session owns it.
+    pub abandoned_reason: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppInfo {
@@ -747,6 +775,24 @@ impl AppState {
             .values()
             .map(|live| live.container_name.clone())
             .collect()
+    }
+
+    /// Projects with a start in flight.
+    ///
+    /// A container exists before its session is registered, so a sweep that only consulted
+    /// [`Self::live_container_names`] would delete a sandbox that is in the middle of starting.
+    pub fn starting_projects(&self) -> Vec<String> {
+        self.starting
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .cloned()
+            .collect()
+    }
+
+    /// Whether the app has begun shutting down.
+    pub fn is_shutting_down(&self) -> bool {
+        self.shutting_down.load(Ordering::SeqCst)
     }
 
     /// Whether this process has the project's sandbox frozen.

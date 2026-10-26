@@ -390,6 +390,10 @@ pub fn requirement(command: &str) -> Option<(Capability, Option<&'static str>)> 
         "set_egress_allowlist" => (ChangeSecurity, None),
         "build_runtime_image" => (ChangeSecurity, None),
         "cleanup_orphans" => (ChangeSecurity, None),
+        // Reading the inventory is viewing; removing what nothing owns changes what is
+        // running on the host, so it travels with the same capability as cleanup.
+        "list_containers" => (View, None),
+        "remove_abandoned_containers" => (ChangeSecurity, None),
         // Deliberately absent rather than gated:
         //  * `reveal_data_dir`, `reveal_project_dir` and `reveal_grant_dir` open a
         //    folder window on the host, which means nothing to a remote client and

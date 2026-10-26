@@ -306,6 +306,52 @@ pub fn run() {
                 });
             }
 
+            // The startup sweep runs once. A container can be left behind later, too: a start
+            // that failed after `docker run`, a session that ended without its waiter, a probe
+            // whose build was cancelled. Without this they sit in Docker Desktop until the next
+            // launch, which is exactly how five probe containers survived here.
+            //
+            // This is the running inventory: one `docker ps` a minute on a blocking thread, and
+            // anything of ours that no session owns (and that is past the grace period) is
+            // removed. The rule is in `docker::abandonment_reason`, not here.
+            {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    use tauri::Emitter as _;
+                    loop {
+                        tokio::time::sleep(commands::CONTAINER_SWEEP_PERIOD).await;
+                        let sweep = handle.clone();
+                        let removed = tauri::async_runtime::spawn_blocking(move || {
+                            let state = tauri::Manager::state::<AppState>(&sweep);
+                            if state.is_shutting_down() {
+                                return Vec::new();
+                            }
+                            match commands::remove_abandoned_containers_impl(&state) {
+                                Ok(removed) => removed,
+                                Err(err) => {
+                                    // Docker down, or a daemon that stopped answering. The next
+                                    // tick tries again; this one has nothing to report.
+                                    tracing::debug!(%err, "container sweep skipped");
+                                    Vec::new()
+                                }
+                            }
+                        })
+                        .await
+                        .unwrap_or_default();
+                        if !removed.is_empty() {
+                            tracing::info!(
+                                count = removed.len(),
+                                "removed sandbox containers that no session owned"
+                            );
+                            let _ = handle.emit(
+                                crate::state::events::STATE_CHANGED,
+                                serde_json::json!({ "reason": "containers-swept" }),
+                            );
+                        }
+                    }
+                });
+            }
+
             // Docker is regularly started *after* Deepsand, and nothing used to look at
             // it again: the app kept reporting whatever it saw at launch, so the only way
             // out was restarting it. This watches for it appearing.
@@ -517,6 +563,8 @@ pub fn run() {
             commands::host_config_summary,
             commands::build_runtime_image,
             commands::cleanup_orphans,
+            commands::list_containers,
+            commands::remove_abandoned_containers,
             commands::reveal_data_dir,
             // Open a folder window on the machine the window is on. Desktop-only, like the
             // updater and the Docker restart: to a remote client these mean nothing and would

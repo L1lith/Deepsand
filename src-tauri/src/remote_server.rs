@@ -707,6 +707,10 @@ async fn dispatch(
             )?)
         }
         "cleanup_orphans" => to_value(commands::cleanup_orphans_impl(state)?),
+        "list_containers" => to_value(commands::list_containers_impl(state)?),
+        "remove_abandoned_containers" => {
+            to_value(commands::remove_abandoned_containers_impl(state)?)
+        }
 
         // Anything else was already refused by `remote::authorize`, so reaching here
         // means the table and this match have drifted apart.

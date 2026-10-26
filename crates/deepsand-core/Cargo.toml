@@ -23,6 +23,7 @@ anyhow.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 uuid.workspace = true
+time.workspace = true
 directories.workspace = true
 dunce.workspace = true
 sha2.workspace = true

@@ -2604,8 +2604,63 @@ pub fn list_pending_requests_impl(state: &AppState) -> CmdResult<Vec<PermissionR
         .collect())
 }
 
+/// Answer a secret request once the value has (or has not) been stored.
+///
+/// The order is load-bearing. The answer is written **before** the request is cleared: the
+/// in-container bridge reads the answer file, and a request that disappears without one is
+/// no answer at all -- clearing first would lose the decision the operator just made. And
+/// the request is cleared on **both** outcomes: a request file left behind is announced
+/// again on the next tick and again after a restart, which is how pressing "Grant access"
+/// produced the same dialog for ever.
+///
+/// `save` is a parameter rather than a call so the sequencing can be tested without touching
+/// the operating system's keystore.
+fn answer_secret_request(
+    broker: &Broker,
+    request_id: &str,
+    name: &str,
+    value: &str,
+    save: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    match save() {
+        Ok(()) => {
+            let message = format!(
+                "{name} is saved for this project and is handed to the sandbox as an environment \
+                 variable. A sandbox that is already running keeps the environment it started with, \
+                 so restart the project to pick it up."
+            );
+            broker
+                .answer(
+                    &PermissionResponse::allow(request_id, message.as_str(), None, true)
+                        .with_secret(SecretSpec {
+                            name: name.to_string(),
+                            value: value.to_string(),
+                        }),
+                )
+                .map_err(|err| err.to_string())?;
+            broker.clear_request(request_id);
+            Ok(())
+        }
+        Err(err) => {
+            // A secret that could not be stored is not an approval. The refusal is written
+            // and the request cleared, or the sandbox stays frozen with no decision left for
+            // the agent to collect.
+            let message = format!("{name} could not be saved: {err}");
+            broker
+                .answer(&PermissionResponse::deny(request_id, message.as_str()))
+                .map_err(|err| err.to_string())?;
+            broker.clear_request(request_id);
+            Err(message)
+        }
+    }
+}
+
+/// `async` on purpose: answering a secret reaches the OS keystore and writes the project's
+/// encrypted store. A synchronous Tauri command runs on the UI thread, so any slow keystore
+/// call there is a window that stops painting. The re-entrant-lock deadlock this command used
+/// to have is fixed, but nothing that may block belongs on that thread.
 #[tauri::command]
-pub fn answer_request(app: AppHandle, state: State<'_, AppState>, payload: DecisionPayload) -> CmdResult<bool> {
+pub async fn answer_request(app: AppHandle, state: State<'_, AppState>, payload: DecisionPayload) -> CmdResult<bool> {
     answer_request_impl(&app, &state, payload)
 }
 
@@ -2854,37 +2909,71 @@ pub fn answer_request_impl(app: &AppHandle, state: &AppState, payload: DecisionP
             };
 
             if let Some(refusal) = refusal {
+                broker
+                    .answer(&PermissionResponse::deny(&request_id, &refusal))
+                    .map_err(fail)?;
+                // Leaving the request file behind re-announces it on the next tick -- and,
+                // worse, on the next launch -- so a refused secret would keep coming back.
+                broker.clear_request(&request_id);
+                guard.append_audit(&request.project, &format!("DENY  secret ({refusal})"));
+                drop(guard);
                 let _ = app.emit(
                     events::BROKER_RESOLVED,
                     serde_json::json!({ "requestId": request_id, "decision": "deny" }),
                 );
-                broker.answer(&PermissionResponse::deny(&request_id, &refusal)).map_err(fail)?;
                 return Ok(false);
             }
 
-            let data_dir = store(&state).data_dir().to_path_buf();
-            let secrets =
-                deepsand_core::secrets::Secrets::open(&data_dir, &request.project).map_err(fail)?;
-            secrets.set(&name, &value).map_err(fail)?;
+            // The store lock must not be held across the keystore work, and must never be
+            // taken a second time from this thread. `store(&state)` locks the same
+            // `Mutex<Store>` that `guard` already holds, and a re-entrant lock on a
+            // `std::sync::Mutex` deadlocks instead of failing. That is what froze the whole
+            // window on "Grant access": the command was synchronous then, so it ran on the UI
+            // thread and never returned, and nothing was saved, answered or cleared. Read
+            // what is needed, drop the guard, then do the slow part.
+            let data_dir = guard.data_dir().to_path_buf();
+            drop(guard);
 
-            let message = format!(
-                "{name} is saved for this project and is handed to the sandbox as an environment \
-                 variable. A sandbox that is already running keeps the environment it started with, \
-                 so restart the project to pick it up."
-            );
-            broker
-                .answer(
-                    &PermissionResponse::allow(&request_id, &message, None, true).with_secret(
-                        deepsand_core::model::SecretSpec { name, value },
-                    ),
-                )
-                .map_err(fail)?;
-            tracing::info!("a secret was added from an approved request");
-            let _ = app.emit(
-                events::BROKER_RESOLVED,
-                serde_json::json!({ "requestId": request_id, "decision": "allow" }),
-            );
-            return Ok(true);
+            let stored = deepsand_core::secrets::Secrets::open(&data_dir, &request.project)
+                .and_then(|secrets| secrets.set(&name, &value));
+            let outcome = answer_secret_request(&broker, &request_id, &name, &value, || {
+                stored.map_err(|err| err.to_string())
+            });
+
+            match outcome {
+                Ok(()) => {
+                    store(&state).append_audit(&request.project, &format!("ALLOW secret {name}"));
+                    tracing::info!("a secret was added from an approved request");
+                    let _ = app.emit(
+                        events::BROKER_RESOLVED,
+                        serde_json::json!({ "requestId": request_id, "decision": "allow" }),
+                    );
+                    let _ = app.emit(
+                        events::STATE_CHANGED,
+                        serde_json::json!({ "reason": "secret-added" }),
+                    );
+                    return Ok(true);
+                }
+                Err(message) => {
+                    store(&state).append_audit(
+                        &request.project,
+                        &format!("DENY  secret {name} ({message})"),
+                    );
+                    let _ = app.emit(
+                        events::BROKER_RESOLVED,
+                        serde_json::json!({
+                            "requestId": request_id,
+                            "decision": "deny",
+                            "reason": message
+                        }),
+                    );
+                    // `Ok(false)`, not an error: the answer did arrive. The window shows
+                    // "Nothing was applied", the model gets the reason, and the dialog is
+                    // gone. An `Err` here would report a delivery failure for a decision
+                    // that was delivered.
+                    return Ok(false);
+                }
+            }
         }
 
         RequestKind::ToolInstall => {
@@ -5742,7 +5831,110 @@ pub fn cleanup_orphans_impl(state: &AppState) -> CmdResult<Vec<String>> {
     // still exists was never treated as an orphan, however long it had been dead, and
     // it went on holding the name.
     let expected = state.live_container_names();
-    Ok(docker.prune_orphans(&expected))
+    let image = store(state).settings().image.clone();
+    Ok(docker.prune_orphans(&image, &expected))
+}
+
+/// How often the running app asks Docker what Deepsand owns and removes what nothing owns.
+///
+/// One `docker ps` costs 180-600 ms here, on a blocking thread, so a minute is frequent enough
+/// to be invisible to the operator and cheap enough to run for the life of the app.
+pub const CONTAINER_SWEEP_PERIOD: Duration = Duration::from_secs(60);
+
+/// Every container Deepsand created, each flagged with why it is abandoned.
+///
+/// The flag comes from [`deepsand_core::docker::abandonment_reason`], which is where the three
+/// protections live: a live session by name, a start in flight for the project, and the grace
+/// period that covers a container which simply has not registered yet.
+fn container_views(state: &AppState) -> CmdResult<Vec<ContainerView>> {
+    let docker = state.docker().map_err(fail)?;
+    let (image, known, names) = {
+        let store = store(state);
+        let projects = store.projects();
+        (
+            store.settings().image.clone(),
+            projects.iter().map(|project| project.id.clone()).collect::<Vec<_>>(),
+            projects
+                .iter()
+                .map(|project| (project.id.clone(), project.name.clone()))
+                .collect::<HashMap<_, _>>(),
+        )
+    };
+    let live = state.live_container_names();
+    let starting = state.starting_projects();
+    let now = deepsand_core::now_ms();
+    let containers = docker.container_inventory(&image).map_err(fail)?;
+    Ok(containers
+        .into_iter()
+        .map(|container| {
+            let reason = deepsand_core::docker::abandonment_reason(
+                &container,
+                &live,
+                &starting,
+                &known,
+                now,
+                deepsand_core::docker::CONTAINER_GRACE_MS,
+            );
+            ContainerView {
+                project_name: container
+                    .project_id
+                    .as_ref()
+                    .and_then(|id| names.get(id).cloned()),
+                in_use: live.iter().any(|name| name == &container.name),
+                project_id: container.project_id,
+                name: container.name,
+                image: container.image,
+                state: container.state,
+                status: container.status,
+                created_at_ms: container.created_ms,
+                abandoned_reason: reason.map(str::to_string),
+            }
+        })
+        .collect())
+}
+
+pub fn list_containers_impl(state: &AppState) -> CmdResult<Vec<ContainerView>> {
+    container_views(state)
+}
+
+/// Remove the containers the inventory flagged as abandoned.
+///
+/// This never removes a container a live session owns or one inside the grace period, because
+/// the decision is [`container_views`]' and it has already been made there.
+pub fn remove_abandoned_containers_impl(state: &AppState) -> CmdResult<Vec<String>> {
+    let docker = state.docker().map_err(fail)?;
+    let mut removed = Vec::new();
+    for view in container_views(state)? {
+        let Some(reason) = view.abandoned_reason.clone() else {
+            continue;
+        };
+        docker.remove_container(&view.name);
+        tracing::info!(container = %view.name, reason = %reason, "removed an abandoned sandbox container");
+        removed.push(view.name);
+    }
+    Ok(removed)
+}
+
+#[tauri::command]
+pub async fn list_containers(app: AppHandle) -> CmdResult<Vec<ContainerView>> {
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = tauri::Manager::state::<AppState>(&handle);
+        list_containers_impl(&state)
+    })
+    .await
+    .map_err(|err| format!("the container list could not be read: {err}"))?
+}
+
+#[tauri::command]
+pub async fn remove_abandoned_containers(app: AppHandle) -> CmdResult<Vec<String>> {
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = tauri::Manager::state::<AppState>(&handle);
+        remove_abandoned_containers_impl(&state)
+    })
+    .await
+    .map_err(|err| format!("abandoned containers could not be removed: {err}"))?
 }
 
 #[tauri::command]
@@ -6193,5 +6385,85 @@ mod blocked_request_tests {
             entries.contains(&"api.example.org".to_string()),
             "the ordinary entry must survive the merge: {entries:?}"
         );
+    }
+}
+
+/// The secret arm of `answer_request`.
+///
+/// Both claims come from the same failure: pressing "Grant access" for a secret froze the
+/// window, so nothing was stored, answered or cleared, and the request file re-announced the
+/// dialog after every restart. The re-entrant store lock that caused the freeze is gone; these
+/// tests pin the two properties a later edit could silently lose -- the answer carries the
+/// operator's value, and no outcome leaves the request file behind.
+#[cfg(test)]
+mod secret_answer_tests {
+    use super::*;
+    use deepsand_core::broker::request_file_name;
+
+    fn broker() -> (Broker, PathBuf) {
+        let dir = std::env::temp_dir()
+            .join(format!("deepsand-secret-answer-{}", uuid::Uuid::new_v4()));
+        let broker = Broker::new(&dir, "p1");
+        broker.ensure().unwrap();
+        (broker, dir)
+    }
+
+    fn pending(broker: &Broker, id: &str) {
+        std::fs::write(broker.dirs().requests.join(request_file_name(id)), "{}").unwrap();
+    }
+
+    fn answer(broker: &Broker, id: &str) -> serde_json::Value {
+        let path = broker.dirs().responses.join(request_file_name(id));
+        serde_json::from_str(&std::fs::read_to_string(path).expect("an answer was written"))
+            .unwrap()
+    }
+
+    #[test]
+    fn a_granted_secret_carries_the_operators_value_and_leaves_no_request_behind() {
+        let (broker, dir) = broker();
+        let id = "req_secret_0001";
+        pending(&broker, id);
+
+        answer_secret_request(&broker, id, "API_KEY", "s3cret", || Ok(())).unwrap();
+
+        let written = answer(&broker, id);
+        assert_eq!(written["decision"], "allow");
+        assert_eq!(written["secret"]["name"], "API_KEY");
+        assert_eq!(
+            written["secret"]["value"], "s3cret",
+            "the model has to receive the value the operator typed, not the one the sandbox suggested"
+        );
+        assert!(
+            !broker.dirs().requests.join(request_file_name(id)).exists(),
+            "a request file left behind is announced again on the next launch"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_secret_that_cannot_be_stored_is_still_answered_and_cleared() {
+        let (broker, dir) = broker();
+        let id = "req_secret_0002";
+        pending(&broker, id);
+
+        let outcome = answer_secret_request(&broker, id, "API_KEY", "s3cret", || {
+            Err("the keystore is unavailable".to_string())
+        });
+
+        assert!(outcome.is_err(), "the caller has to know nothing was stored");
+        let written = answer(&broker, id);
+        assert_eq!(written["decision"], "deny", "no value means no approval");
+        assert!(
+            written["message"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("keystore"),
+            "the model is told why instead of waiting for an answer that never comes: {written}"
+        );
+        assert!(
+            !broker.dirs().requests.join(request_file_name(id)).exists(),
+            "a refusal has to clear the request too, or the dialog comes back"
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

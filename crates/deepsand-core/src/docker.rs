@@ -45,6 +45,14 @@ pub const WEDGE_RECHECK_LEASH: std::time::Duration = std::time::Duration::from_s
 /// us about Docker Desktop rather than about the directory.
 pub const SHARING_PROBE_LEASH: std::time::Duration = std::time::Duration::from_secs(15);
 
+/// The leash for reading the container inventory.
+///
+/// The app asks for this on a timer and on demand. A daemon that has stopped answering would
+/// otherwise hold the call for the full command timeout, and a repeating sweep would leave one
+/// blocked thread per tick behind it. A healthy `docker ps` answers in well under a second, so
+/// a silence this long is a fact about Docker rather than about the containers.
+pub const INVENTORY_LEASH: std::time::Duration = std::time::Duration::from_secs(15);
+
 /// The leash for the cleanup that follows a failed probe step.
 ///
 /// Short for the same reason: removing the probe container is not what is being measured, and a
@@ -1337,7 +1345,11 @@ impl Docker {
             .is_some_and(|out| out == "true")
     }
 
-    /// Every container Deepsand has created, by name.
+    /// Every container Deepsand has created that carries the managed label, by name.
+    ///
+    /// Kept for callers that only need names. The label alone is not the whole of "ours": a
+    /// build before the label was written on probe containers left some behind, which is what
+    /// [`Self::container_inventory`] exists to see.
     pub fn managed_containers(&self) -> Vec<String> {
         self.try_run(&self.fmt(&[
             "ps",
@@ -1351,17 +1363,213 @@ impl Docker {
         .unwrap_or_default()
     }
 
-    /// Remove managed containers for projects that no longer exist.
-    pub fn prune_orphans(&self, keep: &[String]) -> Vec<String> {
+    /// Every container Deepsand created, with the fields an inventory needs.
+    ///
+    /// One `docker ps` call rather than an `inspect` per container: the app asks this on a
+    /// timer, and each Docker CLI invocation costs 180-600 ms here. A daemon that does not
+    /// answer is an error rather than an empty list, because "no containers" shown for a
+    /// Docker that is down is a claim the operator would act on.
+    ///
+    /// `runtime_image` is the configured stem. It is what recognises a container whose labels
+    /// predate the managed marker -- the name prefix and the runtime image together are still
+    /// unambiguous, and they are what let the probe containers from an older build be found.
+    pub fn container_inventory(&self, runtime_image: &str) -> Result<Vec<ManagedContainer>> {
+        let out = self
+            .try_run_within(
+                &self.fmt(&["ps", "-a", "--format", "{{json .}}"]),
+                INVENTORY_LEASH,
+            )
+            .ok_or_else(|| SandboxError::Docker {
+                command: "docker ps -a".to_string(),
+                stderr: format!(
+                    "the daemon did not answer within {}s, so no container inventory could be read",
+                    INVENTORY_LEASH.as_secs()
+                ),
+            })?;
+        Ok(out
+            .lines()
+            .filter_map(|line| parse_ps_container(line, runtime_image))
+            .collect())
+    }
+
+    /// Remove Deepsand containers that no live session owns.
+    ///
+    /// This is the blunt version used when nothing can be running: at startup and on the way
+    /// out, every container of ours is residue. The running app uses
+    /// [`crate::docker::abandonment_reason`] with a grace period instead, because there a
+    /// container may be seconds old and simply not registered yet.
+    pub fn prune_orphans(&self, runtime_image: &str, keep: &[String]) -> Vec<String> {
         let mut removed = Vec::new();
-        for name in self.managed_containers() {
-            if !keep.iter().any(|k| k == &name) {
-                self.remove_container(&name);
-                removed.push(name);
+        for container in self.container_inventory(runtime_image).unwrap_or_default() {
+            if !keep.iter().any(|k| k == &container.name) {
+                self.remove_container(&container.name);
+                removed.push(container.name);
             }
         }
         removed
     }
+}
+
+/// How long a container must have existed before a sweep may call it abandoned.
+///
+/// A start creates the container, hands it a PTY and only then registers the session; the
+/// sharing probe creates one and removes it within seconds. Two minutes is far longer than
+/// either, so "not in the map yet" can never be mistaken for abandonment -- and it is short
+/// enough that a container left by a failure is gone before the operator looks again.
+pub const CONTAINER_GRACE_MS: i64 = 120_000;
+
+/// One container Deepsand created, as Docker reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedContainer {
+    /// The container name, without Docker's leading slash.
+    pub name: String,
+    pub image: String,
+    /// Docker's lowercase state: `running`, `paused`, `created`, `exited`, `dead`.
+    pub state: String,
+    /// Docker's own line: "Up 12 minutes", "Exited (0) 3 days ago".
+    pub status: String,
+    /// The project this container belongs to, from its label.
+    pub project_id: Option<String>,
+    /// Creation time in milliseconds since the epoch, when Docker's answer could be read.
+    pub created_ms: Option<i64>,
+    /// Whether the container carried `deepsand.managed=1`.
+    pub labelled: bool,
+}
+
+impl ManagedContainer {
+    /// Whether Docker says this container is not running.
+    pub fn is_stopped(&self) -> bool {
+        matches!(self.state.as_str(), "exited" | "dead" | "created")
+    }
+}
+
+/// Why this container is abandoned, or `None` when it is not.
+///
+/// The codes are values rather than sentences because the window translates them; the host
+/// does not know which language the operator reads.
+///
+/// Three things protect a container from a sweep. A live session owns it by name. A start is
+/// in flight for its project, which covers the moment between `docker run` and registration.
+/// And it is younger than the grace period, which covers probes and a registration that has
+/// not landed yet. Anything else of ours with no owner is residue.
+pub fn abandonment_reason(
+    container: &ManagedContainer,
+    live: &[String],
+    starting: &[String],
+    known_projects: &[String],
+    now_ms: i64,
+    grace_ms: i64,
+) -> Option<&'static str> {
+    if live.iter().any(|name| name == &container.name) {
+        return None;
+    }
+    if let Some(project) = &container.project_id {
+        if starting.iter().any(|id| id == project) {
+            return None;
+        }
+    }
+    let Some(created) = container.created_ms else {
+        // An age we could not read is not evidence of abandonment. The startup and shutdown
+        // sweeps still remove it, because there "nothing is running" is known rather than
+        // inferred.
+        return None;
+    };
+    if now_ms.saturating_sub(created) < grace_ms {
+        return None;
+    }
+    Some(match container.project_id.as_deref() {
+        Some(project) if !known_projects.iter().any(|id| id == project) => "project-missing",
+        Some(_) => "no-session",
+        None => "previous-run",
+    })
+}
+
+/// The subset of `docker ps --format '{{json .}}'` the inventory reads.
+#[derive(Debug, serde::Deserialize)]
+struct PsRow {
+    #[serde(rename = "Names", default)]
+    names: String,
+    #[serde(rename = "Image", default)]
+    image: String,
+    #[serde(rename = "State", default)]
+    state: String,
+    #[serde(rename = "Status", default)]
+    status: String,
+    #[serde(rename = "Labels", default)]
+    labels: String,
+    #[serde(rename = "CreatedAt", default)]
+    created_at: String,
+}
+
+/// One line of `docker ps` as a container of ours, or `None` for anything else.
+///
+/// Ownership is the label when it is there, and the name prefix plus the runtime image when it
+/// is not: a build before the probe carried the label left containers that only the second
+/// test can find, and they held their names for ever.
+fn parse_ps_container(line: &str, runtime_image: &str) -> Option<ManagedContainer> {
+    let row: PsRow = serde_json::from_str(line).ok()?;
+    let name = row
+        .names
+        .split(',')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .trim_start_matches('/')
+        .to_string();
+    if name.is_empty() {
+        return None;
+    }
+    let labelled = label_value(&row.labels, "deepsand.managed").as_deref() == Some("1");
+    let project_id = label_value(&row.labels, "deepsand.project").filter(|value| !value.is_empty());
+    let ours = labelled
+        || (name.starts_with("deepsand-") && same_runtime_repository(&row.image, runtime_image));
+    if !ours {
+        return None;
+    }
+    Some(ManagedContainer {
+        name,
+        image: row.image,
+        state: row.state,
+        status: row.status,
+        project_id,
+        created_ms: parse_docker_timestamp(&row.created_at),
+        labelled,
+    })
+}
+
+/// One label from Docker's comma-joined `Labels` column.
+fn label_value(labels: &str, key: &str) -> Option<String> {
+    labels
+        .split(',')
+        .find_map(|pair| pair.trim().strip_prefix(key).and_then(|rest| rest.strip_prefix('=')))
+        .map(str::to_string)
+}
+
+/// Whether an image is a tag of the configured runtime image's repository.
+///
+/// The stem is `repo:version`, and every build appends its inputs to the tag, so comparing the
+/// repository half recognises every tag of ours without pinning a version.
+fn same_runtime_repository(image: &str, runtime_image: &str) -> bool {
+    let repo = runtime_image.split(':').next().unwrap_or(runtime_image).trim();
+    !repo.is_empty() && (image == repo || image.starts_with(&format!("{repo}:")))
+}
+
+/// Docker's `CreatedAt` ("2026-10-26 09:37:23 -0600 MDT") as milliseconds since the epoch.
+///
+/// The trailing timezone name is ignored; the numeric offset before it is what makes the
+/// answer unambiguous. A string this cannot read becomes `None`, which the sweep treats as
+/// "young"/unknown rather than as an old container.
+fn parse_docker_timestamp(raw: &str) -> Option<i64> {
+    static FORMAT: &[time::format_description::FormatItem<'static>] = time::macros::format_description!(
+        "[year]-[month]-[day] [hour]:[minute]:[second] [offset_hour sign:mandatory][offset_minute]"
+    );
+    let mut parts = raw.split_whitespace();
+    let date = parts.next()?;
+    let clock = parts.next()?;
+    let offset = parts.next()?;
+    let stamp = format!("{date} {clock} {offset}");
+    let parsed = time::OffsetDateTime::parse(&stamp, FORMAT).ok()?;
+    Some((parsed.unix_timestamp_nanos() / 1_000_000) as i64)
 }
 
 /// The commands that end a Deepsand container, in the order they run.
@@ -2746,5 +2954,216 @@ mod command_timeout_tests {
         let output = wait_bounded_typed(refuses, std::time::Duration::from_secs(30))
             .expect("it answered, which is the point");
         assert!(!output.status.success(), "and said no");
+    }
+}
+
+/// The container inventory and the rule that decides what is abandoned.
+///
+/// The rule is the part that can be wrong in a dangerous direction -- deleting a container a
+/// session is using, or leaving one that holds a name for ever -- so it is a pure function and
+/// every branch has a test. The parsing is here too, because the fields it reads are what the
+/// rule is fed.
+#[cfg(test)]
+mod container_inventory_tests {
+    use super::*;
+
+    fn container(name: &str, project: Option<&str>, age_ms: i64) -> ManagedContainer {
+        ManagedContainer {
+            name: name.to_string(),
+            image: "deepsand/runtime:0.1.0-abc".to_string(),
+            state: "running".to_string(),
+            status: "Up 5 minutes".to_string(),
+            project_id: project.map(str::to_string),
+            created_ms: Some(crate::now_ms() - age_ms),
+            labelled: true,
+        }
+    }
+
+    /// Older than the grace period by one millisecond, so the boundary itself is what the
+    /// "young" test checks rather than a comfortable margin.
+    const OLD: i64 = CONTAINER_GRACE_MS + 1;
+
+    fn reason(
+        value: &ManagedContainer,
+        live: &[String],
+        starting: &[String],
+        known: &[String],
+    ) -> Option<&'static str> {
+        abandonment_reason(
+            value,
+            live,
+            starting,
+            known,
+            crate::now_ms(),
+            CONTAINER_GRACE_MS,
+        )
+    }
+
+    #[test]
+    fn a_container_a_live_session_owns_is_never_abandoned() {
+        assert_eq!(
+            reason(
+                &container("deepsand-demo", Some("p1"), OLD),
+                &["deepsand-demo".to_string()],
+                &[],
+                &["p1".to_string()]
+            ),
+            None,
+            "a session is using it, so the sweep must not even consider it"
+        );
+    }
+
+    #[test]
+    fn a_start_in_flight_protects_its_container() {
+        assert_eq!(
+            reason(
+                &container("deepsand-demo", Some("p1"), OLD),
+                &[],
+                &["p1".to_string()],
+                &["p1".to_string()]
+            ),
+            None,
+            "the container exists before the session is registered, and that gap is not abandonment"
+        );
+    }
+
+    #[test]
+    fn a_container_younger_than_the_grace_period_is_left_alone() {
+        assert_eq!(
+            reason(
+                &container("deepsand-probe-1", None, CONTAINER_GRACE_MS - 1),
+                &[],
+                &[],
+                &[]
+            ),
+            None,
+            "a sharing probe creates a container for a few seconds"
+        );
+    }
+
+    #[test]
+    fn an_old_container_with_no_session_is_abandoned() {
+        assert_eq!(
+            reason(
+                &container("deepsand-demo", Some("p1"), OLD),
+                &[],
+                &[],
+                &["p1".to_string()]
+            ),
+            Some("no-session")
+        );
+    }
+
+    #[test]
+    fn a_container_for_a_project_that_is_gone_is_abandoned() {
+        assert_eq!(
+            reason(
+                &container("deepsand-demo", Some("gone"), OLD),
+                &[],
+                &[],
+                &["p1".to_string()]
+            ),
+            Some("project-missing"),
+            "the project was removed, so nothing can ever start this sandbox again"
+        );
+    }
+
+    #[test]
+    fn a_container_with_no_project_of_its_own_is_left_over_from_a_previous_run() {
+        assert_eq!(
+            reason(&container("deepsand-probe-1", None, OLD), &[], &[], &[]),
+            Some("previous-run")
+        );
+    }
+
+    #[test]
+    fn an_age_that_could_not_be_read_is_never_called_old() {
+        let mut unknown = container("deepsand-probe-1", None, OLD);
+        unknown.created_ms = None;
+        assert_eq!(
+            reason(&unknown, &[], &[], &[]),
+            None,
+            "an unreadable age is not evidence, and the startup sweep still removes it"
+        );
+    }
+
+    fn row(names: &str, image: &str, labels: &str) -> String {
+        serde_json::json!({
+            "Names": names,
+            "Image": image,
+            "State": "created",
+            "Status": "Created",
+            "Labels": labels,
+            "CreatedAt": "2026-10-26 09:37:23 -0600 MDT",
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn an_unlabelled_probe_is_recognised_by_its_name_and_runtime_image() {
+        let parsed = parse_ps_container(
+            &row("deepsand-probe-17", "deepsand/runtime:0.1.0-old", ""),
+            "deepsand/runtime:0.1.0",
+        )
+        .expect("a container under our prefix, from our image, is ours");
+        assert!(!parsed.labelled, "this is the case the label alone missed");
+        assert_eq!(parsed.name, "deepsand-probe-17");
+        assert!(
+            parsed.created_ms.is_some(),
+            "its age has to be readable for the grace period to mean anything"
+        );
+    }
+
+    #[test]
+    fn a_container_that_is_not_ours_is_not_in_the_inventory() {
+        assert!(
+            parse_ps_container(&row("my-postgres", "postgres:16", ""), "deepsand/runtime:0.1.0")
+                .is_none(),
+            "a stranger's container is never ours to delete"
+        );
+        assert!(
+            parse_ps_container(
+                &row("postgres", "deepsand/runtime:0.1.0", ""),
+                "deepsand/runtime:0.1.0"
+            )
+            .is_none(),
+            "the name prefix is part of the signal, not only the image"
+        );
+    }
+
+    #[test]
+    fn the_managed_label_alone_is_enough_even_for_an_unfamiliar_name() {
+        let parsed = parse_ps_container(
+            &row("something-else", "busybox:1", "deepsand.managed=1,deepsand.project=p1"),
+            "deepsand/runtime:0.1.0",
+        )
+        .expect("the label is Deepsand's own claim about the container");
+        assert_eq!(parsed.project_id.as_deref(), Some("p1"));
+    }
+
+    #[test]
+    fn docker_creation_times_are_understood_in_their_own_offset() {
+        let first = parse_docker_timestamp("2026-10-26 09:37:23 -0600 MDT")
+            .expect("Docker's CreatedAt is date, clock, numeric offset and a zone name");
+        let second = parse_docker_timestamp("2026-10-26 09:38:23 -0600 MDT").unwrap();
+        assert_eq!(second - first, 60_000);
+        assert_eq!(
+            parse_docker_timestamp("2026-10-26 15:37:23 +0000 UTC").unwrap(),
+            first,
+            "the same instant written in another offset is the same instant"
+        );
+        assert_eq!(parse_docker_timestamp("not a time"), None);
+        assert_eq!(parse_docker_timestamp(""), None);
+    }
+
+    #[test]
+    fn a_container_that_is_created_or_exited_is_reported_as_stopped() {
+        let mut value = container("deepsand-demo", Some("p1"), OLD);
+        value.state = "created".into();
+        assert!(value.is_stopped());
+        value.state = "exited".into();
+        assert!(value.is_stopped());
+        value.state = "running".into();
+        assert!(!value.is_stopped());
     }
 }

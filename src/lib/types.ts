@@ -513,6 +513,30 @@ export interface BlockedEgressView {
   reason: string;
 }
 
+/** One of Deepsand's containers, as the Activity panel lists it. */
+export interface ContainerView {
+  name: string;
+  image: string;
+  /** Docker's lowercase state: running, paused, created, exited, dead. */
+  state: string;
+  /** Docker's own line, e.g. "Up 12 minutes". */
+  status: string;
+  projectId: string | null;
+  projectName: string | null;
+  createdAtMs: number | null;
+  /**
+   * Whether a live session in this process owns the container. Separate from `abandonedReason`:
+   * a container can be running and abandoned, or stopped and still owned for the moment it
+   * takes to tear down.
+   */
+  inUse: boolean;
+  /**
+   * Why the sweep considers this container abandoned, or `null` when a live session owns it.
+   * A code rather than a sentence, because the host writes no interface language.
+   */
+  abandonedReason: "project-missing" | "no-session" | "previous-run" | null;
+}
+
 export interface DecisionPayload {
   requestId: string;
   /**

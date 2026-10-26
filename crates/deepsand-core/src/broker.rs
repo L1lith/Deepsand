@@ -107,7 +107,21 @@ impl Broker {
                 continue;
             }
             match self.read_request(&entry.path(), &name) {
-                Ok(request) => accepted.push(request),
+                Ok(request) => {
+                    // A request that already has an answer is not open. That state is
+                    // reachable without any bug in this build: `answer` writes the response
+                    // and `clear_request` removes the request as a second step, so a crash
+                    // between the two leaves a decided request on disk. Re-announcing it asks
+                    // the operator to decide something they already decided -- and for a
+                    // secret it meant the same dialog after every launch, which is exactly
+                    // the loop a missing clear produced once. The answer is the truth; drop
+                    // the file and do not surface it.
+                    if self.has_answer(&request.id) {
+                        self.clear_request(&request.id);
+                        continue;
+                    }
+                    accepted.push(request)
+                }
                 Err(reason) => rejected.push(RejectedRequest { file: name, reason: reason.to_string() }),
             }
         }
@@ -162,6 +176,17 @@ impl Broker {
         parsed.args = sanitize_args(parsed.args);
 
         Ok(parsed)
+    }
+
+    /// Whether this request already has an answer written.
+    ///
+    /// The answer and the removal of the request are two writes, so a request that has been
+    /// decided can still be on disk. A reader that surfaces it would show a dialog for a
+    /// decision that was already taken -- which is why [`Self::scan_detailed`] consults this
+    /// and drops such a request instead of announcing it again.
+    pub fn has_answer(&self, id: &str) -> bool {
+        is_safe_request_id(id)
+            && self.dirs.responses.join(response_file_name(id)).is_file()
     }
 
     /// Write the operator's decision. This is the *only* thing the sandbox is
@@ -683,6 +708,38 @@ mod tests {
 
         // A partial write must never be observable.
         assert!(!fixture.broker.dirs().responses.join(".ddd_4444.part").exists());
+    }
+
+    /// A request with an answer is not open, and reading the spool is what enforces it.
+    ///
+    /// Answering is two writes -- the response, then the removal -- so a crash between them,
+    /// or a caller that only does the first, leaves a decided request on disk. Surfacing it
+    /// asks the operator to decide something they already decided; for a secret that was the
+    /// same dialog after every launch. The answer is the truth, so the scan drops the file.
+    #[test]
+    fn a_request_that_already_has_an_answer_is_not_announced_again() {
+        let fixture = Fixture::new();
+        let path = fixture.write_request("req_ddd_5555", "secret", None);
+        fixture
+            .broker
+            .answer(&PermissionResponse::deny(
+                "req_ddd_5555",
+                "FIREBASE_SERVICE_ACCOUNT_JSON was approved without a value",
+            ))
+            .unwrap();
+
+        assert!(
+            fixture.broker.has_answer("req_ddd_5555"),
+            "the response is on disk, so this request is decided"
+        );
+        assert!(
+            fixture.broker.scan().is_empty(),
+            "a decided request must not reach the operator's screen again"
+        );
+        assert!(
+            !path.exists(),
+            "and the leftover request file is removed rather than ignored for ever"
+        );
     }
 
     /// The spool cannot tell a request the bridge wrote from one the agent wrote, so the
