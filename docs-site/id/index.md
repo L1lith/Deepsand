@@ -44,12 +44,18 @@ features:
       yang dapat dan tidak dapat dijangkau oleh kotak pasir.
 ---
 
+## Seperti apa bentuknya
+
+<AppScreenshot>
+Jendela utama: proyek Anda di sebelah kiri, terminal DeepCode di sebelah kanan, dan status Docker, model dan kontrol Jalankan di bagian atas. Ini adalah aplikasinya sendiri, dalam bahasa ini.
+</AppScreenshot>
+
 ## Temukan titik awal yang tepat
 
 **Baru mengenal coding atau baru mengenal alat AI?** Baca [Apa itu Deepsand?](./guide/what-is-deepsand). Ini menjelaskan ide dalam bahasa yang sederhana dan menunjukkan kapan ide tersebut berguna.
 
 **Siap mencobanya?** [Instal Deepsand dan buat proyek pertama Anda](./guide/getting-started).
 
-**Nyaman dengan Docker, terminal, dan model ancaman?** Langsung ke [Di bawah tenda](./guide/for-developers) untuk arsitektur dan batasan keamanan.
+**Nyaman dengan Docker, terminal, dan model ancaman?** Langsung ke [Di bawah tenda](./guide/for-developers) untuk arsitektur dan batas keamanan.
 
 **Butuh jawaban cepat?** Periksa [pertanyaan yang sering diajukan](./guide/faq).

@@ -11,7 +11,7 @@ Deepsand Windows, macOS এবং Linux এর জন্য উপলব্ধ�
 
 ## আপনি ইনস্টল করার আগে
 
-- Deepsand Docker ব্যবহার করে প্রতিটি প্রকল্পের নিজস্ব স্যান্ডবক্সে চালানোর জন্য। Windows বা macOS-এ Docker Desktop, বা Linux-এ Docker Engine ইনস্টল করুন।
+- Deepsand তার নিজস্ব স্যান্ডবক্সে প্রতিটি প্রকল্প চালানোর জন্য Docker ব্যবহার করে। Windows বা macOS-এ Docker Desktop, বা Linux-এ Docker Engine ইনস্টল করুন।
 - আপনি একটি মডেল API কী প্রয়োজন হবে. [একটি DeepSeek API কী পান](./guide/deepseek-api), অথবা একটি বিদ্যমান প্রদানকারী কী ব্যবহার করুন।
 - প্রথম লঞ্চটি স্যান্ডবক্স চিত্র তৈরি করতে পারে, যা কয়েক মিনিট সময় নিতে পারে।
 

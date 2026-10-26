@@ -44,7 +44,7 @@ Uma solicitação de algo que o sandbox já possui é recusada com uma explicaç
 ## Contra o que não protege
 
 - O provedor do modelo pode ver o conteúdo que você envia para ele.
-- Os arquivos colocados na área de trabalho ficam visíveis na sandbox e podem ser alterados ou excluídos.
+- Os arquivos que você coloca na área de trabalho ficam visíveis na sandbox e podem ser alterados ou excluídos.
 - Uma ferramenta ou instrução de modelo malformada ainda pode solicitar acesso. A decisão continua sendo sua.
 - O próprio Docker está fora dos limites. Mantenha Docker Desktop e o sistema operacional host atualizados.
 

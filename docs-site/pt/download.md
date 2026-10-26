@@ -20,7 +20,7 @@ Deepsand está disponível para Windows, macOS e Linux. A página detecta seu si
 1. Inicie Deepsand.
 2. Abra **Configurações** e salve sua chave modelo API.
 3. Crie um projeto e escolha seu diretório de trabalho.
-4. Pressione **Correr** para iniciar o sandbox.
+4. Pressione **Correr** para iniciar a sandbox.
 
 Leia [Começando](./guide/getting-started) para obter o passo a passo completo da primeira execução.
 

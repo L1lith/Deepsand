@@ -20,7 +20,7 @@ Saiba mais no [Página inicial do projeto DeepCode](https://deepcode.vegamo.cn/)
 3. Aguarde o início da sandbox. Se a imagem estiver faltando, Deepsand a construirá primeiro e mostrará a saída da construção em **Atividade**.
 4. O terminal DeepCode aparece quando o CLI está pronto.
 
-Parar a sandbox encerra o contêiner. Iniciar o projeto novamente retoma a conversa DeepCode anterior, quando existir uma.
+Parar a sandbox encerra o contêiner. Iniciar o projeto novamente retoma a conversa DeepCode anterior, quando existir.
 
 ## Peça a DeepCode para fazer algo
 
@@ -74,7 +74,7 @@ Arraste um arquivo para o terminal e seu caminho será digitado para você.
 
 ## Manter-se atualizado
 
-O DeepCode CLI está instalado dentro da imagem do sandbox e o sandbox não pode ser atualizado sozinho. Antes de cada inicialização, Deepsand pergunta a npm qual é a versão mais recente e, se a imagem for mais antiga, reconstrói primeiro essa parte da imagem - para que o terminal nunca abra em uma versão que já esteja solicitando a atualização. A resposta é lembrada por um quarto de hora, portanto, esta é uma solicitação em vez de uma por execução e, se npm não puder ser alcançado, o sandbox será iniciado na versão que já possui.
+O DeepCode CLI está instalado dentro da imagem do sandbox e o sandbox não pode ser atualizado sozinho. Antes de cada inicialização, Deepsand pergunta a npm qual é a versão mais recente e, se a imagem tiver uma versão mais antiga, reconstrói primeiro essa parte da imagem - para que o terminal nunca abra em uma versão que já esteja solicitando a atualização. A resposta é lembrada por um quarto de hora, portanto, esta é uma solicitação em vez de uma por execução e, se npm não puder ser alcançado, o sandbox será iniciado na versão que já possui.
 
 ## Sessões, modelos e desfazer
 

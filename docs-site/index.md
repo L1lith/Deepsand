@@ -31,6 +31,12 @@ features:
     details: The policy code and security model are public. Developers can inspect exactly what the sandbox can and cannot reach.
 ---
 
+## What it looks like
+
+<AppScreenshot>
+The main window: your projects on the left, the DeepCode terminal on the right, and the Docker status, model and Run control along the top. This is the app itself, in this language.
+</AppScreenshot>
+
 ## Find the right starting point
 
 **New to coding or new to AI tools?** Read [What is Deepsand?](./guide/what-is-deepsand). It explains the idea in plain language and shows when it is useful.

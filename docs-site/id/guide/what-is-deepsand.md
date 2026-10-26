@@ -1,8 +1,8 @@
 ---
 title: Apa itu Deepsand?
 description: >-
-  Panduan sederhana tentang apa yang dilakukan Deepsand, untuk siapa Deepsand, dan mengapa Deepsand
-  lebih aman daripada memberikan seluruh komputer Anda kepada asisten AI.
+  Panduan bahasa sederhana tentang apa yang dilakukan Deepsand, untuk siapa, dan mengapa lebih aman
+  daripada memberikan seluruh komputer Anda kepada asisten AI.
 ---
 
 # Apa itu Deepsand?

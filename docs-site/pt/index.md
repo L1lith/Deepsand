@@ -45,6 +45,12 @@ features:
       inspecionar exatamente o que o sandbox pode ou não alcançar.
 ---
 
+## Como é
+
+<AppScreenshot>
+A janela principal: seus projetos à esquerda, o terminal DeepCode à direita e o status Docker, modelo e controle de execução na parte superior. Este é o próprio aplicativo, neste idioma.
+</AppScreenshot>
+
 ## Encontre o ponto de partida certo
 
 **Novo em codificação ou novo em ferramentas de IA?** Leia [O que é Deepsand?](./guide/what-is-deepsand). Explica a ideia em linguagem simples e mostra quando ela é útil.

@@ -17,7 +17,7 @@ Deepsand adiciona o diretório como uma concessão, recria o contêiner com a no
 
 O histórico de conversas, sessões, anexos e habilidades geradas ficam em um volume Docker por projeto. A pasta do projeto no disco contém apenas seu código e arquivos.
 
-A remoção de um projeto de Deepsand não exclui esse volume. A limpeza dos dados DeepCode de um projeto remove o volume, mas deixa a pasta do projeto intacta.
+A remoção de um projeto de Deepsand não exclui esse volume. Limpar os dados DeepCode de um projeto remove o volume, mas deixa a pasta do projeto intacta.
 
 ## Onde as chaves e segredos API são armazenados?
 
@@ -82,4 +82,4 @@ Sim. `deepsandctl` fornece comandos sem cabeça, como `doctor`, `plan`, `run`, `
 
 ## Como faço para relatar um problema de segurança?
 
-Não abra uma edição pública por um problema de segurança. Contate os mantenedores em particular através do canal de relatórios de segurança do repositório e inclua detalhes suficientes para reproduzir o problema.
+Não abra um problema público por um problema de segurança. Contate os mantenedores em particular através do canal de relatórios de segurança do repositório e inclua detalhes suficientes para reproduzir o problema.

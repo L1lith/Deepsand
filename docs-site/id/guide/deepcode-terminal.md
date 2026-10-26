@@ -9,7 +9,7 @@ description: >-
 
 Deepsand menjalankan [DeepCode CLI](https://github.com/lessweb/deepcode-cli) di dalam kotak pasir. Tab **Terminal** adalah sesi DeepCode langsung: ketik permintaan dalam bahasa normal, atau gunakan salah satu perintah garis miring DeepCode untuk mengontrol sesi.
 
-Anda tidak menginstal DeepCode di mesin Anda sendiri. Deepsand memulai CLI di wadah proyek, di mana ia dapat melihat `/workspace` dan direktori yang telah Anda bagikan.
+Anda tidak menginstal DeepCode di mesin Anda sendiri. Deepsand memulai CLI dalam wadah proyek, di mana ia dapat melihat `/workspace` dan direktori yang telah Anda bagikan.
 
 Pelajari lebih lanjut di [Halaman beranda proyek DeepCode](https://deepcode.vegamo.cn/) atau di [Repositori DeepCode](https://github.com/lessweb/deepcode-cli).
 
@@ -30,7 +30,7 @@ Ketik permintaan normal dan tekan **Memasuki**. Misalnya:
 Find the failing test in this project and explain what is wrong.
 ```
 
-DeepCode dapat membaca dan mengedit file di ruang kerja, menjalankan perintah, dan menggunakan alat yang dipilih untuk proyek tersebut. Anda tetap memegang kendali: ketika memerlukan sesuatu di luar ruang kerja, Deepsand menjeda kotak pasir dan menanyakannya terlebih dahulu.
+DeepCode dapat membaca dan mengedit file di ruang kerja, menjalankan perintah, dan menggunakan alat yang dipilih untuk proyek tersebut. Anda tetap memegang kendali: ketika memerlukan sesuatu di luar ruang kerja, Deepsand menghentikan sementara kotak pasir dan menanyakan Anda terlebih dahulu.
 
 ## Perintah garis miring utama
 
@@ -87,9 +87,9 @@ Riwayat percakapan berada di volume status Deepsand proyek, bukan di repositori 
 
 ## Izin dan kotak pasir
 
-Terminal berada di dalam wadah, sehingga ia melihat proyek di `/workspace` dan direktori yang Anda bagikan secara eksplisit, dan tidak ada yang lain di komputer Anda.
+Terminal ada di dalam container, sehingga ia melihat proyek di `/workspace` dan direktori yang Anda bagikan secara eksplisit, dan tidak ada yang lain di komputer Anda.
 
-Ketika DeepCode meminta direktori lain, tujuan jaringan, alat atau sumber daya lain, Deepsand membekukan kotak pasir dan menampilkan dialog izin.
+Ketika DeepCode meminta direktori lain, tujuan jaringan, alat atau sumber daya lainnya, Deepsand membekukan kotak pasir dan menampilkan dialog izin.
 
 - **Berikan akses** menerapkan permintaan dan melanjutkan sesi.
 - **Tidak sekarang** menolaknya kali ini; DeepCode mungkin bertanya lagi nanti.

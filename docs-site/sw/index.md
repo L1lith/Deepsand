@@ -24,7 +24,7 @@ features:
       DeepCode hufanya kazi katika mradi unaochagua, na zana inayohitaji.
   - title: Weka kompyuta yako iliyosalia kwa faragha
     details: >-
-      Hati zako, picha, manenosiri na miradi mingine haipo kwenye nafasi ya kazi. DeepCode haiwezi
+      Hati zako, picha, manenosiri na miradi mingine haiko ndani ya nafasi ya kazi. DeepCode haiwezi
       kuvinjari isipokuwa ukiiruhusu waziwazi.
   - title: Kukaa katika malipo
     details: >-
@@ -44,6 +44,12 @@ features:
       Msimbo wa sera na mtindo wa usalama ni wa umma. Watengenezaji wanaweza kukagua kile ambacho
       sandbox inaweza na haiwezi kufikia.
 ---
+
+## Inaonekanaje
+
+<AppScreenshot>
+Dirisha kuu: miradi yako upande wa kushoto, terminal ya DeepCode upande wa kulia, na hali ya Docker, modeli na Udhibiti wa Run juu. Hii ndiyo programu yenyewe, katika lugha hii.
+</AppScreenshot>
 
 ## Tafuta pa kuanzia
 

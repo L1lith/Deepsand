@@ -46,6 +46,12 @@ features:
       exactement ce que le bac à sable peut et ne peut pas atteindre.
 ---
 
+## A quoi ça ressemble
+
+<AppScreenshot>
+La fenêtre principale : vos projets à gauche, le terminal DeepCode à droite et le statut Docker, le modèle et le contrôle d'exécution en haut. Il s'agit de l'application elle-même, dans cette langue.
+</AppScreenshot>
+
 ## Trouver le bon point de départ
 
 **Nouveau dans le codage ou nouveau dans les outils d'IA ?** Lire [Qu'est-ce que Deepsand ?](./guide/what-is-deepsand). Il explique l'idée dans un langage simple et montre quand elle est utile.

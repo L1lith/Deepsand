@@ -60,7 +60,7 @@ Você pode alterar o modelo em **Configurações**, no cabeçalho do projeto, ou
 
 O controle deslizante de pensamento está próximo ao seletor de modelo no cabeçalho do projeto. Ele controla quanto raciocínio o modelo faz antes de responder.
 
-- **Desligado:** sem pensar. Mais rápido, mas menos cuidadoso.
+- **Desligado:** sem pensar. O mais rápido, mas o menos cuidadoso.
 - **Rápido:** um pouco de reflexão, para pequenas edições bem especificadas.
 - **Equilibrado:** pensamento moderado e parada intermediária. Este é o padrão sensato para o trabalho real.
 - Raciocínio máximo **Profundo:**. Mais lento e mais caro.

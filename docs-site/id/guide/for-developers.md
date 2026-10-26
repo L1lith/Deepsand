@@ -33,7 +33,7 @@ Wadahnya sengaja dibatasi:
 
 ## Izin
 
-Sandbox dapat meminta akses lebih banyak, namun tidak dapat memberikannya. Permintaan izin ditulis ke spul; broker tuan rumah memvalidasinya dan menjeda container. Operator melihat permintaan tersebut dan memutuskan.
+Sandbox dapat meminta akses lebih banyak, namun tidak dapat memberikannya. Permintaan izin ditulis ke spul; broker tuan rumah memvalidasinya dan menghentikan sementara container. Operator melihat permintaan tersebut dan memutuskan.
 
 Menyetujui permintaan direktori akan membuat ulang kontainer dengan pengikatan pengikatan baru dan melanjutkan sesi. Penolakan adalah salah satu dari dua jawaban, dan model diberi tahu yang mana: **Jangan bertanya lagi** sudah final, sedangkan **Tidak sekarang** menolak kali ini dan mengatakan bahwa model mungkin akan bertanya lagi nanti. Penolakan terakhir disimpan di proyek dan diterapkan oleh host: tidak ada mount yang dibuat untuk jalur atau apa pun di bawahnya, dan host yang ditolak menjadi aturan penolakan yang mencakup subdomainnya. Pemblokiran tercantum dalam Izin dan dapat dicabut di sana, karena keputusan tanpa jalan kembali adalah jebakan, bukan pilihan.
 

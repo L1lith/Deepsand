@@ -5868,7 +5868,15 @@ pub fn startup_error_impl(state: &AppState) -> CmdResult<Option<String>> {
 /// is exactly how an operator lost five projects while the app showed a notice telling
 /// them to re-add those projects.
 pub fn load_store() -> (Store, Option<String>) {
-    let data_dir = Store::default_data_dir();
+    // A developer-facing override, so the window can be driven against a throw-away state
+    // directory -- a screenshot run, a UI reproduction -- without reading or writing the
+    // operator's real projects. `AppSettings.data_dir` is the operator's own switch and lives
+    // *inside* this file, so it cannot bootstrap itself; this can. Deliberately an environment
+    // variable rather than a setting: nothing in the UI can reach it.
+    let data_dir = std::env::var_os("DEEPSAND_DATA_DIR")
+        .filter(|value| !value.is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(Store::default_data_dir);
     match Store::load(data_dir.clone()) {
         Ok(store) if store.recovered_from_salvage().is_some() => {
             let from = store

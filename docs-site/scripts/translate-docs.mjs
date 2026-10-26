@@ -224,7 +224,14 @@ function protect(value) {
   });
   // Vue components and HTML tags are markup, not prose. Translating
   // `<DownloadPicker />` into another language makes the page fail to render.
-  text = text.replace(/<[A-Za-z][^>]*>/g, (whole) => {
+  //
+  // The `\/?` is load-bearing. This used to match only opening tags, so a paired component
+  // such as `<AppScreenshot>...</AppScreenshot>` kept its opening tag and had its *closing*
+  // tag sent to the translator -- which produced `</应用程序屏幕截图>` in Chinese and
+  // `</アプリのスクリーンショット>` in Japanese, in nine locales, because the docs had never
+  // used a tag with a closing half before. `assertTagsSurvived` below now fails the run
+  // instead of writing pages that cannot render.
+  text = text.replace(/<\/?[A-Za-z][^>]*>/g, (whole) => {
     const token = `ZQXT${tokens.length}ZQX`;
     tokens.push([token, whole]);
     return token;
@@ -598,6 +605,29 @@ function validate(page, code) {
   }
 }
 
+/**
+ * Every tag in the source has to appear, unchanged, in the translation.
+ *
+ * Tags are replaced by tokens before the translator sees the text, so a difference means
+ * protection failed. This is how a paired component was found: `<AppScreenshot>` was kept and
+ * `</AppScreenshot>` was sent off to be translated, and nine locales came back with
+ * `</应用程序屏幕截图>` and friends -- pages that cannot compile. A page that cannot render is
+ * worse than one that was never translated, so this stops the run.
+ */
+function assertMarkupSurvived(source, translated, code) {
+  const tagsOf = (text) => text.match(/<\/?[A-Za-z][^>]*>/g) ?? [];
+  const from = tagsOf(source);
+  const to = tagsOf(translated);
+  const at = from.findIndex((tag, index) => to[index] !== tag);
+  if (at !== -1 || from.length !== to.length) {
+    throw new Error(
+      `${code}: markup changed during translation, so the page would not render. ` +
+        `Expected ${JSON.stringify(from[at] ?? "(no tag)")} at tag ${at + 1} of ${from.length}, ` +
+        `found ${JSON.stringify(to[at] ?? "(nothing)")} (${to.length} tags).`,
+    );
+  }
+}
+
 function validateOverrides() {
   const knownLocales = new Set(languages.map((language) => language.code));
   for (const [code, spec] of Object.entries(OVERRIDES)) {
@@ -716,6 +746,7 @@ for (const language of selectedLanguages) {
   for (const relative of pages) {
     const source = fs.readFileSync(path.join(siteRoot, relative), "utf8");
     const translated = await translatePage(source, language, relative);
+    assertMarkupSurvived(source, translated.source, `${language.code}/${relative}`);
     validate(translated.source, `${language.code}/${relative}`);
     const destination = path.join(siteRoot, language.code, relative);
     fs.mkdirSync(path.dirname(destination), { recursive: true });

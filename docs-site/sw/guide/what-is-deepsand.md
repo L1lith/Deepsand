@@ -25,13 +25,13 @@ Huna haja ya kujua jinsi Docker inavyofanya kazi, na huhitaji kuwa msanidi mtaal
 
 Dirisha la gumzo linaweza kupendekeza msimbo, lakini haliwezi kuendesha mradi wako, kusoma faili zinazouzunguka, au kuangalia ikiwa pendekezo lake linafanya kazi kweli.
 
-Deepsand humpa msaidizi mradi halisi na zana halisi. Inaweza kutekeleza amri, kuhariri faili, na kujaribu matokeo, huku nafasi ya kazi ikiiweka mbali na kompyuta yako yote.
+Deepsand inampa msaidizi mradi halisi na zana halisi. Inaweza kutekeleza amri, kuhariri faili, na kujaribu matokeo, huku nafasi ya kazi ikiiweka mbali na kompyuta yako yote.
 
 ## Nini maana ya "sehemu tofauti ya kazi".
 
 Mratibu huona folda ya mradi unayochagua na folda unazoshiriki kimakusudi. Haioni kiotomatiki hati zako, picha, vipakuliwa, miradi mingine, manenosiri au diski yako yote.
 
-Wakati inahitaji kitu nje ya nafasi ya kazi, lazima iulize. Deepsand husitisha mratibu na kukuonyesha ombi. Hakuna kinachoshirikiwa hadi uidhinishe.
+Wakati inahitaji kitu nje ya nafasi ya kazi, lazima iulize. Deepsand inasitisha msaidizi na kukuonyesha ombi. Hakuna kinachoshirikiwa hadi uidhinishe.
 
 ## Ni kwa ajili ya nani
 

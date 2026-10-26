@@ -262,7 +262,13 @@ These are load-bearing. Breaking one is how this project gets a CVE.
   locale file such as `docs-site/zh/guide/getting-started.md`, because the next run replaces it.
   The translator protects fenced code, inline code, Markdown link syntax, bold spans, product
   names, Vue component tags and `<script>` blocks, so a translation cannot break a command, a
-  link, formatting or the download picker. `DOCS_TRANSLATE_PAGES=download.md npm run
+  link, formatting or the download picker. **Tags are protected as pairs.** The pattern used to
+  match only opening tags, so a component written `<AppScreenshot>...</AppScreenshot>` kept its
+  opener and had its closer translated -- the Chinese page came back with
+  `</应用程序屏幕截图>` and eight more locales did the same, none of which can compile.
+  `assertMarkupSurvived` now compares the tag sequence of the source with the translation and
+  fails the run, because a page that cannot render is worse than one that was never translated.
+  `DOCS_TRANSLATE_PAGES=download.md npm run
   docs:translate` retranslates one page without touching the rest; `DOCS_TRANSLATE_LANGS=es`
   restricts the run to one locale. Hand-written corrections belong in the `OVERRIDES` map in
   `translate-docs.mjs` -- a frontmatter path, an exact English source line, or a UI label -- never
@@ -369,6 +375,21 @@ These are load-bearing. Breaking one is how this project gets a CVE.
   behaviour through the running app instead of reading the JSX: `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=
   --remote-debugging-port=9222 npm run app:dev`, then drive the DOM over CDP -- a JS `click()` and a
   dispatched `input` event are delivered where synthetic mouse input is not.
+* **A run that drives the window must not use the operator's state, profile, or port.** Three
+  variables make a screenshot or reproduction safe, and all three are needed.
+  `DEEPSAND_DATA_DIR` points the store at a throw-away directory (it is an environment variable
+  rather than a setting because the setting lives *inside* the file it would have to read);
+  `WEBVIEW2_USER_DATA_FOLDER` gives the run its own webview profile, so setting the language does
+  not change the operator's own window; and a second `--remote-debugging-port` is impossible, so
+  the port has to be clear before the next launch. Two traps, both of which cost time here. A
+  surviving instance holds the single-instance mutex *and* the port, so every later launch hands
+  its window over to the survivor and exits -- the loop then photographs the same blank
+  `about:blank` page, and a blank window is left on the operator's screen. And a debugging target
+  exists from the moment the webview is created, when it is still `about:blank`: reloading at that
+  point gives another blank page that never recovers, so wait for something the app renders
+  (`.brand`) before touching it. Read the locale with `Page.addScriptToEvaluateOnNewDocument`
+  rather than a `localStorage` write afterwards -- the app reads its language and its first-run
+  picker from that key at module load.
 * **One piece of in-flight state, and it always lets go.** Whether a session operation is
   running lives in the store (`sessionBusy`), not in each component: the header's Run and the
   terminal's Run each had their own signal, so one could be left greyed out for the rest of the

@@ -13,7 +13,7 @@ Deepsand là ứng dụng máy tính để bàn Tauri với ba lớp chính:
 
 - **Cửa sổ** là giao diện SolidJS. Nó hiển thị trạng thái và gửi ý định; nó không quyết định chính sách.
 - **Lớp Tauri** hiển thị các lệnh trên máy tính để bàn và dịch cùng một bề mặt lệnh sang máy chủ HTTP loopback cho các máy khách từ xa.
-- **`deepsand-core`** sở hữu các quy tắc. Xác thực đường dẫn, gói `docker run`, nhà môi giới cấp phép, proxy đầu ra, kho lưu trữ bí mật được mã hóa và kho lưu trữ trạng thái đều tồn tại ở đó.
+- **`deepsand-core`** sở hữu các quy tắc. Xác thực đường dẫn, gói `docker run`, nhà môi giới cấp phép, proxy đầu ra, kho lưu trữ bí mật được mã hóa và kho lưu trữ trạng thái đều nằm ở đó.
 
 Ứng dụng dành cho máy tính để bàn và trình điều khiển dòng lệnh `deepsandctl` sử dụng cùng một lõi nên chúng không thể tách rời nhau trong một quyết định bảo mật.
 
@@ -71,7 +71,7 @@ deepsandctl requests <project>
 deepsandctl network <project> <mode>
 ```
 
-`plan --offline` in đối số `docker run` chính xác mà không cần khởi động vùng chứa, điều này rất hữu ích để xem lại chính sách đã thay đổi.
+`plan --offline` in argv `docker run` chính xác mà không cần khởi động vùng chứa, điều này rất hữu ích để xem lại chính sách đã thay đổi.
 
 ## Đọc thêm
 

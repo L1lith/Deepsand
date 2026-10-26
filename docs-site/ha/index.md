@@ -40,9 +40,15 @@ features:
       sa hannun sabuntawa lokacin da kuka shirya.
   - title: Buɗewa kuma ana iya duba su
     details: >-
-      Lambar manufofin da tsarin tsaro na jama'a ne. Masu haɓakawa za su iya bincika ainihin abin da
+      Lambar manufofin da tsarin tsaro na jama'a ne. Masu haɓakawa na iya bincika ainihin abin da
       akwatin yashi zai iya kuma ba zai iya kaiwa ba.
 ---
+
+## Me yayi kama
+
+Saukewa: <AppScreenshot>
+Babban taga: ayyukanku a hagu, tashar DeepCode a dama, da matsayi na Docker, samfuri da Gudanar da Run tare da saman. Wannan ita ce app kanta, a cikin wannan harshe.
+Saukewa: </AppScreenshot>
 
 ## Nemo wurin farawa daidai
 

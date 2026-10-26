@@ -1,7 +1,7 @@
 ---
 title: Cara kerja kotak pasir
 description: >-
-  Apa yang diberlakukan Deepsand, apa yang Anda putuskan, dan apa yang tidak bisa dijangkau oleh
+  Apa yang Deepsand terapkan, apa yang Anda putuskan, dan apa yang tidak bisa dijangkau oleh
   sandbox.
 ---
 

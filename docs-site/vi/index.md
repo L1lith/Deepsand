@@ -24,7 +24,7 @@ features:
   - title: Giữ phần còn lại của máy tính của bạn ở chế độ riêng tư
     details: >-
       Tài liệu, ảnh, mật khẩu và các dự án khác của bạn không nằm trong không gian làm việc.
-      DeepCode không thể duyệt chúng trừ khi bạn cho phép rõ ràng.
+      DeepCode không thể duyệt chúng trừ khi bạn cho phép nó một cách rõ ràng.
   - title: Chịu trách nhiệm
     details: >-
       Khi trợ lý cần một thư mục khác hoặc một trang web, Deepsand sẽ tạm dừng và hỏi. Bạn chấp
@@ -44,12 +44,18 @@ features:
       những gì sandbox có thể và không thể tiếp cận.
 ---
 
+## Nó trông như thế nào
+
+<AppScreenshot>
+Cửa sổ chính: các dự án của bạn ở bên trái, thiết bị đầu cuối DeepCode ở bên phải và trạng thái Docker, mô hình và điều khiển Chạy dọc theo phía trên. Đây chính là ứng dụng, bằng ngôn ngữ này.
+</AppScreenshot>
+
 ## Tìm điểm xuất phát phù hợp
 
 **Mới làm quen với mã hóa hay mới làm quen với các công cụ AI?** Đọc [Deepsand là gì?](./guide/what-is-deepsand). Nó giải thích ý tưởng bằng ngôn ngữ đơn giản và cho thấy khi nào nó hữu ích.
 
 **Sẵn sàng để thử nó?** [Cài đặt Deepsand và tạo dự án đầu tiên của bạn](./guide/getting-started).
 
-**Bạn có thoải mái với Docker, thiết bị đầu cuối và mô hình mối đe dọa không?** Đi thẳng đến [Dưới mui xe](./guide/for-developers) để biết ranh giới kiến ​​trúc và bảo mật.
+**Bạn có thoải mái với Docker, thiết bị đầu cuối và mô hình mối đe dọa không?** Đi thẳng tới [Dưới mui xe](./guide/for-developers) để biết ranh giới kiến ​​trúc và bảo mật.
 
 **Cần một câu trả lời nhanh chóng?** Kiểm tra [câu hỏi thường gặp](./guide/faq).

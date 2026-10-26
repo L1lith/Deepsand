@@ -62,7 +62,7 @@ Deepsand tidak dapat memulai sandbox tanpa mesin Docker. Jika Docker Desktop tid
 Terkadang Docker Desktop masih berjalan tetapi mesinnya berhenti merespons. Memulai ulang Deepsand tidak memperbaikinya; Docker Desktop sendiri perlu di-restart.
 
 - **Gunakan kontrol dalam aplikasi saat muncul.** Jika Deepsand mendeteksi Docker Desktop, **Mulai ulang Docker Desktop…** ditampilkan di strip status atau peringatan terminal. Kontrol tersebut memulai ulang mesin Docker, termasuk proses WSL yang digunakan pada Windows, dan menunggu hingga kontainer dapat dimulai kembali.
-- **Windows:** klik kanan paus Docker di area notifikasi dan pilih **Mulai ulang**. Jika opsi tersebut tidak ada, buka Docker Desktop, pilih **Memecahkan masalah**, lalu **Mulai ulang Docker Desktop**.
+- **Windows:** klik kanan paus Docker di area notifikasi dan pilih **Mulai ulang**. Jika opsi itu tidak ada, buka Docker Desktop, pilih **Memecahkan masalah**, lalu **Mulai ulang Docker Desktop**.
 - **macOS:** klik paus Docker di bilah menu dan pilih **Mulai ulang**.
 - **Linux:** buka menu Docker Desktop, pilih **Memecahkan masalah**, lalu **Mulai ulang Docker Desktop**. Jika Anda menggunakan Docker Engine dan bukan Docker Desktop, mulai ulang layanannya, misalnya `sudo systemctl restart docker`.
 

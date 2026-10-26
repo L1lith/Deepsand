@@ -23,7 +23,7 @@ O aplicativo de desktop e o driver de linha de comando `deepsandctl` usam o mesm
 
 Cada projeto obtém seu próprio contêiner Docker e seu próprio volume de estado. O diretório do projeto é montado em `/workspace`; outros diretórios de host exigem concessões explícitas.
 
-`policy::plan_run` cria o argv `docker run` completo em um só lugar. A guia Atividade mostra esse plano exato, incluindo montagens, recursos, modo de rede e caminhos somente leitura.
+`policy::plan_run` constrói o argv `docker run` completo em um só lugar. A guia Atividade mostra esse plano exato, incluindo montagens, recursos, modo de rede e caminhos somente leitura.
 
 O contêiner é deliberadamente restrito:
 
@@ -37,7 +37,7 @@ O contêiner é deliberadamente restrito:
 
 A sandbox pode solicitar mais acesso, mas não pode concedê-lo. Uma solicitação de permissão é gravada em um spool; o host broker o valida e pausa o contêiner. O operador vê a solicitação e decide.
 
-A aprovação de uma solicitação de diretório recria o contêiner com a nova montagem de ligação e retoma a sessão. A recusa é uma de duas respostas, e o modelo é informado qual: **Não pergunte novamente** é final, enquanto **Agora não** recusa desta vez e diz que o modelo pode perguntar novamente mais tarde. Uma recusa final é armazenada no projeto e imposta pelo host: nenhuma montagem é criada para o caminho ou qualquer coisa abaixo dele, e um host recusado se torna uma regra de negação cobrindo seus subdomínios. Os bloqueios estão listados em Permissões e podem ser removidos lá, porque uma decisão sem retorno é uma armadilha e não uma escolha.
+A aprovação de uma solicitação de diretório recria o contêiner com a nova montagem de ligação e retoma a sessão. Uma recusa é uma de duas respostas, e o modelo é informado qual: **Não pergunte novamente** é final, enquanto **Agora não** recusa desta vez e diz que o modelo pode perguntar novamente mais tarde. Uma recusa final é armazenada no projeto e imposta pelo host: nenhuma montagem é criada para o caminho ou qualquer coisa abaixo dele, e um host recusado se torna uma regra de negação cobrindo seus subdomínios. Os bloqueios estão listados em Permissões e podem ser removidos lá, porque uma decisão sem caminho de volta é uma armadilha e não uma escolha.
 
 Um pedido de algo que o sandbox já possui é recusado com uma explicação. Não existe um caminho de aprovação automático, porque uma aprovação silenciosa seria um consentimento que o operador nunca deu.
 
