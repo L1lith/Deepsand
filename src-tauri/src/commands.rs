@@ -4253,6 +4253,13 @@ fn put_attachment(
     docker
         .write_into_container(container, &path, bytes)
         .map_err(|err| format!("could not write {suggested} into the sandbox: {err}"))?;
+    // A write that says it worked is still a claim. The agent is about to be handed this path,
+    // and a path to nothing is worse than a refusal that names the problem.
+    if !docker.container_has_file(container, &path).map_err(fail)? {
+        return Err(format!(
+            "{suggested} was written but the sandbox cannot read {path} back, so it was not              attached. Paste it again if the sandbox was restarted."
+        ));
+    }
     Ok(path)
 }
 
@@ -4349,9 +4356,16 @@ pub fn attach_paths_impl(
         // Into the disposable directory, never the workspace: a dropped file is not part of
         // the repository, and a `git add -A` after a screenshot should not pick it up.
         let dest = attachment_name(&name, deepsand_core::now_ms().max(0) as u64);
+        let inside = format!("{ATTACHMENT_DROP_DIR}/{dest}");
         let docker = state.docker().map_err(fail)?;
         match docker.write_file_into_container(&container, ATTACHMENT_DROP_DIR, &dest, &canonical) {
-            Ok(()) => view.paths.push(format!("{ATTACHMENT_DROP_DIR}/{dest}")),
+            Ok(()) => match docker.container_has_file(&container, &inside) {
+                Ok(true) => view.paths.push(inside),
+                Ok(false) => view.problems.push(format!(
+                    "{name} was copied but the sandbox cannot see {inside}, so it was not attached.                      Paste or drop it again if the sandbox was restarted."
+                )),
+                Err(err) => view.problems.push(err.to_string()),
+            },
             Err(err) => view.problems.push(err.to_string()),
         }
     }

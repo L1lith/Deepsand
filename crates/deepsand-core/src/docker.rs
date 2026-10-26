@@ -24,6 +24,68 @@ pub const LABEL_PROJECT_PREFIX: &str = "deepsand.project=";
 /// the container alone while that process is still running.
 pub const LABEL_OWNER: &str = "deepsand.owner_pid";
 
+/// The user everything written into a running sandbox belongs to.
+///
+/// `docker exec` without `-u` runs as the container's configured user, which is root. The
+/// sandbox drops `CAP_DAC_OVERRIDE`, so that root cannot write into `/home/deepcode` (owned by
+/// this uid, mode 755) any more than the agent can write into `/usr`. Anything the host puts in
+/// the agent's home has to be written as this user.
+pub const SANDBOX_UID: &str = "1000:1000";
+
+/// The `docker exec` vector that writes bytes into a running sandbox.
+///
+/// `-u` is the part that matters: root in this sandbox has no `CAP_DAC_OVERRIDE`, so it cannot
+/// write into a directory owned by uid 1000. The script deliberately has no trailing `|| true`
+/// -- that turned a failed write into exit 0, and the window then handed the agent a path to a
+/// file that had never been created.
+fn write_exec_args<'a>(container: &'a str, path: &'a str) -> [&'a str; 10] {
+    [
+        "exec",
+        "-u",
+        SANDBOX_UID,
+        "-i",
+        container,
+        "sh",
+        "-c",
+        "cat > \"$1\"",
+        "sh",
+        path,
+    ]
+}
+
+/// The `docker exec` vector for a dropped file: create the directory, then stream stdin into
+/// a file inside it. As the sandbox user, and with stdin attached.
+fn copy_exec_args<'a>(container: &'a str, dir: &'a str, name: &'a str) -> [&'a str; 11] {
+    [
+        "exec",
+        "-u",
+        SANDBOX_UID,
+        "-i",
+        container,
+        "sh",
+        "-c",
+        "mkdir -p \"$1\" && cat > \"$1/$2\"",
+        "sh",
+        dir,
+        name,
+    ]
+}
+
+/// The `docker exec` vector that creates a directory in a running sandbox.
+fn mkdir_exec_args<'a>(container: &'a str, path: &'a str) -> [&'a str; 9] {
+    [
+        "exec",
+        "-u",
+        SANDBOX_UID,
+        container,
+        "sh",
+        "-c",
+        "mkdir -p \"$1\"",
+        "sh",
+        path,
+    ]
+}
+
 /// How long one engine-restart step may take before it is ended.
 ///
 /// `docker desktop stop` waits for the engine to go down, which is the slow one; the rest
@@ -361,12 +423,12 @@ impl Docker {
         let mut source = std::fs::File::open(host).map_err(|err| {
             SandboxError::policy(format!("{} could not be read: {err}", host.display()))
         })?;
-        // Owned by the sandbox user, like `write_into_container` does: the agent has to be
-        // able to read -- and, for a file it is meant to work on, edit -- what was dropped
-        // in, and `docker exec` would otherwise leave it root-owned.
-        let script = "mkdir -p \"$1\" && cat > \"$1/$2\" && chown 1000:1000 \"$1/$2\" 2>/dev/null || true";
+        // Written as the sandbox user, like `write_into_container`: the agent has to be able to
+        // read -- and, for a file it is meant to work on, edit -- what was dropped in. A root
+        // `cat` would create a root-owned file, and the old trailing `|| true` also hid a write
+        // that had failed outright, which is worse than either.
         let mut command = std::process::Command::new(self.program());
-        command.args(self.fmt(&["exec", "-i", container, "sh", "-c", script, "sh", dir, name]));
+        command.args(self.fmt(&copy_exec_args(container, dir, name)));
         command
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::null())
@@ -919,26 +981,21 @@ impl Docker {
     /// network, running a fixed argument vector with no interpolated shell.
     /// Write `contents` to `path` inside a running container.
     ///
-    /// Used to change a setting on a sandbox that is already running: the file lives
-    /// in the container's named volume, which the host cannot address as a path, so
-    /// it is written through `docker exec` with the bytes on stdin rather than by
-    /// building a command string.
+    /// Used to change a setting on a sandbox that is already running, and to put a pasted
+    /// attachment where the agent can read it: the file lives in the container's named
+    /// volume, which the host cannot address as a path, so it is written through `docker exec`
+    /// with the bytes on stdin rather than by building a command string.
     ///
-    /// The chown is best-effort: the exec runs as root, but the sandboxed process is
-    /// uid 1000 and has to be able to rewrite the file itself.
+    /// **The exec runs as uid 1000, not as root.** The sandbox drops `CAP_DAC_OVERRIDE`, so
+    /// root inside it is bound by permission bits like anyone else -- and `/home/deepcode` and
+    /// its volume are owned by 1000. Writing as root into a 755 directory owned by 1000 fails
+    /// with EACCES. It used to do exactly that, and the failure was invisible: the script ended
+    /// in `|| true`, so `docker exec` exited 0 and the window typed a path into the agent's
+    /// prompt for a file that had never been created. Running as the owner removes the need for
+    /// both the chown and the swallow, so a failed write now fails the call.
     pub fn write_into_container(&self, container: &str, path: &str, contents: &[u8]) -> Result<()> {
         let mut cmd = self.command();
-        // Chained `arg` rather than an array: the destination path is passed as `$1`
-        // to `sh` rather than interpolated into the script, so a path with a quote or
-        // a space in it cannot become part of the command.
-        cmd.arg("exec")
-            .arg("-i")
-            .arg(container)
-            .arg("sh")
-            .arg("-c")
-            .arg("cat > \"$1\" && chown 1000:1000 \"$1\" 2>/dev/null || true")
-            .arg("sh")
-            .arg(path);
+        cmd.args(self.fmt(&write_exec_args(container, path)));
         cmd.stdin(std::process::Stdio::piped());
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::piped());
@@ -973,22 +1030,35 @@ impl Docker {
         Ok(())
     }
 
+    /// Whether a running container has a non-empty regular file at `path`, readable by the
+    /// sandbox user.
+    ///
+    /// A write that reports success is still a claim, and this is how it is checked. The
+    /// failure that made this necessary was a write into a directory uid 1000 owns while the
+    /// exec ran as root: it returned 0, the window typed the path into the agent's prompt, and
+    /// there was nothing at the other end. An attachment the agent cannot open is worse than a
+    /// refusal, because the refusal says what happened.
+    pub fn container_has_file(&self, container: &str, path: &str) -> Result<bool> {
+        let mut cmd = self.command();
+        cmd.args(self.fmt(&["exec", "-u", SANDBOX_UID, container, "test", "-s", path]));
+        let output = cmd.output().map_err(|err| SandboxError::Docker {
+            command: "docker exec".into(),
+            stderr: err.to_string(),
+        })?;
+        Ok(output.status.success())
+    }
+
     /// Create a directory inside a running container, parents and all.
     ///
     /// `write_into_container` writes with `cat >`, which cannot create the directory it writes
-    /// into, so anything that needs a new one asks for this first. Ownership is the sandbox
-    /// user's, so the agent can read and replace what it is given.
+    /// into, so anything that needs a new one asks for this first. It runs as the sandbox user
+    /// for the same reason the write does: root in a sandbox without `CAP_DAC_OVERRIDE` cannot
+    /// create anything in a directory owned by uid 1000.
     pub fn make_dirs_in_container(&self, container: &str, path: &str) -> Result<()> {
         let mut cmd = self.command();
         // The same shape as the write above: the path goes in as `$1` rather than into the
         // script, so a quote or a space in it cannot become part of a command.
-        cmd.arg("exec")
-            .arg(container)
-            .arg("sh")
-            .arg("-c")
-            .arg("mkdir -p \"$1\" && chown 1000:1000 \"$1\" 2>/dev/null || true")
-            .arg("sh")
-            .arg(path);
+        cmd.args(self.fmt(&mkdir_exec_args(container, path)));
         let output = cmd.output().map_err(|err| SandboxError::Docker {
             command: "docker exec".into(),
             stderr: err.to_string(),
@@ -3325,5 +3395,63 @@ mod container_inventory_tests {
         assert!(value.is_stopped());
         value.state = "running".into();
         assert!(!value.is_stopped());
+    }
+}
+
+#[cfg(test)]
+mod sandbox_write_tests {
+    use super::*;
+
+    fn runs_as_the_sandbox_user(args: &[&str]) -> bool {
+        args.windows(2).any(|pair| pair[0] == "-u" && pair[1] == SANDBOX_UID)
+    }
+
+    /// Root in this sandbox has no `CAP_DAC_OVERRIDE`, and `/home/deepcode` is owned by uid
+    /// 1000. A write that runs as root fails with EACCES in a 755 directory and, before this,
+    /// the script's trailing `|| true` turned that into exit 0 -- so the window typed a path
+    /// into the agent's prompt for a file that was never there.
+    #[test]
+    fn a_host_write_runs_as_the_sandbox_user_with_its_stdin_attached() {
+        let args = write_exec_args("deepsand-demo", "/home/deepcode/.deepcode/attachments/x.png");
+        assert!(
+            runs_as_the_sandbox_user(&args),
+            "the write has to run as the user that owns the directory: {args:?}"
+        );
+        assert!(
+            args.contains(&"-i"),
+            "without stdin attached the write produces an empty file: {args:?}"
+        );
+        assert!(
+            args.contains(&"cat > \"$1\""),
+            "the bytes have to be copied, not interpreted: {args:?}"
+        );
+    }
+
+    /// A script ending in `|| true` reports success after a failure. That is the shape of the
+    /// bug that let an attachment path reach the agent with no file behind it.
+    #[test]
+    fn a_failed_write_is_never_reported_as_success() {
+        let write = write_exec_args("c", "/p");
+        let copy = copy_exec_args("c", "/d", "n");
+        let mkdir = mkdir_exec_args("c", "/d");
+        for args in [&write[..], &copy[..], &mkdir[..]] {
+            assert!(
+                runs_as_the_sandbox_user(args),
+                "every host write runs as the sandbox user: {args:?}"
+            );
+            assert!(
+                !args.iter().any(|arg| arg.contains("|| true")),
+                "a failed write must exit non-zero: {args:?}"
+            );
+        }
+    }
+
+    /// A dropped file is streamed, so stdin has to stay attached after `-u`.
+    #[test]
+    fn a_dropped_file_is_streamed_as_the_sandbox_user() {
+        let args = copy_exec_args("c", "/tmp/deepsand-incoming", "photo.png");
+        assert!(runs_as_the_sandbox_user(&args));
+        assert!(args.contains(&"-i"), "stdin is the file: {args:?}");
+        assert_eq!(args.last().copied(), Some("photo.png"));
     }
 }

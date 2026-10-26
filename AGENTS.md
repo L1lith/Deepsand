@@ -320,6 +320,20 @@ These are load-bearing. Breaking one is how this project gets a CVE.
   also refuses `chmod` on a volume mount root, the entrypoint verifies the
   property that matters (uid 1000 can read its credentials and write its volume)
   and stops with an explanation instead of assuming.
+
+  **The same rule applies to `docker exec`.** An exec without `-u` runs as the
+  container's user, which is root, and root cannot create `attachments/` inside
+  `/home/deepcode/.deepcode` (755, owned by 1000) any more than the agent can
+  write `/usr`. Every host-to-container write therefore runs as `SANDBOX_UID`
+  (`1000:1000`): `write_into_container`, `write_file_into_container` and
+  `make_dirs_in_container`. And none of their scripts ends in `|| true` any
+  more, because that is how this failed silently: `docker exec` exited 0, the
+  window typed `/home/deepcode/.deepcode/attachments/<stamp>-image.png` into the
+  agent's prompt, and there was no such file -- the agent said the attachment
+  was not in the sandbox, which was true. `container_has_file` now checks the
+  claim after the write, and an attachment that cannot be read back is reported
+  as a problem instead of being handed over. A claim about the sandbox has to be
+  checked in the sandbox.
 * **One build per image, one writer per log.** Everything that builds goes through
   `build_runtime_image_impl` -- the Activity tab's button and a Run whose image is missing --
   and it claims the image in `AppState::building` first. A second caller *waits*; a second
