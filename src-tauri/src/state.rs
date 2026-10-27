@@ -621,6 +621,14 @@ pub struct AppState {
     pub store: Mutex<Store>,
     pub docker: Mutex<Option<Docker>>,
     pub sessions: Mutex<HashMap<String, LiveSession>>,
+    /// The terminal size the window last asked for, per project.
+    ///
+    /// Kept when no session exists, because the pane asks for its size as soon as it lays
+    /// out -- before a Run, and before every restart -- and a new PTY is created at whatever
+    /// size the start has. Without this the PTY is born at the 40x120 guess while the pane is
+    /// some other size, and a TUI that is even one row taller than its terminal scrolls on
+    /// every repaint instead of overwriting: the status line stacks up the screen.
+    pub terminal_sizes: Mutex<HashMap<String, (u16, u16)>>,
     /// Sandboxes that started before their tools existed, by the image being built for them.
     ///
     /// Keyed by image rather than by project because that is what the build knows when it
@@ -719,6 +727,7 @@ impl AppState {
             store: Mutex::new(store),
             docker: Mutex::new(None),
             sessions: Mutex::new(HashMap::new()),
+            terminal_sizes: Mutex::new(HashMap::new()),
             tools_arriving: Mutex::new(HashMap::new()),
             pending: Mutex::new(HashMap::new()),
             pending_order: Mutex::new(Vec::new()),
@@ -767,6 +776,29 @@ impl AppState {
             state: self,
             project_id: project_id.to_string(),
         })
+    }
+
+    /// Remember the size the window wants for a project's terminal.
+    ///
+    /// Zero is ignored: a pane that is hidden or not yet laid out has no size, and a PTY born
+    /// at 0x0 is worse than one born at the default.
+    pub fn remember_terminal_size(&self, project_id: &str, rows: u16, cols: u16) {
+        if rows == 0 || cols == 0 {
+            return;
+        }
+        self.terminal_sizes
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(project_id.to_string(), (rows, cols));
+    }
+
+    /// The size the window last asked for, if it has asked at all.
+    pub fn terminal_size(&self, project_id: &str) -> Option<(u16, u16)> {
+        self.terminal_sizes
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(project_id)
+            .copied()
     }
 
     /// Container names a live session owns, which is what "not an orphan" means.

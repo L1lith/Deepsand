@@ -2129,14 +2129,22 @@ fn spawn_session(
     let exit_tx = event_tx;
 
     tracing::info!("start: credentials ready; entering Session::spawn");
-Session::spawn(
+    // The size the window last asked for, not a guess. The pane asks as soon as it lays out,
+    // which is before a Run and before every restart; a PTY born at 40x120 inside a different
+    // box makes a full-screen TUI scroll on every repaint, which is the status line stacking
+    // up the screen. The default is only for a start nobody has given a size to yet.
+    let (rows, cols) = {
+        let state = tauri::Manager::state::<AppState>(app);
+        state.terminal_size(project_id).unwrap_or((40, 120))
+    };
+    Session::spawn(
         SessionOptions {
             program: docker.program().to_path_buf(),
             args,
             cwd: launch.root_dir.clone(),
             env: vec![],
-            rows: 40,
-            cols: 120,
+            rows,
+            cols,
         },
         move |chunk| {
             // Base64 because a PTY read can split a UTF-8 sequence; decoding on
@@ -2351,12 +2359,28 @@ pub async fn resize_session(app: AppHandle, project_id: String, rows: u16, cols:
     .map_err(|err| format!("the terminal could not be resized: {err}"))?
 }
 
-pub fn resize_session_impl(state: &AppState, project_id: String, rows: u16, cols: u16) -> CmdResult<()> {
+/// A ceiling for a size the window -- or a remote client -- asks for.
+///
+/// A console allocates for the size it is given, and a layout that momentarily reports
+/// thousands of columns must become a clamp, not an allocation.
+const MAX_TERMINAL_ROWS: u16 = 400;
+const MAX_TERMINAL_COLS: u16 = 1000;
 
+pub fn resize_session_impl(state: &AppState, project_id: String, rows: u16, cols: u16) -> CmdResult<()> {
+    // Zero is a pane that is hidden or not laid out yet, not a request for a 1x1 terminal.
+    if rows == 0 || cols == 0 {
+        return Ok(());
+    }
+    let rows = rows.min(MAX_TERMINAL_ROWS);
+    let cols = cols.min(MAX_TERMINAL_COLS);
+    // Remembered even when there is no session: the pane asks for its size before a Run, and
+    // a restart creates a new PTY, so the last requested size is the size the next start must
+    // use. Dropping it is what left the sandbox drawing for 40x120 inside a different box.
+    state.remember_terminal_size(&project_id, rows, cols);
     let sessions = state.sessions.lock().unwrap();
     match sessions.get(&project_id) {
         Some(live) => live.session.resize(rows, cols).map_err(fail),
-        // Not an error: the frontend may lay out before the container starts.
+        // Not an error: the frontend lays out before the container starts.
         None => Ok(()),
     }
 }
@@ -6498,5 +6522,63 @@ mod secret_answer_tests {
             "a refusal has to clear the request too, or the dialog comes back"
         );
         let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+#[cfg(test)]
+mod terminal_size_tests {
+    use super::*;
+
+    fn state(name: &str) -> AppState {
+        AppState::new(
+            Store::fallback(std::env::temp_dir().join(name)),
+            None,
+        )
+    }
+
+    /// The pane asks for its size before a Run, when there is no session to resize. Dropping
+    /// that answer is what left the sandbox drawing for 40x120 inside a different box -- and
+    /// a TUI one row too tall scrolls on every spinner tick instead of overwriting, which is
+    /// the status line stacking up the screen.
+    #[test]
+    fn a_size_asked_for_before_the_sandbox_exists_is_used_by_the_next_start() {
+        let state = state("deepsand-terminal-size-test");
+        assert_eq!(state.terminal_size("p"), None);
+
+        resize_session_impl(&state, "p".to_string(), 33, 142).expect("no session is not an error");
+
+        assert_eq!(
+            state.terminal_size("p"),
+            Some((33, 142)),
+            "a request made with no session is the size the next start has to use"
+        );
+    }
+
+    /// A hidden pane reports 0x0. That is not a size, and a PTY born at nothing is worse than
+    /// the default.
+    #[test]
+    fn a_zero_size_is_not_remembered() {
+        let state = state("deepsand-terminal-zero-test");
+        state.remember_terminal_size("p", 0, 142);
+        state.remember_terminal_size("p", 33, 0);
+        assert_eq!(state.terminal_size("p"), None);
+
+        state.remember_terminal_size("p", 33, 142);
+        state.remember_terminal_size("p", 0, 0);
+        assert_eq!(
+            state.terminal_size("p"),
+            Some((33, 142)),
+            "a good size survives a zero the hidden pane reports later"
+        );
+    }
+
+    /// A restart creates a new PTY, so the size has to outlive the session that was using it.
+    #[test]
+    fn the_last_size_wins_and_survives_a_stop() {
+        let state = state("deepsand-terminal-last-test");
+        state.remember_terminal_size("p", 40, 120);
+        state.remember_terminal_size("p", 33, 142);
+        assert_eq!(state.terminal_size("p"), Some((33, 142)));
+        assert_eq!(state.terminal_size("other"), None, "sizes are per project");
     }
 }

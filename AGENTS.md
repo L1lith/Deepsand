@@ -714,6 +714,17 @@ These are load-bearing. Breaking one is how this project gets a CVE.
   the PTY already has via `resize_is_needed`, which also floors a zero-sized pane at 1×1 rather
   than resizing to nothing. Guarding only the window is not enough: the leak that matters is the
   one you did not think of.
+
+  **The other half is the size the PTY is born with.** A Pane asks for its size on mount, which
+  is *before* a Run and before every restart -- so the old `resize_session_impl` answered "no
+  session, never mind", and the session later started at the hard-coded 40×120. If the pane was
+  33 rows, the TUI drew a 40-row frame in a 33-row terminal: every spinner tick scrolled the
+  screen instead of overwriting, and the status line stacked down it -- the same "scrolling itself
+  over and over" from the outside, with no repeated resize to blame. `AppState::terminal_sizes`
+  now remembers the last size per project even with no session, and `spawn_session` creates the
+  PTY at that size instead of the guess. Zero is ignored (a hidden pane is not a request for
+  1×1), and the size is clamped to `MAX_TERMINAL_ROWS`/`MAX_TERMINAL_COLS` because a console
+  allocates for what it is told. Do not remove the memory on stop: a restart needs it.
 * **An egress-proxy test must not read the connection to the end.** The proxy answers a
   tunnel with `200 Connection Established` and then relays, so the connection closes when
   the *far end* closes it: measured here, GitHub at 91 s and Cloudflare at 15 s, which is
