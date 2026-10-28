@@ -621,6 +621,15 @@ pub struct AppState {
     pub store: Mutex<Store>,
     pub docker: Mutex<Option<Docker>>,
     pub sessions: Mutex<HashMap<String, LiveSession>>,
+    /// Bytes the terminal produced for a project whose session is still starting.
+    ///
+    /// `docker run -t` asks the terminal for its cursor position as soon as the PTY exists,
+    /// and xterm's answer travels through `write_to_session`. The session is registered a
+    /// moment later, so that answer used to be refused -- and Docker, never answered, left the
+    /// container's TTY in a state of its own choosing. A TUI that draws for a box it does not
+    /// have scrolls on every spinner tick instead of overwriting. Small and per project;
+    /// flushed the moment the session registers, dropped when a start does not.
+    pub early_input: Mutex<HashMap<String, Vec<u8>>>,
     /// The terminal size the window last asked for, per project.
     ///
     /// Kept when no session exists, because the pane asks for its size as soon as it lays
@@ -727,6 +736,7 @@ impl AppState {
             store: Mutex::new(store),
             docker: Mutex::new(None),
             sessions: Mutex::new(HashMap::new()),
+            early_input: Mutex::new(HashMap::new()),
             terminal_sizes: Mutex::new(HashMap::new()),
             tools_arriving: Mutex::new(HashMap::new()),
             pending: Mutex::new(HashMap::new()),
@@ -766,16 +776,61 @@ impl AppState {
     /// The returned guard releases it on drop, so an early return or a panic cannot
     /// leave a project permanently unstartable.
     pub fn begin_start(&self, project_id: &str) -> Option<StartGuard<'_>> {
-        {
-            let mut set = self.starting.lock().unwrap_or_else(|p| p.into_inner());
-            if !set.insert(project_id.to_string()) {
-                return None;
-            }
+        let mut set = self.starting.lock().unwrap_or_else(|p| p.into_inner());
+        if !set.insert(project_id.to_string()) {
+            return None;
         }
+        // Anything held from a start that never registered belongs to a session that no
+        // longer exists; delivering it to the new one would type the old terminal's answers
+        // into it. Done while the start marker is still held: a write that sees `is_starting`
+        // can only run after this, so its answer cannot be cleared out from under it.
+        self.clear_early_input(project_id);
+        drop(set);
         Some(StartGuard {
             state: self,
             project_id: project_id.to_string(),
         })
+    }
+
+    /// Whether a start is in flight, which is when terminal input has nowhere to go yet.
+    pub fn is_starting(&self, project_id: &str) -> bool {
+        self.starting
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains(project_id)
+    }
+
+    /// Hold a terminal's output for a session that has not registered yet.
+    ///
+    /// The buffer is capped: this exists for `docker run -t`'s cursor-position handshake and
+    /// the first keystrokes, not as a transcript. Beyond that, input is dropped exactly as it
+    /// was before.
+    pub fn hold_early_input(&self, project_id: &str, data: &[u8]) {
+        const EARLY_INPUT_MAX: usize = 64 * 1024;
+        if data.is_empty() {
+            return;
+        }
+        let mut held = self.early_input.lock().unwrap_or_else(|p| p.into_inner());
+        let buffer = held.entry(project_id.to_string()).or_default();
+        let room = EARLY_INPUT_MAX.saturating_sub(buffer.len());
+        buffer.extend_from_slice(&data[..data.len().min(room)]);
+    }
+
+    /// Take what was held, leaving nothing behind.
+    pub fn take_early_input(&self, project_id: &str) -> Vec<u8> {
+        self.early_input
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(project_id)
+            .unwrap_or_default()
+    }
+
+    /// Forget what was held: the start did not produce a session to deliver it to.
+    pub fn clear_early_input(&self, project_id: &str) {
+        self.early_input
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(project_id);
     }
 
     /// Remember the size the window wants for a project's terminal.

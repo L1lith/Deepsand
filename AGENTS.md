@@ -725,6 +725,25 @@ These are load-bearing. Breaking one is how this project gets a CVE.
   PTY at that size instead of the guess. Zero is ignored (a hidden pane is not a request for
   1×1), and the size is clamped to `MAX_TERMINAL_ROWS`/`MAX_TERMINAL_COLS` because a console
   allocates for what it is told. Do not remove the memory on stop: a restart needs it.
+
+  **A start is not "no session", and a write is not the place to hold the map.** `docker run -t`
+  asks the terminal for a cursor position as soon as the PTY exists and waits for the answer;
+  xterm's answer arrives through `write_to_session` *before* `start_container` returns and the
+  session is inserted. Refusing it with "no sandbox is running" leaves Docker waiting, and the
+  container can come up with a TTY of its own choosing -- the wrong-sized frame again, and a
+  start that takes seventeen seconds. `AppState::early_input` holds input while
+  `is_starting` is true and `start_session` flushes it the moment the session registers; it is
+  cleared when a start begins (so a stale answer is never typed into the next session), bounded
+  at 64 KiB, and dropped in `cleanup_session`. The other half is the lock: `write_to_session_impl`
+  used to hold `AppState::sessions` across `write_all`, so a PTY whose reader had stopped
+  accepting input took the Stop and Resize paths down with it -- the window sat on "Stopping..."
+  while the operator held Ctrl+C into an already-wedged terminal. Clone `Session::writer()`, drop
+  the map lock, then write.
+
+  **A stop is bounded by the operator's patience, not by `COMMAND_TIMEOUT`.** `remove_container`
+  and the stop-time thaw now use `REMOVAL_LEASH` (15 s per step). A removal that the daemon
+  refuses is residue the sweep collects; two minutes of nothing on the Stop button is what the
+  leash exists to prevent.
 * **An egress-proxy test must not read the connection to the end.** The proxy answers a
   tunnel with `200 Connection Established` and then relays, so the connection closes when
   the *far end* closes it: measured here, GitHub at 91 s and Cloudflare at 15 s, which is

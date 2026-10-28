@@ -124,6 +124,15 @@ pub const SHARING_PROBE_LEASH: std::time::Duration = std::time::Duration::from_s
 /// a silence this long is a fact about Docker rather than about the containers.
 pub const INVENTORY_LEASH: std::time::Duration = std::time::Duration::from_secs(15);
 
+/// The leash for taking a container down.
+///
+/// `stop_session_internal` runs on the Stop button's thread, and the window shows "Stopping..."
+/// until it returns. `rm -f` answers in well under a second on a healthy daemon; on one that
+/// has stopped answering, the full command timeout made a stop look like a hang, and the same
+/// container is residue the sweep removes on its next pass. A removal that does not happen now
+/// is not lost, so it does not get two minutes to happen.
+pub const REMOVAL_LEASH: std::time::Duration = std::time::Duration::from_secs(15);
+
 /// The leash for the cleanup that follows a failed probe step.
 ///
 /// Short for the same reason: removing the probe container is not what is being measured, and a
@@ -1401,10 +1410,12 @@ impl Docker {
     /// Force-remove a container by name. Safe to call when it does not exist.
     ///
     /// Thaws first, always, including for a container this process never froze: a leftover from
-    /// a crash can be frozen too, and every removal path goes through here.
+    /// a crash can be frozen too, and every removal path goes through here. Each step is bounded
+    /// by `REMOVAL_LEASH` rather than the command timeout, because this runs on the Stop
+    /// button's thread and a removal that is refused now is residue the sweep removes later.
     pub fn remove_container(&self, name: &str) {
         for args in container_teardown_args(name) {
-            let _ = self.try_run(&args);
+            let _ = self.try_run_within(&args, REMOVAL_LEASH);
         }
     }
 
@@ -1421,6 +1432,16 @@ impl Docker {
     /// Thaw a frozen container. Safe to call when it is not paused.
     pub fn unpause_container(&self, name: &str) -> bool {
         self.try_run(&self.fmt(&["unpause", name])).is_some()
+    }
+
+    /// Thaw a frozen container with a bounded wait, for a path the operator is watching.
+    ///
+    /// A stop that is waiting on a wedged daemon is a button that says "Stopping..." and
+    /// never moves; the container is removed on this same path, where a refusal is also
+    /// residue for the sweep.
+    pub fn unpause_container_within(&self, name: &str, leash: std::time::Duration) -> bool {
+        self.try_run_within(&self.fmt(&["unpause", name]), leash)
+            .is_some()
     }
 
     /// Whether a container exists and is frozen.

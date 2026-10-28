@@ -227,6 +227,16 @@ impl Session {
         Ok(())
     }
 
+    /// A handle to the terminal's input side.
+    ///
+    /// Cloning this out of the session map is what lets a write happen without the map lock:
+    /// a PTY whose reader has stopped accepting input blocks in `write_all`, and holding the
+    /// map while it does takes Stop, Resize and a restart down with it. That is exactly what
+    /// a window stuck on "Stopping..." was: the operator had held Ctrl+C into a wedged PTY.
+    pub fn writer(&self) -> std::sync::Arc<std::sync::Mutex<Box<dyn Write + Send>>> {
+        std::sync::Arc::clone(&self.writer)
+    }
+
     /// Resize the terminal, once per size.
     ///
     /// A repeat is dropped rather than sent: see `resize_is_needed`. The window also stops asking

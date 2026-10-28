@@ -1968,6 +1968,26 @@ if resolved.api_key.is_none() {
             },
         );
 
+    // The container may have asked the terminal a question while it was starting -- `docker
+    // run -t` waits on a cursor-position reply before it settles -- and the answer was held
+    // because there was no session to give it to. Deliver it now, with no map lock held.
+    let early = state.take_early_input(&project_id);
+    if !early.is_empty() {
+        let writer = state
+            .sessions
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(&project_id)
+            .map(|live| live.session.writer());
+        if let Some(writer) = writer {
+            use std::io::Write as _;
+            let mut writer = writer.lock().unwrap_or_else(|p| p.into_inner());
+            if writer.write_all(&early).is_ok() {
+                let _ = writer.flush();
+            }
+        }
+    }
+
     // The process can be gone before its session is registered: the waiter runs as soon as
     // the PTY exists, and `start_container` only returns after that. If it is already dead,
     // take it back out -- a dead session left in the map is a terminal that looks live and
@@ -2237,7 +2257,10 @@ impl AppState {
                     .ok()
                     .and_then(|store| store.project(project_id).ok().map(|p| p.container_name()));
                 if let Some(name) = name {
-                    docker.unpause_container(&name);
+                    docker.unpause_container_within(
+                        &name,
+                        deepsand_core::docker::REMOVAL_LEASH,
+                    );
                 }
             }
         }
@@ -2265,6 +2288,8 @@ impl AppState {
     /// The caller has already removed the session -- or is the waiter that removed its own --
     /// so this cannot reach a successor a later start may have registered.
     fn cleanup_session(&self, project_id: &str) {
+        // Input held for a session that never registered must not be typed into the next one.
+        self.clear_early_input(project_id);
         // Nothing is frozen once its container is gone. A stale memory would make the window
         // describe a sandbox that no longer exists.
         self.clear_frozen(project_id);
@@ -2339,12 +2364,29 @@ pub async fn write_to_session(app: AppHandle, project_id: String, data: String) 
 }
 
 pub fn write_to_session_impl(state: &AppState, project_id: String, data: String) -> CmdResult<()> {
-
-    let mut sessions = state.sessions.lock().unwrap();
-    let live = sessions.get_mut(&project_id).ok_or_else(|| {
-        format!("no sandbox is running for {project_id}")
-    })?;
-    live.session.send(data.as_bytes()).map_err(fail)
+    // The session map is not held across the write. A PTY whose reader has stopped taking
+    // input blocks in `write_all`, and a Stop or a resize waiting for that same lock is the
+    // window sitting on "Stopping..." while the operator holds Ctrl+C into a terminal that is
+    // already wedged. Clone the input handle, then write with no map lock in hand.
+    let writer = {
+        let sessions = state.sessions.lock().unwrap_or_else(|p| p.into_inner());
+        sessions.get(&project_id).map(|live| live.session.writer())
+    };
+    let Some(writer) = writer else {
+        // `docker run -t` asks the terminal for its cursor position as soon as the PTY exists,
+        // and xterm's answer arrives here before the session registers. Refusing it made
+        // Docker wait for an answer that never came; holding it for the moment the session
+        // needs to land is what lets the handshake finish.
+        if state.is_starting(&project_id) {
+            state.hold_early_input(&project_id, data.as_bytes());
+            return Ok(());
+        }
+        return Err(format!("no sandbox is running for {project_id}"));
+    };
+    use std::io::Write as _;
+    let mut writer = writer.lock().unwrap_or_else(|p| p.into_inner());
+    writer.write_all(data.as_bytes()).map_err(fail)?;
+    writer.flush().map_err(fail)
 }
 
 #[tauri::command]
@@ -6580,5 +6622,65 @@ mod terminal_size_tests {
         state.remember_terminal_size("p", 33, 142);
         assert_eq!(state.terminal_size("p"), Some((33, 142)));
         assert_eq!(state.terminal_size("other"), None, "sizes are per project");
+    }
+}
+
+#[cfg(test)]
+mod early_input_tests {
+    use super::*;
+
+    fn state(name: &str) -> AppState {
+        AppState::new(Store::fallback(std::env::temp_dir().join(name)), None)
+    }
+
+    /// `docker run -t` asks the terminal for its cursor position as soon as the PTY exists.
+    /// The answer arrives before the session is registered, and refusing it made Docker wait
+    /// for a reply that never came -- the container then came up with a TTY of its own
+    /// choosing, which is the wrong-sized frame that scrolls on every spinner tick.
+    #[test]
+    fn input_arriving_before_the_session_registers_is_held_not_refused() {
+        let state = state("deepsand-early-input-test");
+        let guard = state.begin_start("p").expect("a start");
+
+        write_to_session_impl(&state, "p".to_string(), "\u{1b}[1;1R".to_string())
+            .expect("the handshake answer is not an error");
+
+        assert_eq!(state.take_early_input("p"), b"\x1b[1;1R".to_vec());
+        assert!(
+            state.take_early_input("p").is_empty(),
+            "taking the hold has to leave nothing behind"
+        );
+        drop(guard);
+    }
+
+    /// Holding is only for a start. A write with no session and no start still has nowhere to
+    /// go, and saying so is what keeps the window from pretending it delivered a keystroke.
+    #[test]
+    fn input_with_no_session_and_no_start_is_still_an_error() {
+        let state = state("deepsand-early-refused-test");
+        assert!(write_to_session_impl(&state, "p".to_string(), "x".to_string()).is_err());
+        assert!(state.take_early_input("p").is_empty());
+    }
+
+    /// A hold that outlived its start belongs to a session that no longer exists; typing it
+    /// into the next one would send the old terminal's answers to a new container.
+    #[test]
+    fn a_stale_hold_is_dropped_when_a_new_start_begins() {
+        let state = state("deepsand-early-stale-test");
+        state.hold_early_input("p", b"old");
+        let guard = state.begin_start("p").expect("a start");
+        assert!(state.take_early_input("p").is_empty());
+        drop(guard);
+    }
+
+    #[test]
+    fn the_hold_is_bounded() {
+        let state = state("deepsand-early-cap-test");
+        state.hold_early_input("p", &vec![b'x'; 100 * 1024]);
+        assert_eq!(
+            state.take_early_input("p").len(),
+            64 * 1024,
+            "the hold is for a handshake and the first keystrokes, not a transcript"
+        );
     }
 }
