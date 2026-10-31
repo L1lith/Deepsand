@@ -36,6 +36,7 @@
   "common.on": "በርቷል",
   "common.select": "ይምረጡ",
   "common.continue": "ቀጥል",
+  "context.copyLink": "የአገናኝ አድራሻ ቅዳ",
   "language.title": "ቋንቋዎን ይምረጡ",
   "language.subtitle": "Deepsand የስርዓት ቋንቋዎን አግኝቷል። ለመጠቀም የሚፈልጉትን ቋንቋ ይምረጡ; በኋላ በቅንብሮች ውስጥ መለወጥ ይችላሉ።",
   "language.detected": "ከእርስዎ ስርዓት የተገኘ ነው።",

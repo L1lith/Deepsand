@@ -36,6 +36,7 @@
   "common.on": "على",
   "common.select": "اختر",
   "common.continue": "متابعة",
+  "context.copyLink": "نسخ عنوان الرابط",
   "language.title": "اختر لغتك",
   "language.subtitle": "اكتشف Deepsand لغة النظام لديك. اختر اللغة التي تريد استخدامها؛ ويمكنك تغييره لاحقًا في الإعدادات.",
   "language.detected": "تم اكتشافه من نظامك",

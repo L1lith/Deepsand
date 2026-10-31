@@ -442,9 +442,13 @@ function ToolRow(props: {
           <span class="tool-name">{toolLabel(props.tool)}</span>
           <Show when={props.tool.homepage}>
             {(homepage) => (
-              <button
-                type="button"
+              // An anchor, not a button: it is a link, so the window shows its address on
+              // hover, a screen reader calls it one, and right-clicking it offers to copy it.
+              // The click still goes through the command, because opening the operator's own
+              // browser is a host action and the webview is not given a way to do it itself.
+              <a
                 class="tool-home"
+                href={homepage()}
                 title={t("tools.openHomepage", { url: homepage() })}
                 aria-label={t("tools.openProjectPage", { name: toolLabel(props.tool) })}
                 onClick={(event) => {
@@ -456,9 +460,10 @@ function ToolRow(props: {
                       toast("error", t("tools.couldNotOpenPage"), describeError(error)),
                     );
                 }}
+                onAuxClick={(event) => event.preventDefault()}
               >
                 {t("tools.projectPage")}
-              </button>
+              </a>
             )}
           </Show>
           <Show when={locked()}>

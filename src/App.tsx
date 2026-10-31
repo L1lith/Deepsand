@@ -34,6 +34,7 @@ import { BuildProgress } from "./components/BuildProgress";
 import { PermissionsPanel } from "./components/PermissionsPanel";
 import { TerminalPane } from "./components/TerminalPane";
 import { RestartDockerControl } from "./components/RestartDocker";
+import { LinkContextMenu } from "./components/LinkMenu";
 import { LanguageOnboarding } from "./components/LanguagePicker";
 import {
   NewProjectDialog,
@@ -766,6 +767,10 @@ export default function App() {
         )}
       </Show>
 
+      {/* Any link, anywhere: a right-click offers its address. Mounted beside the boxes
+          because it is the same kind of thing -- an overlay that outlives whichever tab is
+          open, and that must not depend on one. */}
+      <LinkContextMenu />
       <Toasts />
     </Show>
 

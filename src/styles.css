@@ -370,6 +370,19 @@ pre,
   box-shadow: 0 12px 32px #000000a0;
 }
 
+/* The address a right-click landed on, shown before it is copied. Ellipsised rather than
+   wrapped: a long URL must not make the menu taller than the point it is clamped against. */
+.context-url {
+  max-width: 18rem;
+  padding: 0.3rem 0.55rem 0.2rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+  font-size: 0.74rem;
+  user-select: text;
+}
+
 .context-item {
   display: block;
   width: 100%;

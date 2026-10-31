@@ -36,6 +36,7 @@
   "common.on": "オン",
   "common.select": "選択",
   "common.continue": "続ける",
+  "context.copyLink": "リンクのアドレスをコピー",
   "language.title": "言語を選択してください",
   "language.subtitle": "Deepsand がシステム言語を検出しました。使用したい言語を選択してください。後から「設定」で変更できます。",
   "language.detected": "システムから検出されました",

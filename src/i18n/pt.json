@@ -36,6 +36,7 @@
   "common.on": "Ligado",
   "common.select": "Selecione",
   "common.continue": "Continuar",
+  "context.copyLink": "Copiar endereço do link",
   "language.title": "Escolha seu idioma",
   "language.subtitle": "Deepsand detectou o idioma do seu sistema. Escolha o idioma que deseja usar; você pode alterá-lo mais tarde em Configurações.",
   "language.detected": "Detectado em seu sistema",

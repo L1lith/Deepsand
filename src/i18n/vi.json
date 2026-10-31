@@ -36,6 +36,7 @@
   "common.on": "Bật",
   "common.select": "chọn",
   "common.continue": "Tiếp tục",
+  "context.copyLink": "Sao chép địa chỉ liên kết",
   "language.title": "Chọn ngôn ngữ của bạn",
   "language.subtitle": "Deepsand đã phát hiện ra ngôn ngữ hệ thống của bạn. Chọn ngôn ngữ bạn muốn sử dụng; bạn có thể thay đổi nó sau trong Cài đặt.",
   "language.detected": "Được phát hiện từ hệ thống của bạn",

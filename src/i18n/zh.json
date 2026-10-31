@@ -36,6 +36,7 @@
   "common.on": "开启",
   "common.select": "选择",
   "common.continue": "继续",
+  "context.copyLink": "复制链接地址",
   "language.title": "选择你的语言",
   "language.subtitle": "Deepsand 已检测到你的系统语言。请选择你想使用的语言，之后可以在“设置”中更改。",
   "language.detected": "根据系统自动检测",

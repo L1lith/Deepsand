@@ -746,6 +746,17 @@ These are load-bearing. Breaking one is how this project gets a CVE.
   puts the pending update back after a failed download so a retry is legitimate. Installing
   restarts the app and stops whatever is running, so when a sandbox *is* running the same box
   says so before the click, using the Settings strings rather than a second copy of them.
+* **A right-click on a link is ours; anywhere else is the platform's.** `LinkContextMenu`
+  intercepts `contextmenu` in the **capture** phase, and only when the target is inside an
+  `a[href]`: it shows the address the click landed on and offers to copy it. Capture plus
+  `stopPropagation` is what keeps a link inside the project list from opening the row's own
+  menu underneath ours — two boxes on one right-click is the bug that follows from a bubble
+  listener here. Everything else is left alone on purpose, because the platform menu is where
+  paste, select-all and spell-check live, and removing it from every text field to gain one
+  item over a link is a trade nobody asked for. A link-like control therefore has to be a real
+  `<a href>` (the tools row's project page is one): a `<button>` styled as a link has no
+  address for this to offer, and its click still goes through the command that opens the
+  operator's browser, because that is a host action.
 * **Anything the app says about itself goes in a file.** A Windows release build has no
   stdout, so `tracing` output went nowhere: a launch that died silently stayed silent, with
   nothing to read on the machine where it happened. `init_logging` tees to

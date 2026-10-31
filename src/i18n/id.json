@@ -36,6 +36,7 @@
   "common.on": "Aktif",
   "common.select": "Pilih",
   "common.continue": "Lanjutkan",
+  "context.copyLink": "Salin alamat tautan",
   "language.title": "Pilih bahasa Anda",
   "language.subtitle": "Deepsand mendeteksi bahasa sistem Anda. Pilih bahasa yang ingin Anda gunakan; Anda dapat mengubahnya nanti di Pengaturan.",
   "language.detected": "Terdeteksi dari sistem Anda",

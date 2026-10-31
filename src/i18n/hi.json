@@ -36,6 +36,7 @@
   "common.on": "पर",
   "common.select": "चयन करें",
   "common.continue": "जारी रखें",
+  "context.copyLink": "लिंक पता कॉपी करें",
   "language.title": "अपनी भाषा चुनें",
   "language.subtitle": "Deepsand ने आपकी सिस्टम भाषा का पता लगाया। वह भाषा चुनें जिसका आप उपयोग करना चाहते हैं; आप इसे बाद में सेटिंग में बदल सकते हैं.",
   "language.detected": "आपके सिस्टम से पता चला",
