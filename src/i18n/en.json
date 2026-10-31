@@ -169,7 +169,8 @@
   "toast.toolsOutOfDateTitle": "Cached tools are out of date",
   "toast.toolsOutOfDateBody": "{note} The next build installs them again.",
   "toast.updateAvailableTitle": "Deepsand {version} is available",
-  "toast.updateAvailableBody": "Open Settings to install it.",
+  "toast.updateInstallNow": "Install now",
+  "toast.updateAvailableBody": "Install it now, or open Settings to read the release notes first.",
 
   "activity.whatRuns": "What Deepsand runs",
   "activity.whatRunsDetail": "The sandbox is one docker run command. This is the whole of it — there is no second path that starts a container, and nothing in it depends on the sandbox's own good behaviour.",

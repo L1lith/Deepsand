@@ -734,6 +734,18 @@ These are load-bearing. Breaking one is how this project gets a CVE.
   text, and being gone by then is why messages could not be copied. Errors therefore stay
   until they are closed, show their body whole, and have a Copy button; the others still
   disappear on a click, which is what keeps them unobtrusive.
+
+  **A box with something to press is pinned for the same reason.** The update notice carries
+  its own **Install now**, so the moment somebody decides they want the new version is the
+  moment they read that sentence rather than after they have found Settings. A six-second
+  timeout is long enough to read and far too short to decide to replace the running binary,
+  so an actionable box does not time out and a click on its body does not dismiss it — that
+  click is how the version number gets selected. The action lives in the box
+  (`ToastAction::run`), not in the store: each box owns its busy state, and a failure is
+  raised as the error box it deserves while the button stays live, because `install_impl`
+  puts the pending update back after a failed download so a retry is legitimate. Installing
+  restarts the app and stops whatever is running, so when a sandbox *is* running the same box
+  says so before the click, using the Settings strings rather than a second copy of them.
 * **Anything the app says about itself goes in a file.** A Windows release build has no
   stdout, so `tracing` output went nowhere: a launch that died silently stayed silent, with
   nothing to read on the machine where it happened. `init_logging` tees to

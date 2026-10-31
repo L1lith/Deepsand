@@ -20,11 +20,25 @@ import * as api from "./lib/api";
 import { decodeBase64 } from "./lib/format";
 import { t } from "./i18n";
 
+/**
+ * Something a toast can offer to do, besides being read.
+ *
+ * The label is translated by the caller, like every other toast string, and `run` is the
+ * whole action: the toast has no idea what it does. A rejected promise is not swallowed --
+ * the box that raised it says what happened, and the button stays live, because `install_impl`
+ * puts the pending update back after a failure so a transient disconnect can be retried.
+ */
+export interface ToastAction {
+  label: string;
+  run: () => Promise<void>;
+}
+
 export interface Toast {
   id: number;
   kind: "info" | "ok" | "warn" | "error";
   title: string;
   body?: string;
+  action?: ToastAction;
 }
 
 interface Store {
@@ -105,15 +119,23 @@ export { store };
 
 let toastSeq = 0;
 
-export function toast(kind: Toast["kind"], title: string, body?: string) {
+export function toast(
+  kind: Toast["kind"],
+  title: string,
+  body?: string,
+  action?: ToastAction,
+) {
   const id = ++toastSeq;
-  setStore("toasts", (list) => [...list, { id, kind, title, body }]);
+  setStore("toasts", (list) => [...list, { id, kind, title, body, action }]);
   if (kind === "error" || kind === "warn") {
     // Written down as well as shown. The box can be dismissed by a stray click and dies with
     // the window, which is how a message worth keeping went missing.
     void api.logUiEvent(kind, body ? `${title}\n${body}` : title);
   }
-  if (kind !== "error") {
+  // A box with something to press does not time out. Six seconds is enough to read a
+  // sentence and not enough to decide to replace the running app, and a button that
+  // disappears while it is being considered is worse than no button.
+  if (kind !== "error" && !action) {
     window.setTimeout(() => dismissToast(id), 6000);
   }
   return id;
@@ -586,17 +608,35 @@ export async function wireEvents(): Promise<() => void> {
   // GitHub that is rate-limiting, is not news -- and a toast saying "could not check for
   // updates" every launch is exactly the kind of noise that trains people to ignore
   // toasts. The Settings dialog shows that state when it is asked.
+  //
+  // The box carries the install itself, because the moment somebody decides they want the
+  // new version is the moment they are reading that sentence, not after they have found
+  // Settings. Installing replaces this binary and restarts the app, which stops whatever is
+  // running -- so when something *is* running, that is said in the same box, before the click.
   window.setTimeout(() => {
     void api
       .checkForUpdates()
       .then((result) => {
-        if (result.update) {
-          toast(
-            "info",
-            t("toast.updateAvailableTitle", { version: result.update.version }),
-            t("toast.updateAvailableBody"),
-          );
-        }
+        if (!result.update) return;
+        const running = store.projects.filter((project) => project.running).length;
+        const warning =
+          running > 0
+            ? t("settings.installWarning", {
+                target:
+                  running === 1
+                    ? t("settings.theRunningSandbox")
+                    : t("settings.allRunningSandboxes", { count: running }),
+              })
+            : null;
+        toast(
+          "info",
+          t("toast.updateAvailableTitle", { version: result.update.version }),
+          [t("toast.updateAvailableBody"), warning].filter(Boolean).join("\n\n"),
+          {
+            label: t("toast.updateInstallNow"),
+            run: () => api.installUpdate(),
+          },
+        );
       })
       .catch(() => undefined);
   }, 5000);

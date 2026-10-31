@@ -39,6 +39,7 @@ import {
   selectedProject,
   store,
   toast,
+  type Toast,
 } from "../store";
 import { t } from "../i18n";
 import { LanguageSettingsSection } from "./LanguagePicker";
@@ -1798,15 +1799,7 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
   /** Sandboxes an installer would take down with the app. */
   const runningCount = () => store.projects.filter((project) => project.running).length;
 
-  const downloadLine = () => {
-    const current = progress();
-    if (!current) return "";
-    if (current.phase === "installing") return t("settings.downloadedInstalling");
-    const mb = (bytes: number) => (bytes / (1024 * 1024)).toFixed(1);
-    return current.total
-      ? t("settings.downloadingOf", { done: mb(current.downloaded), total: mb(current.total) })
-      : t("settings.downloading", { done: mb(current.downloaded) });
-  };
+  const downloadLine = () => progressLine(progress());
 
   /** Which entries were dropped as unparseable, so the hint can say so rather than be silent. */
   const [ignored, setIgnored] = createSignal(0);
@@ -2312,6 +2305,150 @@ async function copyToast(entry: { title: string; body?: string }) {
   }
 }
 
+/**
+ * One line describing what the updater is doing, or nothing.
+ *
+ * Shared by the Settings section and the install button on the popup so the two cannot
+ * describe the same download differently.
+ */
+function progressLine(current: UpdateProgress | null): string {
+  if (!current) return "";
+  if (current.phase === "installing") return t("settings.downloadedInstalling");
+  const mb = (bytes: number) => (bytes / (1024 * 1024)).toFixed(1);
+  return current.total
+    ? t("settings.downloadingOf", { done: mb(current.downloaded), total: mb(current.total) })
+    : t("settings.downloading", { done: mb(current.downloaded) });
+}
+
+/**
+ * A box that can be acted on, not only read.
+ *
+ * The action runs here rather than in the store so that each box owns its own busy state: two
+ * of them on screen must not disable each other, and a failure belongs to the box that raised
+ * it. An actionable box gets the same treatment as an error -- no timeout, and a click on the
+ * body does not dismiss it -- because a click is how somebody starts selecting the version
+ * number, and losing the button that way is the whole feature failing.
+ */
+function ToastRow(props: { entry: Toast }) {
+  const entry = () => props.entry;
+  const [busy, setBusy] = createSignal(false);
+  const [progress, setProgress] = createSignal<UpdateProgress | null>(null);
+
+  /** Runs the box's action, and leaves the button live if it failed. */
+  async function runAction() {
+    const action = entry().action;
+    if (!action || busy()) return;
+    setBusy(true);
+    setProgress(null);
+    // Registered before the call: the first progress event can arrive while the command is
+    // still in flight, and a listener attached after it would miss the start of the download.
+    const stop = await api.onUpdateProgress(setProgress).catch(() => null);
+    try {
+      await action.run();
+      // On success the process is being replaced, so there is nothing to restore.
+    } catch (error) {
+      toast("error", t("settings.couldNotInstallUpdate"), describeError(error));
+    } finally {
+      stop?.();
+      setBusy(false);
+      setProgress(null);
+    }
+  }
+
+  const pinned = () => entry().kind === "error" || Boolean(entry().action);
+
+  return (
+    <div
+      class={`callout ${
+        entry().kind === "error"
+          ? "callout-danger"
+          : entry().kind === "warn"
+            ? "callout-warn"
+            : "callout-info"
+      }`}
+      style={{
+        "box-shadow": "0 10px 30px #00000090",
+        background: "var(--bg-raised)",
+        // An error is not dismissed by a click: a click is how you start selecting the
+        // text, and losing the message that way is the complaint this answers. The
+        // others still go away when clicked, which is what makes them unobtrusive.
+        cursor: pinned() ? "text" : "pointer",
+      }}
+      onClick={pinned() ? undefined : () => dismissToast(entry().id)}
+    >
+      <div
+        class="row-inline"
+        style={{
+          "justify-content": "space-between",
+          "align-items": "flex-start",
+          gap: "0.5rem",
+        }}
+      >
+        <strong>{entry().title}</strong>
+        <span class="row-inline" style={{ gap: "0.25rem", "flex-shrink": "0" }}>
+          <button
+            class="btn btn-ghost btn-sm"
+            title={t("common.copyMessage")}
+            onClick={(event) => {
+              event.stopPropagation();
+              void copyToast(entry());
+            }}
+          >
+            {t("common.copy")}
+          </button>
+          <Show when={pinned()}>
+            <button
+              class="btn btn-ghost btn-sm"
+              title={t("common.dismiss")}
+              onClick={(event) => {
+                event.stopPropagation();
+                dismissToast(entry().id);
+              }}
+            >
+              {t("common.close")}
+            </button>
+          </Show>
+        </span>
+      </div>
+      <Show when={entry().body}>
+        <div
+          class="small"
+          style={{
+            "margin-top": "0.25rem",
+            // Shown whole, and selectable: an error truncated to fit a corner is an
+            // error that cannot be pasted into a bug report.
+            "white-space": "pre-wrap",
+            "user-select": "text",
+            "max-height": "12rem",
+            overflow: "auto",
+          }}
+        >
+          {entry().kind === "error" ? entry().body : shortPath(entry().body ?? "", 220)}
+        </div>
+      </Show>
+      <Show when={entry().action}>
+        {(action) => (
+          <div class="row-inline" style={{ "margin-top": "0.5rem", "align-items": "center" }}>
+            <button
+              class="btn btn-primary btn-sm"
+              disabled={busy()}
+              onClick={(event) => {
+                event.stopPropagation();
+                void runAction();
+              }}
+            >
+              {busy() ? t("common.installing") : action().label}
+            </button>
+            <Show when={busy() && progressLine(progress())}>
+              <span class="hint">{progressLine(progress())}</span>
+            </Show>
+          </div>
+        )}
+      </Show>
+    </div>
+  );
+}
+
 export function Toasts() {
   return (
     <div
@@ -2326,81 +2463,7 @@ export function Toasts() {
         "max-width": "26rem",
       }}
     >
-      <For each={store.toasts}>
-        {(entry) => (
-          <div
-            class={`callout ${
-              entry.kind === "error"
-                ? "callout-danger"
-                : entry.kind === "warn"
-                  ? "callout-warn"
-                  : "callout-info"
-            }`}
-            style={{
-              "box-shadow": "0 10px 30px #00000090",
-              background: "var(--bg-raised)",
-              // An error is not dismissed by a click: a click is how you start selecting the
-              // text, and losing the message that way is the complaint this answers. The
-              // others still go away when clicked, which is what makes them unobtrusive.
-              cursor: entry.kind === "error" ? "text" : "pointer",
-            }}
-            onClick={
-              entry.kind === "error" ? undefined : () => dismissToast(entry.id)
-            }
-          >
-            <div
-              class="row-inline"
-              style={{
-                "justify-content": "space-between",
-                "align-items": "flex-start",
-                gap: "0.5rem",
-              }}
-            >
-              <strong>{entry.title}</strong>
-              <span class="row-inline" style={{ gap: "0.25rem", "flex-shrink": "0" }}>
-                <button
-                  class="btn btn-ghost btn-sm"
-                  title={t("common.copyMessage")}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    void copyToast(entry);
-                  }}
-                >
-                  {t("common.copy")}
-                </button>
-                <Show when={entry.kind === "error"}>
-                  <button
-                    class="btn btn-ghost btn-sm"
-                    title={t("common.dismiss")}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      dismissToast(entry.id);
-                    }}
-                  >
-                    {t("common.close")}
-                  </button>
-                </Show>
-              </span>
-            </div>
-            <Show when={entry.body}>
-              <div
-                class="small"
-                style={{
-                  "margin-top": "0.25rem",
-                  // Shown whole, and selectable: an error truncated to fit a corner is an
-                  // error that cannot be pasted into a bug report.
-                  "white-space": "pre-wrap",
-                  "user-select": "text",
-                  "max-height": "12rem",
-                  overflow: "auto",
-                }}
-              >
-                {entry.kind === "error" ? entry.body : shortPath(entry.body ?? "", 220)}
-              </div>
-            </Show>
-          </div>
-        )}
-      </For>
+      <For each={store.toasts}>{(entry) => <ToastRow entry={entry} />}</For>
     </div>
   );
 }
