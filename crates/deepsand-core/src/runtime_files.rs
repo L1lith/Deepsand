@@ -36,7 +36,23 @@ const SHIPPED: &[(&str, &[u8])] = &[
     ),
     ("bin/entrypoint.sh", include_bytes!("../../../runtime/bin/entrypoint.sh")),
     ("bin/ffdec.sh", include_bytes!("../../../runtime/bin/ffdec.sh")),
+    (
+        "bin/mcp-reverse.sh",
+        include_bytes!("../../../runtime/bin/mcp-reverse.sh"),
+    ),
     ("bin/netfilter.sh", include_bytes!("../../../runtime/bin/netfilter.sh")),
+    (
+        "bin/patch-deepcode-ink.mjs",
+        include_bytes!("../../../runtime/bin/patch-deepcode-ink.mjs"),
+    ),
+    (
+        "bin/patch-deepcode-mentions.mjs",
+        include_bytes!("../../../runtime/bin/patch-deepcode-mentions.mjs"),
+    ),
+    (
+        "bin/zero-breach.sh",
+        include_bytes!("../../../runtime/bin/zero-breach.sh"),
+    ),
     ("gitconfig", include_bytes!("../../../runtime/gitconfig")),
     ("scripts/build-image.mjs", include_bytes!("../../../runtime/scripts/build-image.mjs")),
     ("scripts/make-icon.mjs", include_bytes!("../../../runtime/scripts/make-icon.mjs")),
@@ -67,6 +83,14 @@ const SHIPPED: &[(&str, &[u8])] = &[
     (
         "skills/deepsand-ffdec/SKILL.md",
         include_bytes!("../../../runtime/skills/deepsand-ffdec/SKILL.md"),
+    ),
+    (
+        "skills/deepsand-mcp-reverse/SKILL.md",
+        include_bytes!("../../../runtime/skills/deepsand-mcp-reverse/SKILL.md"),
+    ),
+    (
+        "skills/deepsand-zero-breach/SKILL.md",
+        include_bytes!("../../../runtime/skills/deepsand-zero-breach/SKILL.md"),
     ),
 ];
 
@@ -132,6 +156,51 @@ pub fn audit(dir: &Path) -> Vec<Damage> {
         }
     }
     damage
+}
+
+/// The patches an image built from a runtime tree actually gets, and the Dockerfile line that
+/// applies each one.
+///
+/// A patch is two facts, not one. The script has to be in `bin/`, *and* the Dockerfile has to
+/// run it: a tree with both scripts and a Dockerfile that never calls them builds an image that
+/// looks current and behaves exactly like the bug the patches exist for. Checking only for the
+/// files would report "patched" for the half-state that `repair` can create -- it restores
+/// missing files from the binary, including these scripts, while a Dockerfile that *differs* is
+/// deliberately left alone.
+pub const TUI_PATCHES: [(&str, &str); 2] = [
+    ("ink-viewport-repaint", "patch-deepcode-ink.mjs --apply"),
+    ("mention-index-deferred", "patch-deepcode-mentions.mjs --apply"),
+];
+
+/// Which of [`TUI_PATCHES`] the tree on disk would actually apply.
+///
+/// This is the question behind a whole class of "the sandbox misbehaves and nothing says why":
+/// a window running an older build resolves an older `runtime/` next to its executable, hashes
+/// it into the tag, builds a current-looking image from stock scripts, and starts it. The
+/// terminal then scrolls -- upstream Ink's behaviour -- while every log line reads normally.
+/// Measured once, the hard way: the image carried no `deepsand.deepcode.patch` label at all and
+/// no patch script in `/usr/local/lib/deepsand/`.
+pub fn tui_patches(dir: &Path) -> Vec<&'static str> {
+    let dockerfile = std::fs::read_to_string(dir.join("Dockerfile")).unwrap_or_default();
+    TUI_PATCHES
+        .iter()
+        .filter(|(_, invocation)| dockerfile.contains(invocation))
+        .filter(|(_, invocation)| {
+            let script = invocation.split(' ').next().unwrap_or_default();
+            dir.join("bin").join(script).is_file()
+        })
+        .map(|(name, _)| *name)
+        .collect()
+}
+
+/// The patches [`tui_patches`] does not find: what that tree is missing, by name.
+pub fn missing_tui_patches(dir: &Path) -> Vec<&'static str> {
+    let present = tui_patches(dir);
+    TUI_PATCHES
+        .iter()
+        .map(|(name, _)| *name)
+        .filter(|name| !present.contains(name))
+        .collect()
 }
 
 /// Put the shipped bytes back for anything `audit` reports, and say what was repaired.
@@ -340,6 +409,59 @@ mod damage_tests {
             );
         }
         assert!(!SHIPPED.is_empty(), "the runtime is shipped, or this is all decoration");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The tree this repository builds from applies both TUI patches. Read from the artifact,
+    /// not from a copy: a Dockerfile that loses a `--apply` line while its script stays behind
+    /// builds an image that looks patched and behaves like the bug, and this is the only test
+    /// that looks at both halves together.
+    ///
+    /// `CARGO_MANIFEST_DIR` rather than `seccomp::runtime_dir`: a test runs from the crate
+    /// directory, where no `runtime/` resolves, and the subject here is the file in the
+    /// repository, not whichever tree the running process would pick.
+    #[test]
+    fn the_runtime_tree_this_build_ships_applies_both_tui_patches() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime");
+        assert_eq!(
+            tui_patches(&dir),
+            TUI_PATCHES.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+            "a patch that is not applied by {} is not in any image built from it",
+            dir.join("Dockerfile").display()
+        );
+        assert!(missing_tui_patches(&dir).is_empty());
+    }
+
+    /// The half-state `repair` can leave behind: the scripts are there (it restored them from
+    /// the binary) and the Dockerfile never runs them (a differing file is never touched). The
+    /// answer has to be "no patches", because that tree builds a stock image.
+    #[test]
+    fn a_script_the_dockerfile_never_runs_is_not_a_patch() {
+        let dir = scratch("half-patched");
+        std::fs::create_dir_all(dir.join("bin")).unwrap();
+        for (_, invocation) in TUI_PATCHES {
+            let script = invocation.split(' ').next().unwrap();
+            std::fs::write(dir.join("bin").join(script), "#!/usr/bin/env node\n").unwrap();
+        }
+        std::fs::write(dir.join("Dockerfile"), "FROM node:22-bookworm-slim\n").unwrap();
+
+        assert!(tui_patches(&dir).is_empty(), "the Dockerfile is what applies a patch");
+        assert_eq!(
+            missing_tui_patches(&dir),
+            TUI_PATCHES.iter().map(|(name, _)| *name).collect::<Vec<_>>()
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// What an installed build from before the patches looks like from the outside: no scripts,
+    /// no Dockerfile lines -- and the only sentence an operator needs is which patches are gone.
+    #[test]
+    fn a_tree_from_a_build_before_the_patches_reports_both_missing() {
+        let dir = scratch("stale");
+        std::fs::write(dir.join("Dockerfile"), "FROM node:22-bookworm-slim\n").unwrap();
+
+        let missing = missing_tui_patches(&dir);
+        assert_eq!(missing, vec!["ink-viewport-repaint", "mention-index-deferred"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

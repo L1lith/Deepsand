@@ -22,14 +22,16 @@ npm run app:dev         # app with hot reload
 
 | Command | What it does |
 | --- | --- |
-| `npm run app:dev` | Tauri app with hot reload |
+| `npm run app:dev` | Tauri app with hot reload. It first runs `scripts/free-port.mjs 1420`, because `strictPort` makes a vite left over from an interrupted run either a failed launch or, worse, a window on a stale bundle |
 | `npm run app:build` | platform installer |
 | `npm run core:test` | `cargo test -p deepsand-core` — 374 tests |
 | `npm run app:test` | `cargo test -p deepsand-app` — the app crate's own tests, including the zombie guard. Part of `npm test`: it was not, and tests that never run are decoration |
 | `npm run core:check` | `cargo check --workspace` |
 | `npm run clean:dev` | `cargo clean --profile dev` — reclaims accumulated debug artifacts without touching the release build |
 | `npm run test:bridge` | 55 checks of the MCP bridge against a simulated spool |
-| `npm test` | the two suites above, in order |
+| `npm run test:ink-patch` | the Ink renderer patch's own claims: applying it twice, refusing a shape it does not know, and — against a fake terminal — one viewport per repaint, no scrollback wipe, no scrolling, nothing lost. Also run at image build time; part of `npm test` so it cannot rot |
+| `npm run test:mentions-patch` | the mention-index patch's claims: applying it twice, refusing a shape it does not know, and — running the scanner out of the file being patched — real source found, `.github` found, a vendored `.toolchain` and a hidden symlink not. Also run at image build time (after the apply, because it measures the result) |
+| `npm test` | the four suites above, in order |
 | `npm run build` | `tsc --noEmit` + `vite build` (frontend typecheck) |
 | `npm run runtime:build` | build and tag the sandbox image |
 | `npm run runtime:icons` | regenerate `src-tauri/icons` from `assets/icon.png` |
@@ -51,10 +53,11 @@ npm run app:dev         # app with hot reload
 | `crates/deepsand-core/src/proxy.rs` | Allowlist egress; resolves names itself and refuses private results. |
 | `crates/deepsand-core/src/secrets.rs` | ChaCha20-Poly1305 secrets, keyed from the OS keystore. |
 | `crates/deepsand-core/src/tools.rs` | Tool catalogue and the image tag a selection produces. |
+| `crates/deepsand-core/src/image_gc.rs` | Which runtime images may be deleted, and the reason each one is kept. |
 | `crates/deepsand-core/src/remote.rs` | What a remote client may do. Kept separate from HTTP so it is testable. |
 | `crates/deepsand-core/src/seccomp.rs` | The profile's digest, the runtime-tree resolver, and the check that the applied profile is the shipped one. |
 | `crates/deepsand-core/tests/seccomp_profile.rs` | Claims about the profile itself: address families, `CLONE_NEW*` bits, the ptrace family. Reads the repo artifact, so no Docker needed. |
-| `crates/deepsand-core/src/bin/deepsandctl.rs` | Headless driver: `doctor`, `project`, `grants`, `plan`, `run`, `watch`, `requests`, `network`. |
+| `crates/deepsand-core/src/bin/deepsandctl.rs` | Headless driver: `doctor`, `project`, `grants`, `plan`, `run`, `watch`, `requests`, `network`, `images`. |
 | `src-tauri/src/commands.rs` | The ~30 desktop commands, and `runtime_revision`. |
 | `src-tauri/src/remote_server.rs` | HTTP translation of the command surface. Binds loopback, bearer token. |
 | `src-tauri/src/update.rs` | Self-updates: the check, the download, the restart. Our own commands, not the plugin's JS bindings. |
@@ -72,6 +75,8 @@ npm run app:dev         # app with hot reload
 | `src/i18n/*.json` | Every visible frontend string, as flat JSON bundles with identical keys and placeholders. Currently `en`, `zh`, `hi`, `es`, `ar`, `fr`, `ru`, `ja`, `ko`, `vi`, `pt`, `id`, `bn`, `sw`, `ha`, `yo`, `am`. |
 | `src/components/LanguagePicker.tsx` | The first-run selector and the overlay opened by **Settings → Language**. |
 | `runtime/` | Everything that runs **inside** the container. |
+| `runtime/bin/patch-deepcode-ink.mjs` | Disables Ink's overflow/fullscreen clear (which wipes the scrollback and rewrites the whole conversation) at image build time. |
+| `runtime/bin/patch-deepcode-mentions.mjs` | Builds the `@`-mention index after the first frame instead of during it, and skips hidden directories. |
 
 ## The invariants
 
@@ -620,6 +625,48 @@ These are load-bearing. Breaking one is how this project gets a CVE.
   predates the probe's label left five containers the label alone could never see. The inventory
   is bounded by `INVENTORY_LEASH`, not the command timeout -- a repeated sweep against a daemon
   that has stopped answering must not leave a blocked thread behind on every tick.
+
+  **Every image tag carries the runtime revision, so every build of a project abandons the
+  previous image.** `seccomp::project_image` appends `runtime_revision(runtime/)`, which hashes
+  `runtime/bin/*`, the Dockerfile, the profile and the skills. That is what forces a rebuild when
+  the runtime changes -- and it also means the image built yesterday can never be run again,
+  because the tag the app derives today is a different string. Each one is ~3 GB, nothing in the
+  window listed them, and this machine reached sixteen gigabytes of images and 37 GB of build
+  cache before anyone looked.
+
+  The rule is `image_gc::plan`, and it is one of those where being wrong is only noticed later:
+  an image kept costs disk, an image removed costs a rebuild (and, if the rule was wrong, a
+  sandbox that will not start). So it keeps an image that is **any** of: not Deepsand's at all
+  (never even considered), the tag some project resolves to *now* -- derived by `project_image`,
+  never re-derived here -- used by **any** container, running or stopped, ours or not, younger
+  than `IMAGE_GRACE_MS` (an hour, because a build takes minutes), or of unknown age (Docker would
+  not say when it was made, and unknown is not abandoned). Everything else is removed **by tag**
+  and never with `--force`: `rmi` refusing means a container took the image between the listing
+  and the removal, which is information, not an obstacle. The inventory is three CLI calls, not
+  one per image, and a daemon that does not answer is an **error**, never an empty plan -- "could
+  not ask" and "nothing to clean" must not look the same before a deletion.
+
+  It runs in three places, all best effort: four seconds after startup (after the container
+  sweep, so they do not queue on the same CLI), after a build that succeeded (which is the only
+  moment a *new* image can be orphaned while the app stays open), and `deepsandctl images
+  [--prune]`, which lists every image with the reason it would be kept. Deliberately not on the
+  sixty-second container timer: images change when something is built, not when something is
+  used. Untagged *intermediate* images are left alone -- they are build cache rather than
+  something this app created as an image, and `docker image prune` is the operator's tool for
+  those.
+
+  **The base tag is kept, and "image missing" asks about the runtime rather than that tag.**
+  `Keep::BaseBuild`: no project runs `<stem>` itself (they all run a derived tag), but
+  `runtime/scripts/build-image.mjs` builds it, prebuilding is a supported thing to do, and its
+  layers are shared with every derived tag -- so it is not abandoned and it survives the sweep.
+  The window's `image missing` badge used to be `image inspect <stem>`, which is the tag the app
+  never builds: while the base image existed the badge was meaningless, and once the sweep
+  correctly removed it the badge said "missing" **permanently**, with every project's own image
+  present. `Docker::probe` now lists tags and answers `tag_is_for_stem` (the stem, or anything
+  `<stem>-…`), the same call it was already paying for. Four places read that field --
+  `App.tsx` badge, the Activity panel, Settings and the terminal's callout -- and all four are
+  text, not a decision, so the change is safe; nothing may *skip a build* because of it, because
+  a missing derived tag is exactly what a Run builds.
 * **Attaching is the operator's action, and it is bounded.** What a dropped file becomes depends
   on where it came from, and `attachments::in_sandbox_path` is the one place that decides:
   * Inside the workspace **or a grant** it is *named* at the mount path (`/workspace/...`,
@@ -715,6 +762,17 @@ These are load-bearing. Breaking one is how this project gets a CVE.
   than resizing to nothing. Guarding only the window is not enough: the leak that matters is the
   one you did not think of.
 
+  **A project-list refresh is not a project switch.** The pane's attach effect must key on the
+  selected project *id*, not on `project()`: `refreshProjects()` replaces the whole `projects`
+  array on ordinary events (a session status change, a broker answer, a container sweep, Docker
+  coming back), so reading `project()` re-ran the effect and called `term.reset()` behind a TUI
+  that was still running. Ink keeps the number of lines it wrote and moves the cursor up that
+  many on the next frame; with the buffer cleared underneath it that arithmetic lands in the
+  wrong place and every repaint scrolls instead of overwriting -- the same endless scroll, from a
+  third direction. Put the id behind a `createMemo`: its `===` comparison means a new array
+  holding the same selected project does not notify the effect, so the terminal is left alone
+  when only the array identity changed.
+
   **The other half is the size the PTY is born with.** A Pane asks for its size on mount, which
   is *before* a Run and before every restart -- so the old `resize_session_impl` answered "no
   session, never mind", and the session later started at the hard-coded 40×120. If the pane was
@@ -722,9 +780,111 @@ These are load-bearing. Breaking one is how this project gets a CVE.
   screen instead of overwriting, and the status line stacked down it -- the same "scrolling itself
   over and over" from the outside, with no repeated resize to blame. `AppState::terminal_sizes`
   now remembers the last size per project even with no session, and `spawn_session` creates the
-  PTY at that size instead of the guess. Zero is ignored (a hidden pane is not a request for
-  1×1), and the size is clamped to `MAX_TERMINAL_ROWS`/`MAX_TERMINAL_COLS` because a console
-  allocates for what it is told. Do not remove the memory on stop: a restart needs it.
+  PTY at that size instead of the guess. A project whose pane has never been on screen has no
+  size of its own, so `last_terminal_size` keeps the last size *any* project reported: every
+  project shares one window, and that is a far better start than a constant. Zero is ignored (a
+  hidden pane is not a request for 1×1), and the size is clamped to
+  `MAX_TERMINAL_ROWS`/`MAX_TERMINAL_COLS` because a console allocates for what it is told. Do not
+  remove the memory on stop: a restart needs it.
+
+  **The pane must have the same box while stopped and while running.** The remembered size is
+  only as good as the pane that reported it, and the terminal pane's own layout used to change
+  with `running`: a `queue-note` bar appeared only while the session was running, took 45px
+  (three rows at the default font size) from the terminal *after* the PTY had been created, and
+  left the TUI drawing a three-rows-too-tall frame in the pane that had just shrunk. That was the
+  endless scroll the earlier size fixes kept missing. The bar is now always present -- a Run in
+  the stopped state, a Stop in the running one -- and its text is one ellipsised line so a longer
+  translation cannot wrap it into a second row and change the height again. Do not make anything
+  in the terminal pane's flex column conditional on `running`: the PTY is created before that
+  flag flips, so a running-only element is always a resize after the TUI has drawn. `terminal
+  born` at debug level prints the size the PTY was created with; compare it with `stty size` in
+  the container if this comes back.
+
+  **A correct PTY size is not enough: Ink's overflow path is a whole-conversation repaint.** The
+  CLI renders with Ink, and `renderInteractiveFrame` treats a frame at or over the viewport as
+  fullscreen: it writes `ESC[2J ESC[3J ESC[H` and `fullStaticOutput + output`. `[3J` clears the
+  scrollback, and the rewrite repeats on every status tick, so a tall live frame -- the
+  process-output panel is up to 30 rows, a session list or a long prompt is taller -- becomes tens
+  of megabytes of redraw and a terminal that cannot be scrolled. The stack from a live run ends in
+  `Ink.renderInteractiveFrame`, not in anything in this repository.
+
+  Removing the fallback is not the fix, and shipping that for a while is how this produced its
+  second bug: a frame taller than the viewport cannot be rewritten in place (its top is off
+  screen and `cursorUp` clamps at row 1), so Ink took the erase-and-rewrite path, wrote the frame
+  seven lines lower each tick, and pushed a slightly different copy of it into the scrollback --
+  the same status message, over and over, with minute changes, and the screen itself looked
+  fine. **The fallback has to stay; what it writes is what was wrong.** The patch keeps
+  `shouldClearTerminalForFrame` exactly as shipped and replaces the clear branch with: `ESC[H`
+  `ESC[2J` and never `[3J`; the frame's last `rows` lines when it is taller than the screen (the
+  same lines upstream leaves visible); the last screenful of history restored above the frame
+  when it fits again; and `log.sync()` told exactly what was drawn. One invariant:
+  **a repaint writes at most one viewport and never scrolls.** The normal path is left
+  byte-identical, and `--check` asserts that, so a change to it cannot hide in this patch.
+
+  `runtime/bin/patch-deepcode-ink.mjs` does the work; the DeepCode layer runs `--self-test`,
+  `--apply` then `--check`, and a renderer whose shape the patch does not recognize fails the
+  build. It also reverts the superseded predicate-only patch, because a rebuild whose
+  `npm install` cannot reach the registry keeps the CLI copy the image already has.
+  `runtime_revision` covers `runtime/bin/*`, so changing the patch changes the image tag. Do not
+  turn an apply failure into a warning, and do not "fix" this from the frontend by resizing the
+  PTY: the size was already right in the runs that reproduced both bugs.
+
+  **An image can be current and unpatched, because the tree is the one *this window* resolved.**
+  `seccomp::runtime_dir()` prefers `DEEPSAND_RUNTIME_DIR`, then `./runtime`, then the one beside
+  the executable -- which for an **installed** build is the snapshot its installer shipped. So an
+  installed window from before the TUI patches derives a tag from *its* tree (here
+  `r708c47d8b82ea923`), builds an image from stock scripts, and runs it: the terminal scrolls on
+  every repaint, exactly the bug the Ink patch fixes, while the log reads normally and the tag
+  looks like any other. That is what happened when the installed build was launched instead of
+  the one from the repository, and it cost a session of staring at a scrolling terminal. Two
+  things now say so without a Docker call: `deepsandctl doctor` prints the tree, its revision and
+  which patches it applies (`NO TUI PATCHES: missing ink-viewport-repaint, ...`), and every start
+  logs the tree at INFO or a warning naming what is missing --
+  `runtime_files::{tui_patches, missing_tui_patches}`, where a patch counts only if the script
+  exists **and** the Dockerfile runs it. When the symptom is "the old bug is back", read that
+  line before re-reading the patch: `deepsandctl doctor` with `DEEPSAND_RUNTIME_DIR` set to the
+  suspect tree answers it in one command, and the revision it prints is the one in the tag.
+
+  **A blank terminal with no status bar is the prompt's own index walk, not the renderer.**
+  When a project "refuses to run" -- an empty pane, no input box, no cursor, and nothing on
+  screen for minutes -- the CLI has not painted its *first* frame yet, and the reason is
+  upstream's: `PromptInput` builds the `@`-mention index in a `useState` **initialiser**, which
+  runs during the first render, by walking the whole workspace. On a normal filesystem that is
+  milliseconds. Inside this sandbox the workspace is a Docker Desktop bind mount, where one
+  entry costs milliseconds -- measured here, `find` over 39,192 entries took **2m35s**, and the
+  CLI emitted nothing but the entrypoint's banner for the first ~90 seconds of a resume. The
+  process is not spinning: it sits in `request_wait_answer`, the FUSE wait, inside
+  `getdents64`, which is how this was identified (the `node` process's `/proc/<pid>/syscall`
+  read as uid 1000 names both). Nothing about it is project-specific except that this workspace
+  carries a 31,000-file `.toolchain` and a 5,600-file `target/`, and nothing about it is
+  session-specific except that every run pays it.
+
+  Two fixes, both in `runtime/bin/patch-deepcode-mentions.mjs`, and each is defensible alone.
+  **Starting the index empty is enough**, because three lines below the initialiser upstream
+  already runs the same scan in a mount effect (`refreshFileMentionItems`) -- and again when the
+  agent goes idle and when a mention token first appears -- so the initialiser was doing the
+  same work a task too early, before Ink could paint. **And the walk must not descend into
+  dot-directories**: `.toolchain`, `.cargo`, `.venv`, `.npm` are tool state, and because the
+  cap is on *items* (20,000) a vendored toolchain consumed the budget so that `ui/` and
+  `crates/` were never indexed at all -- `@` completion was slow *and* wrong. Hidden
+  directories are skipped except the ones that hold source (`.github`, `.vscode`,
+  `.devcontainer`, `.storybook`, `.well-known`, `.deepcode`, `.claude`); hidden *files* still
+  appear, so `.env.example` remains mentionable. The index is a completion aid, so this removes
+  nothing from the sandbox: the model can still read any path it names.
+
+  Measured after the patch, same image, same conversation, same workspace: the input box is on
+  screen **within one second**, against ~90-120 before. The patch refuses a bundle whose shape
+  it does not know, and refuses when the mount effect has gone (starting empty would then mean
+  never having an index), so a changed CLI fails the build rather than shipping a session whose
+  `@` completion silently does nothing. `--self-test` runs the scanner *out of the file being
+  patched* against a temporary tree, which is why the Dockerfile runs `--apply`, `--check`, then
+  `--self-test` for this patch and the reverse order for the Ink one.
+
+  **A slow mount is the cause, and it is measurable from the host.** `MSYS2_ARG_CONV_EXCL='*'
+  docker run --rm -v "<project>:/w:ro" alpine sh -c 'time find /w -type f | wc -l'` answers it
+  in one command: seconds is healthy, minutes is the sharing layer, and `docker image prune` or
+  a renderer fix will not touch it. Do not read a stalled bind mount as a bug in the CLI's
+  logic -- the same CLI on a named volume renders immediately.
 
   **A start is not "no session", and a write is not the place to hold the map.** `docker run -t`
   asks the terminal for a cursor position as soon as the PTY exists and waits for the answer;
@@ -738,7 +898,9 @@ These are load-bearing. Breaking one is how this project gets a CVE.
   used to hold `AppState::sessions` across `write_all`, so a PTY whose reader had stopped
   accepting input took the Stop and Resize paths down with it -- the window sat on "Stopping..."
   while the operator held Ctrl+C into an already-wedged terminal. Clone `Session::writer()`, drop
-  the map lock, then write.
+  the map lock, then write. A resize is the same kind of call: clone
+  `Session::resize_handle()` out of the map, drop the map, then resize, or a ConPTY that has
+  stopped answering takes Stop and the next start down with it.
 
   **A stop is bounded by the operator's patience, not by `COMMAND_TIMEOUT`.** `remove_container`
   and the stop-time thaw now use `REMOVAL_LEASH` (15 s per step). A removal that the daemon

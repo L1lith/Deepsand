@@ -123,6 +123,12 @@ pub enum ToolCategory {
     /// from the utilities and capabilities around them, and an operator looking for one
     /// should not have to scan the package managers to find it.
     ReverseEngineering,
+    /// Tools whose question is about a device or a person rather than an artifact: is there
+    /// evidence this machine or this phone was tampered with, and what could not be checked.
+    /// Separate from Reverse Engineering because the two are chosen at different moments and
+    /// read differently -- a decompiler's output is a program, a triage report's output is a
+    /// decision about what to do next.
+    CyberSecurity,
 }
 
 impl ToolCategory {
@@ -133,6 +139,7 @@ impl ToolCategory {
             ToolCategory::PackageManager => "Package managers",
             ToolCategory::Capability => "Capabilities",
             ToolCategory::ReverseEngineering => "Reverse Engineering",
+            ToolCategory::CyberSecurity => "Cyber Security",
         }
     }
 
@@ -141,17 +148,20 @@ impl ToolCategory {
     /// Stated rather than inherited from the catalogue: sections used to appear in the order
     /// their first tool happened to be appended, which is the history of the file rather than a
     /// decision. Capabilities lead because they are what an operator comes here to add -- a
-    /// browser, a screen, the web; utilities and the reverse-engineering suites close, because
-    /// they are chosen for one job and usually already known by name.
+    /// browser, a screen, the web; utilities and the two analysis sections close, because they
+    /// are chosen for one job and usually already known by name. Cyber Security follows Reverse
+    /// Engineering: an operator who has an artifact to understand looks above it, and one who is
+    /// worried about a device looks below it, and the two answers are not interchangeable.
     ///
     /// A category missing from this list sorts last rather than disappearing, so adding one
     /// shows up as a section in the wrong place instead of a section nobody ever sees.
-    pub const DISPLAY_ORDER: [ToolCategory; 5] = [
+    pub const DISPLAY_ORDER: [ToolCategory; 6] = [
         ToolCategory::Capability,
         ToolCategory::Language,
         ToolCategory::PackageManager,
         ToolCategory::Utility,
         ToolCategory::ReverseEngineering,
+        ToolCategory::CyberSecurity,
     ];
 
     /// Where this category sits in the panel.
@@ -244,6 +254,25 @@ pub const FFDEC_MCP_JAR: &str = "/usr/local/share/ffdec-mcp/ffdec-mcp.jar";
 /// MCP surface does not expose (bulk exports, SWF/XML conversion).
 pub const FFDEC_CLI_JAR: &str = "/usr/local/share/ffdec/ffdec-cli.jar";
 
+/// Where the image installs the `mcp-reverse` server: the compiled JavaScript, the skill
+/// database it searches and the signatures it starts from. This tree is image content and is
+/// never written to; the wrapper below copies it into the state volume, because the server
+/// writes beside its own code and the root filesystem is read-only.
+pub const MCP_REVERSE_ROOT: &str = "/usr/local/share/mcp-reverse";
+/// The Node runtime the server runs on. It is deliberately *not* the image's `node`:
+/// mcp-reverse 5.x requires Node 24, where `node:sqlite` is stable, and the base image is
+/// Node 22, where opening the skills database needs an experimental flag. Pinning the second
+/// runtime keeps the requirement local to the tool the way ffdec pins its JDK.
+pub const MCP_REVERSE_NODE: &str = "/opt/node24/bin/node";
+/// The server's entry point, as the pinned source build leaves it.
+pub const MCP_REVERSE_ENTRY: &str = "/usr/local/share/mcp-reverse/dist/index.js";
+/// The launcher the generated settings name. It materialises the working copy and then execs
+/// the pinned runtime, so `mcpServers.mcp-reverse` has one command to start.
+pub const MCP_REVERSE_LAUNCHER: &str = "/usr/local/bin/mcp-reverse";
+/// Where the launcher puts the working copy: the per-project state volume, not `/tmp`, because
+/// the server's decompile cache, memory store and agent mesh are meant to outlive a container.
+pub const MCP_REVERSE_STATE_DIR: &str = "/home/deepcode/.deepcode/mcp-reverse";
+
 impl Tool {
     /// The MCP server this tool provides, or `None` when it only installs a program.
     ///
@@ -273,6 +302,16 @@ impl Tool {
                 args: &["-Djava.awt.headless=true", "-jar", FFDEC_MCP_JAR],
                 env: &[],
             }),
+            // The launcher, not the pinned runtime: it is what puts the server's writable
+            // working copy in the state volume before exec'ing, and settings only get one
+            // command. Its environment is set there for the same reason -- the paths it
+            // prepares and the paths the server reads have to be the same string.
+            "mcp-reverse" => Some(McpServer {
+                name: "mcp-reverse",
+                command: MCP_REVERSE_LAUNCHER,
+                args: &[],
+                env: &[],
+            }),
             _ => None,
         }
     }
@@ -293,6 +332,8 @@ impl Tool {
             "rea" => Some("https://github.com/morluto/rea"),
             "dejared" => Some("https://github.com/hqkh4nh/dejared-mcp"),
             "ffdec" => Some("https://github.com/Xeleron/ffdec-mcp"),
+            "mcp-reverse" => Some("https://github.com/1llu50ry/mcp-reverse"),
+            "zero-breach" => Some("https://github.com/interplains/Zero-Breach-Toolkit"),
             "node" => Some("https://nodejs.org/"),
             "npm" => Some("https://www.npmjs.com/"),
             "xvfb" => Some("https://www.x.org/"),
@@ -424,6 +465,38 @@ pub const CATALOG: &[Tool] = &[
         // reads local SWF files and writes the output paths the operator asks for.
         hosts: &[],
         cost: Some("Adds a Java 25 runtime, the FFDec MCP server and the JPEXS FFDec CLI: about 230 MB and a minute to the next build."),
+        base: Base::Debian,
+    },
+    Tool {
+        id: "mcp-reverse",
+        label: "mcp-reverse (RE workbench)",
+        description: "A reverse-engineering workbench behind one MCP server: native PE, ELF, Mach-O, DEX, .NET, Unity and Unreal parsers, entropy and packer triage, YARA rules, x86-64 and ARM64 disassembly and emulation, string decryption, function diffing, and a searchable 4,200-skill knowledge base with an agent mesh and a decompiler hub. The native parsers run inside this sandbox; the Ghidra, IDA, Binary Ninja, x64dbg and Frida bridges need tools running on the operator's machine and report themselves unavailable here.",
+        category: ToolCategory::ReverseEngineering,
+        // No package registry carries this project: the name on npm is an unrelated, much
+        // older package, so the image builds the pinned GitHub tag and owns the install.
+        provider: Provider::Source,
+        package: "",
+        // Deliberately empty. Target binaries are local files, and the decompiler bridges
+        // point at `localhost` inside the sandbox; enabling this tool must not widen egress.
+        hosts: &[],
+        cost: Some("Adds a pinned Node 24 runtime, the server and its 18 MB skill database: about 170 MB and two minutes to the next build."),
+        base: Base::Debian,
+    },
+    /* --- cyber security --------------------------------------------------- */
+    Tool {
+        id: "zero-breach",
+        label: "Zero Breach (spyware triage)",
+        description: "Offline triage for published mercenary-spyware indicators -- Pegasus, Predator, Graphite, Candiru and others. Given access to a computer it checks that computer as a whole: browser history, cookies and caches, file SHA-256 against published sample hashes, hosts entries, DNS records and startup entries; pointed at a phone it reads an AndroidQF collection, an iPhone backup, an extracted file system or a sysdiagnose, and pointed at a folder it checks only those files. It reports what it could not check as a gap rather than as clean. Scans are read-only, need no administrator and make no network request, and the indicator sets are downloaded when this image is built. In this sandbox it can only read what is mounted, so a whole-computer scan is one the operator runs on that computer. Made by @archive.genocide on Instagram.",
+        category: ToolCategory::CyberSecurity,
+        // No package on any index: the image builds the pinned GitHub tag. The indicator
+        // sets are downloaded during the build, which is why they are recorded in the image.
+        provider: Provider::Source,
+        package: "",
+        // Deliberately empty, and load-bearing: a scan must never resolve or contact an
+        // indicator, and the toolkit refuses to. The sets it searches are downloaded at
+        // build time, so enabling this tool opens nothing at run time.
+        hosts: &[],
+        cost: Some("Adds Python 3, the toolkit and its downloaded indicator sets: about 50 MB, and a minute to the next build."),
         base: Base::Debian,
     },
     /* --- capabilities ----------------------------------------------------- */
@@ -898,7 +971,7 @@ mod tests {
             sections,
             ToolCategory::DISPLAY_ORDER.to_vec(),
             "every section present, in this order: capabilities, languages, package managers, \
-             utilities, reverse engineering"
+             utilities, reverse engineering, cyber security"
         );
 
         // Inside a section, the catalogue's own order is kept.
@@ -924,7 +997,7 @@ mod tests {
     fn every_tool_the_operator_asked_for_exists() {
         for id in [
             "git", "npm", "node", "python", "cargo", "go", "brew", "nix", "apt", "apk", "wrangler",
-            "xvfb", "puppeteer", "rea", "dejared", "ffdec",
+            "xvfb", "puppeteer", "rea", "dejared", "ffdec", "mcp-reverse", "zero-breach",
         ] {
             assert!(find(id).is_some(), "{id} is missing from the catalogue");
         }
@@ -940,8 +1013,57 @@ mod tests {
             .filter(|tool| tool.category == ToolCategory::ReverseEngineering)
             .map(|tool| tool.id)
             .collect();
-        assert_eq!(ids, ["rea", "dejared", "ffdec"]);
+        assert_eq!(ids, ["rea", "dejared", "ffdec", "mcp-reverse"]);
         assert_eq!(ToolCategory::ReverseEngineering.label(), "Reverse Engineering");
+    }
+
+    /// The Cyber Security section is its own group, it sits after Reverse Engineering, and its
+    /// one tool is a read-only scanner that opens no network path. The last part is not a
+    /// preference: the toolkit's own rule is that a scanner must never resolve or contact an
+    /// indicator, and the sets it searches are downloaded when the image is built.
+    #[test]
+    fn the_cyber_security_section_follows_reverse_engineering_and_opens_no_egress() {
+        let ids: Vec<&str> = CATALOG
+            .iter()
+            .filter(|tool| tool.category == ToolCategory::CyberSecurity)
+            .map(|tool| tool.id)
+            .collect();
+        assert_eq!(ids, ["zero-breach"]);
+        assert_eq!(ToolCategory::CyberSecurity.label(), "Cyber Security");
+
+        let ranks: Vec<usize> = [
+            ToolCategory::ReverseEngineering,
+            ToolCategory::CyberSecurity,
+        ]
+        .iter()
+        .map(|category| category.display_rank())
+        .collect();
+        assert!(
+            ranks[0] < ranks[1],
+            "Cyber Security is asked for after Reverse Engineering, so its rank has to be larger"
+        );
+
+        let tool = find("zero-breach").expect("zero-breach is in the catalogue");
+        assert_eq!(tool.provider, Provider::Source);
+        assert_eq!(tool.package, "", "the source step owns the install");
+        assert!(
+            tool.hosts.is_empty(),
+            "a scan must never resolve an indicator; the indicator sets are built into the image"
+        );
+        assert!(
+            tool.mcp_server().is_none(),
+            "zero-breach is a CLI the agent runs, not an MCP server"
+        );
+        assert_eq!(tool.base, Base::Debian);
+        assert!(
+            tool.description.contains("as a whole"),
+            "the row has to say the toolkit checks a whole computer when it has access to one; \
+             it is built for that, and the sandbox's narrower view is a limit of the sandbox"
+        );
+        assert!(
+            tool.description.contains("@archive.genocide"),
+            "the author is named in the row: the attribution is theirs, not a nicety"
+        );
     }
 
     /// REA is a reverse-engineering toolkit, and the whole point of putting it in this
@@ -999,6 +1121,47 @@ mod tests {
         assert_eq!(
             server.args,
             ["-Djava.awt.headless=true", "-jar", FFDEC_MCP_JAR]
+        );
+    }
+
+    /// mcp-reverse is another source build, and it has one requirement the image does not
+    /// meet: the server opens its skills database through `node:sqlite`, which needs Node 24
+    /// to be stable. The base image is Node 22, so the tool brings its own runtime rather
+    /// than making every image newer for a tool most projects will not select. The launcher
+    /// is the single command settings get, and it is the thing that materialises the
+    /// writable working copy -- the server writes its database's side files, its caches and
+    /// its audit log beside its own code, and the root filesystem is read-only.
+    #[test]
+    fn mcp_reverse_is_a_source_build_with_its_own_runtime_and_a_writable_copy() {
+        let tool = find("mcp-reverse").expect("mcp-reverse is in the catalogue");
+        assert_eq!(tool.provider, Provider::Source);
+        assert_eq!(tool.package, "", "the source step owns the install, not a provider");
+        assert!(
+            tool.hosts.is_empty(),
+            "target binaries are local files; enabling this tool must not widen egress"
+        );
+        assert_eq!(tool.category, ToolCategory::ReverseEngineering);
+        assert_eq!(tool.base, Base::Debian);
+
+        let server = tool.mcp_server().expect("mcp-reverse ships a server");
+        assert_eq!(server.name, "mcp-reverse");
+        assert_eq!(
+            server.command, MCP_REVERSE_LAUNCHER,
+            "settings name the launcher; it is what prepares the writable copy before exec"
+        );
+        assert!(server.args.is_empty(), "the launcher takes the entry point from the image");
+        assert!(
+            server.env.is_empty(),
+            "the launcher sets the paths it also creates, so the two cannot disagree"
+        );
+
+        // The pinned runtime is not the image's node, and the entry point is inside the
+        // image tree the launcher copies from.
+        assert_eq!(MCP_REVERSE_NODE, "/opt/node24/bin/node");
+        assert!(MCP_REVERSE_ENTRY.starts_with(MCP_REVERSE_ROOT));
+        assert!(
+            MCP_REVERSE_STATE_DIR.starts_with("/home/deepcode/.deepcode/"),
+            "the working copy belongs in the per-project state volume, which outlives a container"
         );
     }
 

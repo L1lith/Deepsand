@@ -41,14 +41,63 @@ impl SessionOptions {
 
 /// A live pseudo-terminal attached to the sandbox container.
 pub struct Session {
-    master: Box<dyn MasterPty + Send>,
+    /// The resize half, shared so a resize can be performed after the session map is dropped.
+    ///
+    /// `resize` is a ConPTY call and can block the same way a write can. The map is what
+    /// Stop, a start and every other resize need, so holding it across this call makes one
+    /// wedged terminal take the whole session down with it.
+    master: std::sync::Arc<std::sync::Mutex<Box<dyn MasterPty + Send>>>,
     writer: std::sync::Arc<std::sync::Mutex<Box<dyn Write + Send>>>,
     killer: Box<dyn ChildKiller + Send + Sync>,
     description: String,
     /// The size the terminal was last given, or `None` before anything asked.
     ///
     /// Kept so the same size is never sent twice: see `resize_is_needed`.
-    size: std::sync::Mutex<Option<(u16, u16)>>,
+    size: std::sync::Arc<std::sync::Mutex<Option<(u16, u16)>>>,
+}
+
+/// The terminal's resize side, without the session map.
+///
+/// Cloned out of a `Session` while the map is held, then used after the map is released. That
+/// ordering is the point: a PTY that has stopped accepting a resize must not be able to block
+/// the operations the window needs to recover from it.
+#[derive(Clone)]
+pub struct ResizeHandle {
+    master: std::sync::Arc<std::sync::Mutex<Box<dyn MasterPty + Send>>>,
+    size: std::sync::Arc<std::sync::Mutex<Option<(u16, u16)>>>,
+}
+
+impl ResizeHandle {
+    /// Resize the terminal, once per size.
+    pub fn resize(&self, rows: u16, cols: u16) -> Result<()> {
+        let wanted = applied_size(rows, cols);
+        {
+            let last = self.size.lock().unwrap_or_else(|p| p.into_inner());
+            if !resize_is_needed(*last, rows, cols) {
+                return Ok(());
+            }
+        }
+        self.master
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .resize(PtySize {
+                rows: wanted.0,
+                cols: wanted.1,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|err| SandboxError::Broker(format!("could not resize the terminal: {err}")))?;
+        // Recorded only once the terminal took it, so a failed resize is retried by the next
+        // request rather than being remembered as applied.
+        let mut last = self.size.lock().unwrap_or_else(|p| p.into_inner());
+        *last = Some(wanted);
+        // Debug rather than info: dragging a window legitimately resizes once a frame for a
+        // moment, and this line is only interesting when the sizes churn on their own.
+        // `RUST_LOG=deepsand=debug` is what turns it on, and that is the first thing to reach for
+        // if a terminal ever starts repainting itself again.
+        tracing::debug!(rows = wanted.0, cols = wanted.1, "terminal resized");
+        Ok(())
+    }
 }
 
 /// The size a resize would actually apply.
@@ -212,11 +261,14 @@ impl Session {
             .map_err(|err| SandboxError::Broker(format!("could not start the PTY waiter thread: {err}")))?;
 
         Ok(Self {
-            master,
+            master: std::sync::Arc::new(std::sync::Mutex::new(master)),
             writer,
             killer,
             description,
-            size: std::sync::Mutex::new(Some(applied_size(options.rows, options.cols))),
+            size: std::sync::Arc::new(std::sync::Mutex::new(Some(applied_size(
+                options.rows,
+                options.cols,
+            )))),
         })
     }
 
@@ -243,31 +295,19 @@ impl Session {
     /// (see `safeFit` in the terminal pane), and this is the half that holds even when something
     /// else starts asking -- a layout pass, an observer, or a future caller that has not read this.
     pub fn resize(&self, rows: u16, cols: u16) -> Result<()> {
-        let wanted = applied_size(rows, cols);
-        {
-            let last = self.size.lock().unwrap_or_else(|p| p.into_inner());
-            if !resize_is_needed(*last, rows, cols) {
-                return Ok(());
-            }
+        self.resize_handle().resize(rows, cols)
+    }
+
+    /// A resize side that can outlive a lock on the session map.
+    ///
+    /// See `ResizeHandle`: the caller clones this while the map is held, drops the map, and
+    /// only then makes the ConPTY call. The map is what Stop and a start need, and a terminal
+    /// that has stopped accepting a resize must not be able to block them.
+    pub fn resize_handle(&self) -> ResizeHandle {
+        ResizeHandle {
+            master: std::sync::Arc::clone(&self.master),
+            size: std::sync::Arc::clone(&self.size),
         }
-        self.master
-            .resize(PtySize {
-                rows: wanted.0,
-                cols: wanted.1,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .map_err(|err| SandboxError::Broker(format!("could not resize the terminal: {err}")))?;
-        // Recorded only once the terminal took it, so a failed resize is retried by the next
-        // request rather than being remembered as applied.
-        let mut last = self.size.lock().unwrap_or_else(|p| p.into_inner());
-        *last = Some(wanted);
-        // Debug rather than info: dragging a window legitimately resizes once a frame for a
-        // moment, and this line is only interesting when the sizes churn on their own.
-        // `RUST_LOG=deepsand=debug` is what turns it on, and that is the first thing to reach for
-        // if a terminal ever starts repainting itself again.
-        tracing::debug!(rows = wanted.0, cols = wanted.1, "terminal resized");
-        Ok(())
     }
 
     pub fn command_line(&self) -> &str {

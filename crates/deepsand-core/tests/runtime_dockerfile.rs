@@ -377,6 +377,8 @@ fn a_tools_skill_is_installed_only_into_an_image_built_with_that_tool() {
         ("rea", "deepsand-rea"),
         ("dejared", "deepsand-dejared"),
         ("ffdec", "deepsand-ffdec"),
+        ("mcp-reverse", "deepsand-mcp-reverse"),
+        ("zero-breach", "deepsand-zero-breach"),
     ] {
         let copy_step = format!("cp -a /usr/local/share/deepsand/skills/{skill}");
         let copy = text
@@ -748,4 +750,437 @@ fn every_skill_on_disk_is_installed_by_the_dockerfile() {
              nobody can load"
         );
     }
+}
+
+/// Ink's fullscreen/overflow fallback clears the screen and the scrollback and rewrites the
+/// whole static conversation on every render. A live frame at or over the viewport -- the
+/// process-output panel, a long prompt, a session list -- keeps it running on every status tick:
+/// the screen cannot be read or scrolled and the PTY sees tens of megabytes of rewritten
+/// conversation. `runtime/bin/patch-deepcode-ink.mjs` keeps the fallback and replaces what it
+/// writes with one viewport: `ESC[H` `ESC[2J` and never `ESC[3J`, the frame's last `rows` lines
+/// while it is taller than the screen, and the last screenful of history restored above it when
+/// it fits again.
+///
+/// The patch has to run *after* the CLI is installed, and `--check` has to run after `--apply`;
+/// an apply that found nothing and a check that was never reached both look like a successful
+/// build. If the bundled renderer changes shape, the apply fails the build rather than shipping
+/// an image that silently still repaints the conversation.
+#[test]
+fn the_deepcode_layer_applies_and_verifies_the_ink_overflow_patch() {
+    let text = dockerfile();
+    let install = text
+        .find("deepcode --version")
+        .expect("the DeepCode layer reports the installed version");
+    let self_test = text
+        .find("patch-deepcode-ink.mjs --self-test")
+        .expect("the patch has to prove its decision rule before touching the installed CLI");
+    let apply = text
+        .find("patch-deepcode-ink.mjs --apply")
+        .expect("the DeepCode layer has to apply the Ink overflow patch");
+    let check = text
+        .find("patch-deepcode-ink.mjs --check")
+        .expect("the DeepCode layer has to verify the patch it applied");
+
+    assert!(
+        install < self_test,
+        "the patch self-test runs before the CLI is installed; it does not need the CLI, but the order should still be install, test, apply"
+    );
+    assert!(
+        self_test < apply,
+        "the patch self-test has to run before the apply: a broken rule must stop the build before it edits the CLI"
+    );
+    assert!(
+        install < apply,
+        "the patch is applied before the CLI is installed: it would patch an older copy, or none"
+    );
+    assert!(
+        apply < check,
+        "the patch check runs before the apply: it would verify the unpatched copy"
+    );
+    assert!(
+        text.contains("deepsand.deepcode.patch=\"ink-viewport-repaint,mention-index-deferred\""),
+        "the image has to record which patches it carries, so an auditor can tell"
+    );
+}
+
+/// The prompt's `@`-mention index is built in a `useState` initialiser -- during the first
+/// render, before Ink has a frame to paint -- by walking the whole workspace, and it descends
+/// into dot-directories. On the sandbox's bind mount an entry costs milliseconds, so a workspace
+/// with a vendored toolchain painted nothing for minutes, and the item cap was exhausted before
+/// any real source was indexed. `runtime/bin/patch-deepcode-mentions.mjs` starts that state empty
+/// (the mount effect below the initialiser already fills it after the first frame) and skips
+/// hidden directories.
+///
+/// The order here is different from the Ink patch on purpose: this one's semantic self-test
+/// measures the *patched* scanner, so it is only meaningful after `--apply`.
+#[test]
+fn the_deepcode_layer_defers_the_mention_index_until_after_the_first_frame() {
+    let text = dockerfile();
+    let apply = text
+        .find("patch-deepcode-mentions.mjs --apply")
+        .expect("the DeepCode layer has to defer the mention index");
+    let check = text
+        .find("patch-deepcode-mentions.mjs --check")
+        .expect("the DeepCode layer has to verify the mention patch it applied");
+    let self_test = text
+        .find("patch-deepcode-mentions.mjs --self-test")
+        .expect("the mention patch has to measure the scanner it just patched");
+
+    assert!(
+        apply < check && check < self_test,
+        "the mention patch runs apply, then check, then the self-test that measures the result; \
+         a check before the apply verifies the unpatched copy"
+    );
+    let ink = text
+        .find("patch-deepcode-ink.mjs --apply")
+        .expect("the Ink patch is applied too");
+    assert!(
+        ink < apply,
+        "the Ink patch runs first, so a renderer shape it does not know stops the build before a \
+         second patch begins"
+    );
+}
+
+/// mcp-reverse has no package to install -- the `mcp-reverse` name on npm is an unrelated,
+/// much older project -- and it needs a newer Node than the image carries. The build therefore
+/// downloads both pinned, builds the server with that runtime's own npm, and proves before the
+/// image is declared built that it starts. All three are the difference between a tool that
+/// works and an image that says it has one.
+#[test]
+fn the_mcp_reverse_build_is_pinned_verified_and_gated() {
+    let text = dockerfile();
+
+    assert!(
+        text.contains("*,mcp-reverse,*)"),
+        "the source build has to be gated on the mcp-reverse tool"
+    );
+    assert!(
+        text.contains("mcp-reverse/archive/refs/tags/v${MCPR_VERSION}.tar.gz"),
+        "the server is built from a pinned tag, not from main"
+    );
+    assert!(
+        text.contains("MCPR_VERSION=5.0.1"),
+        "the tag has to be one literal, because the stamp the launcher compares is derived from it"
+    );
+    assert!(
+        text.contains("node-v24.20.0-linux-x64.tar.xz"),
+        "the server needs Node 24 for a stable node:sqlite; the base image's Node 22 is not \
+         enough, so the tool pins its own runtime"
+    );
+    assert!(
+        text.contains("\"$MCPR_TMP/src/node_modules/@modelcontextprotocol/sdk/package.json\""),
+        "the build has to check the dependency tree it is about to ship"
+    );
+    assert!(
+        text.contains("npm prune --omit=dev"),
+        "TypeScript and tsx are build inputs; leaving them in doubles the copy the launcher makes"
+    );
+    assert!(
+        text.contains("cp -a \"$MCPR_TMP/src/.\" /usr/local/share/mcp-reverse/"),
+        "the image has to carry the whole built tree: the server reads its own directory for the \
+         skills database, the signature store and the docs its wiki check walks, and a \
+         hand-picked copy list is a silent second answer to what it may read"
+    );
+
+    // The launcher is what settings name, so the run that proves the tool works goes through it,
+    // as the sandbox user, with a scratch state directory -- never the project's volume, which is
+    // mounted at run time, and never the image tree, which is read-only then.
+    assert!(
+        text.contains(
+            "setpriv --reuid=1000 --regid=1000 --clear-groups \\\n          env DEEPSAND_MCP_REVERSE_DIR="
+        ),
+        "the startup check has to run the launcher as the sandbox user against a scratch state \
+         directory"
+    );
+    assert!(
+        text.contains("/usr/local/bin/mcp-reverse"),
+        "the check has to start the launcher, because that is the command settings.json names"
+    );
+    assert!(
+        text.contains("\"serverInfo\""),
+        "an MCP initialize over stdio is the proof that the server actually starts"
+    );
+    assert!(
+        text.contains("state/mcp-reverse/bin/mcp-reverse.mjs") && text.contains("^skills: "),
+        "the skills database is opened through node:sqlite from the copy, exactly as a session \
+         will open it"
+    );
+    assert!(
+        text.contains("-newer /usr/local/share/mcp-reverse/.deepsand-build"),
+        "a write into the image tree would fail at run time with a read-only root, so the build \
+         has to prove the launcher wrote nowhere near it"
+    );
+    assert!(
+        text.contains(".deepsand-build"),
+        "the launcher's copy is replaced by comparing this stamp"
+    );
+    assert!(
+        text.contains("chmod -R a+rX /opt/node24 /usr/local/share/mcp-reverse"),
+        "the pinned runtime and the server have to be readable by the sandbox user"
+    );
+}
+
+/// The skill is what tells the model which half of mcp-reverse actually runs here. The
+/// decompiler bridges point at `localhost` inside the container, where no Ghidra or IDA exists,
+/// so a skill that described them as available would have the model promise a capability the
+/// sandbox does not have -- and the model would then spend turns on `bridge_health_all`.
+#[test]
+fn the_mcp_reverse_skill_is_named_described_and_honest_about_the_image() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("runtime")
+        .join("skills")
+        .join("deepsand-mcp-reverse")
+        .join("SKILL.md");
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("could not read {}: {err}", path.display()));
+
+    assert!(text.starts_with("---\n"), "frontmatter has to open on line 1");
+    assert!(
+        text.contains("\nname: deepsand-mcp-reverse\n"),
+        "the name has to match the directory DeepCode discovers"
+    );
+    assert!(text.contains("\ndescription: "), "a skill without one is skipped");
+    assert!(
+        text.contains("mcp__mcp-reverse__"),
+        "the model has to know how the server's tools are named"
+    );
+    assert!(
+        text.contains("Not here") && text.contains("bridge_health_all"),
+        "the host-side bridges have to be named as unavailable, or the model will keep trying them"
+    );
+    for bridge in ["Ghidra", "IDA", "Binary Ninja", "Frida"] {
+        assert!(text.contains(bridge), "the skill has to name {bridge} as a host-side bridge");
+    }
+    assert!(
+        text.to_lowercase().contains("do not run `npm install`"),
+        "the model must use the installed server, not download another one"
+    );
+    assert!(
+        text.contains("absolute"),
+        "the skill has to say that a host path is not a path inside this sandbox"
+    );
+    assert!(
+        text.contains("chunk_fetch") && text.contains("cache_stats"),
+        "large results are paged, and the skill has to say how"
+    );
+}
+
+/// The launcher is a shell script and the paths it acts on are Rust constants, so nothing in
+/// the compiler ties them together. The two that matter: the runtime it execs, and the state
+/// root its copy lives under. A rename on one side would leave a launcher that starts nothing --
+/// or one that tries to write into the read-only image tree -- and the symptom would be an
+/// MCP server that silently never comes up.
+#[test]
+fn the_mcp_reverse_launcher_uses_the_paths_the_catalogue_names() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("runtime")
+        .join("bin")
+        .join("mcp-reverse.sh");
+    let launcher = std::fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("could not read {}: {err}", path.display()));
+
+    assert!(
+        launcher.contains(&format!("node={}", deepsand_core::tools::MCP_REVERSE_NODE)),
+        "the launcher has to exec the runtime the catalogue names"
+    );
+    assert!(
+        launcher.contains(deepsand_core::tools::MCP_REVERSE_ROOT),
+        "it has to copy the tree the image installs"
+    );
+    assert!(
+        launcher.contains("dist/index.js"),
+        "and it has to start the entry point the source build produces"
+    );
+
+    let state = deepsand_core::tools::MCP_REVERSE_STATE_DIR;
+    let root = state
+        .strip_suffix("/mcp-reverse")
+        .unwrap_or_else(|| panic!("{state} is not <state root>/mcp-reverse"));
+    assert!(
+        launcher.contains(&format!(":-{root}}}")),
+        "the launcher's default has to be the same state root the catalogue constant describes \
+         ({root}); the Dockerfile's check overrides it, so a drift here would only appear in a \
+         sandbox"
+    );
+    assert!(
+        !launcher.contains("${DEEPSAND_STATE_DIR"),
+        "DEEPSAND_STATE_DIR already means the read-only state mount at /deepsand/state inside \
+         the bridge; reusing it here would put the working copy on a read-only mount and fall \
+         back to /tmp"
+    );
+}
+
+/// The Zero Breach Toolkit is only useful if the indicator sets are in the image: without
+/// them every scan reports the 29 published sources as missing, finds nothing, and looks like
+/// a clean result to anyone who does not read the gap list. So the build fetches them with the
+/// toolkit's own `--update`, records them in a manifest, and then runs a real scan through the
+/// launcher to prove the sets are the ones a session will search.
+#[test]
+fn the_zero_breach_build_ships_the_indicator_sets_and_scans_through_them() {
+    let text = dockerfile();
+
+    assert!(
+        text.contains("*,zero-breach,*)"),
+        "the install has to be gated on the zero-breach tool"
+    );
+    assert!(
+        text.contains("Zero-Breach-Toolkit/archive/refs/tags/v${ZBT_VERSION}.tar.gz"),
+        "the toolkit is built from a pinned tag, not from main"
+    );
+    assert!(
+        text.contains("apt-get install -y --no-install-recommends python3"),
+        "the base image has no Python, and the toolkit is a Python CLI"
+    );
+    assert!(
+        text.contains("--update --indicator-cache"),
+        "the published indicator sets have to be fetched at build time; a scan must never \
+         need the network, and a scan without the sets finds nothing"
+    );
+    assert!(
+        text.contains("indicators/manifest.json"),
+        "the manifest is what records which source revisions and hashes the image will search"
+    );
+    assert!(
+        text.contains("--exclude=./skills"),
+        "the toolkit's own agent skill must not ship beside Deepsand's playbook for it"
+    );
+    assert!(
+        text.contains("--exclude=./scan/tests"),
+        "the project's test suite is not runtime content, and pytest is not in this image"
+    );
+
+    // The check runs the launcher as the sandbox user and reads the JSON: an exit code alone
+    // would pass for a scan that searched no indicators at all.
+    assert!(
+        text.contains("/usr/local/bin/zero-breach --no-menu --scan-type targeted"),
+        "the startup check has to run the launcher the way a session does"
+    );
+    assert!(
+        text.contains("'NO_KNOWN_INDICATORS'"),
+        "and read the verdict out of the report"
+    );
+    assert!(
+        text.contains("== 'indicators'"),
+        "a scan with missing indicator sources exits 0 in some scopes, so the check has to \
+         assert there is no indicator gap"
+    );
+    assert!(
+        text.contains("'/usr/local/share/zero-breach-toolkit/indicators' in r['ioc_set']['path']"),
+        "and that the report names the shipped cache"
+    );
+    assert!(
+        text.contains("NOT a clean bill of health"),
+        "the readable report has to carry the tool's own doctrine line"
+    );
+    assert!(
+        text.contains("'__pycache__'"),
+        "compiled Python in the image tree would mean something wrote where a sandbox cannot"
+    );
+}
+
+/// The launcher is a shell script acting on paths the image chose, so nothing in the compiler
+/// ties it to the install. These are the three strings that have to agree: the interpreter,
+/// the CLI and the cache.
+#[test]
+fn the_zero_breach_launcher_uses_the_installed_toolkit_and_its_cache() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("runtime")
+        .join("bin")
+        .join("zero-breach.sh");
+    let launcher = std::fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("could not read {}: {err}", path.display()));
+
+    assert!(
+        launcher.contains("root=/usr/local/share/zero-breach-toolkit")
+            && launcher.contains("scan/zero-breach-toolkit.py"),
+        "the launcher has to run the CLI the image installed"
+    );
+    assert!(
+        launcher.contains("/usr/bin/python3"),
+        "and the interpreter the tool layer installed"
+    );
+    assert!(
+        launcher.contains("--indicator-cache \"$cache\""),
+        "the shipped indicator sets are the point of the tool; a scan that does not use them \
+         finds nothing"
+    );
+    assert!(
+        launcher.contains("-X utf8"),
+        "reports and evidence paths are UTF-8, and the sandbox locale is not guaranteed to be"
+    );
+    assert!(
+        launcher.contains("PYTHONDONTWRITEBYTECODE=1"),
+        "the root filesystem is read-only, so a bytecode cache write is noise"
+    );
+    assert!(
+        launcher.contains("--update"),
+        "updating writes into the cache, so the launcher has to leave `--update` alone rather \
+         than point it at the read-only image"
+    );
+}
+
+/// The skill has to keep two facts straight: the toolkit is built to check a whole computer
+/// when it can reach one, and the only computer it can reach from here is the container. It
+/// also has to say who made it, because the attribution is the author's and not decoration.
+#[test]
+fn the_zero_breach_skill_scopes_the_scan_and_names_its_author() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("runtime")
+        .join("skills")
+        .join("deepsand-zero-breach")
+        .join("SKILL.md");
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("could not read {}: {err}", path.display()));
+
+    assert!(text.starts_with("---\n"), "frontmatter has to open on line 1");
+    assert!(
+        text.contains("\nname: deepsand-zero-breach\n"),
+        "the name has to match the directory DeepCode discovers"
+    );
+    assert!(text.contains("\ndescription: "), "a skill without one is skipped");
+    assert!(
+        text.contains("checks the computer it runs on"),
+        "the model has to describe what the toolkit is for: a whole-computer check, where it \
+         has access to that computer"
+    );
+    assert!(
+        text.contains("inside this sandbox") || text.contains("Inside this sandbox"),
+        "and that the computer it runs on here is the container"
+    );
+    assert!(
+        text.contains("@archive.genocide"),
+        "the author has to be named; the attribution belongs to them"
+    );
+    assert!(
+        text.contains("--scan-type targeted") && text.contains("--phone"),
+        "the skill has to name the scopes that do make sense on supplied evidence"
+    );
+    assert!(
+        text.contains("--no-menu") && text.contains("--json"),
+        "scans are non-interactive and keep the machine-readable report"
+    );
+    assert!(
+        text.contains("not a clean result") || text.contains("never a clean result"),
+        "a gap must never be relayed as a clean result"
+    );
+    assert!(
+        text.contains("--backup-password") && text.contains("no interactive terminal"),
+        "an encrypted backup needs a private prompt, which this sandbox does not have"
+    );
+    assert!(
+        text.contains("`--update`") && text.to_lowercase().contains("do not run `--update`"),
+        "the model must not try to refresh indicator sets over a network that is not there"
+    );
+    assert!(
+        text.contains("untrusted") || text.contains("hostile text"),
+        "report text comes from the scanned machine and must be treated as data"
+    );
 }

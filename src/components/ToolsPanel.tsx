@@ -54,6 +54,8 @@ function categoryLabel(category: string): string {
       return t("tools.category.capabilities");
     case "Reverse Engineering":
       return t("tools.category.reverseEngineering");
+    case "Cyber Security":
+      return t("tools.category.cyberSecurity");
     default:
       return category;
   }

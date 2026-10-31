@@ -307,6 +307,40 @@ pub fn run() {
                 });
             }
 
+            // After the container sweep, once: the runtime images nothing would run. Every
+            // edit under `runtime/` changes the revision in the tag, so each build leaves the
+            // previous image behind and the app derives a different tag from then on. Left
+            // alone they accumulate at ~3 GB apiece -- sixteen gigabytes on this machine before
+            // this existed. It waits longer than the container sweep so the two are not asking
+            // Docker for things at the same time, and it is best effort: a Docker that is not
+            // answering must not affect whether the app opens.
+            {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+                    let sweep = handle.clone();
+                    let report = tauri::async_runtime::spawn_blocking(move || {
+                        let state = tauri::Manager::state::<AppState>(&sweep);
+                        commands::prune_images_impl(&state)
+                    })
+                    .await;
+                    match report {
+                        Ok(Ok(report)) if !report.removed.is_empty() => tracing::info!(
+                            removed = report.removed.len(),
+                            kept = report.kept(),
+                            "removed runtime images no project would run"
+                        ),
+                        Ok(Ok(_)) => {}
+                        Ok(Err(error)) => {
+                            tracing::debug!(%error, "could not check for unused runtime images")
+                        }
+                        Err(error) => {
+                            tracing::debug!(%error, "the image cleanup task did not run")
+                        }
+                    }
+                });
+            }
+
             // The startup sweep runs once. A container can be left behind later, too: a start
             // that failed after `docker run`, a session that ended without its waiter, a probe
             // whose build was cancelled. Without this they sit in Docker Desktop until the next

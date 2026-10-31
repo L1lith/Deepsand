@@ -1512,6 +1512,7 @@ pub async fn start_session_impl(
 
     let mut launch = gather_launch(&state, &project_id)?;
     tracing::info!(image = %launch.image, "start: launch gathered");
+    log_runtime_tree();
 
     let docker = state.docker().map_err(fail)?;
     tracing::info!("start: docker located");
@@ -2155,8 +2156,17 @@ fn spawn_session(
     // up the screen. The default is only for a start nobody has given a size to yet.
     let (rows, cols) = {
         let state = tauri::Manager::state::<AppState>(app);
-        state.terminal_size(project_id).unwrap_or((40, 120))
+        state
+            .terminal_size(project_id)
+            .or_else(|| state.fallback_terminal_size())
+            .unwrap_or((40, 120))
     };
+    tracing::debug!(
+        rows,
+        cols,
+        remembered = ?tauri::Manager::state::<AppState>(app).terminal_size(project_id),
+        "terminal born"
+    );
     Session::spawn(
         SessionOptions {
             program: docker.program().to_path_buf(),
@@ -2419,9 +2429,15 @@ pub fn resize_session_impl(state: &AppState, project_id: String, rows: u16, cols
     // a restart creates a new PTY, so the last requested size is the size the next start must
     // use. Dropping it is what left the sandbox drawing for 40x120 inside a different box.
     state.remember_terminal_size(&project_id, rows, cols);
-    let sessions = state.sessions.lock().unwrap();
-    match sessions.get(&project_id) {
-        Some(live) => live.session.resize(rows, cols).map_err(fail),
+    // Clone the resize side while the map is held, then let the map go. `resize` is a ConPTY
+    // call and can block; a terminal that has stopped accepting one must not take Stop, a
+    // start, or the next resize down with it. Same rule as `write_to_session_impl`.
+    let handle = {
+        let sessions = state.sessions.lock().unwrap_or_else(|p| p.into_inner());
+        sessions.get(&project_id).map(|live| live.session.resize_handle())
+    };
+    match handle {
+        Some(handle) => handle.resize(rows, cols).map_err(fail),
         // Not an error: the frontend lays out before the container starts.
         None => Ok(()),
     }
@@ -5555,7 +5571,27 @@ pub fn build_runtime_image_impl(
         }
 
         // The image is no longer being built, whatever happened.
-        end_build(&tauri::Manager::state::<AppState>(&app_handle), &image);
+        let state = tauri::Manager::state::<AppState>(&app_handle);
+        end_build(&state, &image);
+
+        // A build that succeeded has just superseded the image for its tool selection. Sweeping
+        // here, rather than waiting for the next launch, is what keeps a session that iterates
+        // on `runtime/` from collecting a three-gigabyte image per edit: the startup sweep sees
+        // nothing while the app stays open. Best effort -- the build's outcome is already
+        // decided, and a Docker that will not answer is not the build's problem.
+        if result.is_ok() {
+            match prune_images_impl(&state) {
+                Ok(report) if !report.removed.is_empty() => tracing::info!(
+                    removed = report.removed.len(),
+                    kept = report.kept(),
+                    "removed runtime images no project would run"
+                ),
+                Ok(_) => {}
+                Err(error) => {
+                    tracing::debug!(%error, "could not check for unused runtime images after a build")
+                }
+            }
+        }
 
         // Pushed to disk before the outcome is announced. The log's whole job is to be read
         // after a failure -- including a failure that takes the machine with it -- and up to
@@ -5924,6 +5960,78 @@ pub fn cleanup_orphans_impl(state: &AppState) -> CmdResult<Vec<String>> {
                     | deepsand_core::docker::OwnerState::Gone
             )
     }))
+}
+
+/// Say which runtime tree this window resolved, and whether an image built from it is patched.
+///
+/// An installed Deepsand carries its own `runtime/` beside the executable, so a window that is
+/// older than the TUI patches resolves an older tree, hashes it into the image tag, builds an
+/// image from stock scripts and starts it. The terminal then scrolls -- that is upstream Ink's
+/// fullscreen fallback, the exact thing `patch-deepcode-ink.mjs` replaces -- while every other
+/// log line reads normally, and the image tag looks like any other. That happened here: the
+/// installed build from before the patches was launched instead of the one from the repository,
+/// and nothing said so for fifteen minutes of a scrolling terminal.
+///
+/// No Docker call: the answer is two files in `bin/` and the two lines of the Dockerfile that
+/// run them. The revision is printed beside them because the tag is derived from it, which is
+/// how the two runs were told apart.
+fn log_runtime_tree() {
+    let Some(dir) = deepsand_core::seccomp::runtime_dir() else {
+        tracing::warn!(
+            "no runtime tree was found, so no image can be built; run from the repository, or \
+             reinstall Deepsand"
+        );
+        return;
+    };
+    let revision = deepsand_core::seccomp::runtime_revision(&dir);
+    let missing = deepsand_core::runtime_files::missing_tui_patches(&dir);
+    if missing.is_empty() {
+        tracing::info!(
+            runtime = %dir.display(),
+            %revision,
+            "start: the runtime tree carries the TUI patches"
+        );
+        return;
+    }
+    tracing::warn!(
+        runtime = %dir.display(),
+        %revision,
+        missing = %missing.join(", "),
+        "this window's runtime tree does not apply {}: an image built from it rewrites its whole \
+         conversation on every repaint, so the terminal scrolls, and its @-index delays the first \
+         frame. This is an installed build older than the patches -- install a current one, or run \
+         Deepsand from the repository",
+        if missing.len() == 1 { "one TUI patch" } else { "the TUI patches" }
+    );
+}
+
+/// Remove the runtime images nothing would run and no container uses.
+///
+/// Every edit under `runtime/` changes the revision in the tag, so each build leaves the
+/// previous image behind with nothing able to use it: the app derives a different tag now. The
+/// rule for what may go is `deepsand_core::image_gc::plan`; this supplies the two things Docker
+/// cannot know -- which tag each project resolves to, and which tags a build is producing right
+/// now, because a build's image must never be swept out from under it.
+///
+/// The store guard is dropped before any Docker call: holding it across the CLI would block
+/// every refresh in the window for the seconds this takes, and `store()` is not re-entrant.
+pub fn prune_images_impl(state: &AppState) -> CmdResult<deepsand_core::image_gc::Report> {
+    let docker = state.docker().map_err(fail)?;
+    let (stem, mut wanted) = {
+        let store = store(state);
+        (
+            store.settings().image.clone(),
+            deepsand_core::image_gc::tags_in_use(store.settings(), store.projects()),
+        )
+    };
+    for tag in state.building.lock().unwrap_or_else(|p| p.into_inner()).iter() {
+        if !wanted.iter().any(|known| known == tag) {
+            wanted.push(tag.clone());
+        }
+    }
+    docker
+        .prune_images(&stem, &wanted, deepsand_core::image_gc::IMAGE_GRACE_MS)
+        .map_err(fail)
 }
 
 /// How often the running app asks Docker what Deepsand owns and removes what nothing owns.
@@ -6622,6 +6730,32 @@ mod terminal_size_tests {
         state.remember_terminal_size("p", 33, 142);
         assert_eq!(state.terminal_size("p"), Some((33, 142)));
         assert_eq!(state.terminal_size("other"), None, "sizes are per project");
+    }
+
+    /// A project whose pane has never been on screen still lives in the same window as one
+    /// that has, so the last size any project reported is a better next start than 40x120.
+    /// Without it, starting a new project from a tab that is not the terminal gives its TUI
+    /// a box the pane does not have -- the wrong-sized frame that scrolls on every repaint.
+    #[test]
+    fn a_project_that_has_never_laid_out_inherits_the_last_size_any_project_reported() {
+        let state = state("deepsand-terminal-fallback-test");
+        assert_eq!(state.fallback_terminal_size(), None);
+
+        state.remember_terminal_size("used-before", 33, 142);
+
+        assert_eq!(state.fallback_terminal_size(), Some((33, 142)));
+        assert_eq!(
+            state.terminal_size("never-shown"),
+            None,
+            "the fallback is not a per-project answer"
+        );
+        assert_eq!(
+            state
+                .terminal_size("never-shown")
+                .or_else(|| state.fallback_terminal_size()),
+            Some((33, 142)),
+            "a new project starts at the window's size rather than the guess"
+        );
     }
 }
 

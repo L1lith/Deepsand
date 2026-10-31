@@ -24,6 +24,15 @@ pub const LABEL_PROJECT_PREFIX: &str = "deepsand.project=";
 /// the container alone while that process is still running.
 pub const LABEL_OWNER: &str = "deepsand.owner_pid";
 
+/// Label the DeepCode layer writes, naming the CLI version inside the image.
+///
+/// It is also how an *image* identifies itself as ours: `docker images --filter label=` is the
+/// one place Docker answers "which images carry this marker" without a template, and the image
+/// cleanup needs that answer to tell a superseded build of ours from somebody else's image.
+/// A build that never reached the DeepCode layer has no tag either, so this covers every image
+/// the app itself produces; the configured stem is checked by name as well.
+pub const LABEL_DEEPCODE_VERSION: &str = "deepsand.deepcode.version";
+
 /// The user everything written into a running sandbox belongs to.
 ///
 /// `docker exec` without `-u` runs as the container's configured user, which is root. The
@@ -628,14 +637,22 @@ impl Docker {
         // `version` calls and the two `info` calls were each asking for separately, and
         // `thread::scope` overlaps what is left, so the probe costs about as much as its
         // slowest call.
-        let (version_json, info_json, image_id) = std::thread::scope(|scope| {
+        //
+        // The third call is a listing rather than `image inspect <stem>`, and that is a
+        // behaviour fix, not an optimisation. `image_present` used to mean "the *base* tag
+        // exists", which is not the image any project runs: the app builds
+        // `<stem>-t<tools>-r<revision>` and never the base tag, so once the sweep removed the
+        // unused base image the window said "image missing" permanently while every project's
+        // own image was sitting right there. The listing answers the question the badge is
+        // actually asking -- has this runtime been built at all -- in the same call.
+        let (version_json, info_json, tags) = std::thread::scope(|scope| {
             let version = scope.spawn(|| self.try_run(&self.fmt(&["version", "--format", "{{json .}}"])));
             let info = scope.spawn(|| self.try_run(&self.fmt(&["info", "--format", "{{json .}}"])));
-            let image = scope.spawn(|| self.image_id(image));
+            let images = scope.spawn(|| self.image_tags());
             (
                 version.join().ok().flatten(),
                 info.join().ok().flatten(),
-                image.join().ok().flatten(),
+                images.join().ok().flatten(),
             )
         });
 
@@ -661,7 +678,15 @@ impl Docker {
         status.operating_system = operating_system;
         status.desktop =
             status.operating_system.contains("Docker Desktop") || name.contains("docker-desktop");
-        status.image_present = image_id.is_some();
+        status.image_present = tags
+            .as_deref()
+            .map(|listing| {
+                listing
+                    .lines()
+                    .map(str::trim)
+                    .any(|tag| tag_is_for_stem(image, tag))
+            })
+            .unwrap_or(false);
         status.detail = if status.desktop {
             "Docker Desktop detected: the daemon runs inside a VM, so limited hardening options are available."
                 .to_string()
@@ -669,6 +694,14 @@ impl Docker {
             String::new()
         };
         status
+    }
+
+    /// Every local image, one `repository:tag` per line. The caller decides what counts.
+    ///
+    /// One call, so a question about "any image for this runtime" costs the same as the
+    /// `image inspect` it replaced -- which asked about one tag, and the wrong one.
+    pub fn image_tags(&self) -> Option<String> {
+        self.try_run(&self.fmt(&["images", "--format", "{{.Repository}}:{{.Tag}}"]))
     }
 
     pub fn image_present(&self, tag: &str) -> bool {
@@ -1523,6 +1556,220 @@ impl Docker {
         }
         removed
     }
+
+    /// Every image Docker has, with what the cleanup decides on.
+    ///
+    /// Two listing calls and one inspect, never one call per image: each Docker CLI invocation
+    /// costs 180-600 ms here, and a machine with a dozen images would otherwise spend ten
+    /// seconds before the sweep had decided anything.
+    ///
+    /// `docker images --format` cannot report labels (its format context has no `.Labels`), and
+    /// `docker image inspect` cannot ask for a label that an image does not have -- a plain
+    /// `{{index .Config.Labels "..."}}` fails the whole template on a foreign image. So "ours"
+    /// is answered by the *filter* form, which is the one place Docker answers that question
+    /// without a template, and the inspect only asks for the id and the creation time.
+    ///
+    /// A daemon that does not answer is an error, not an empty inventory: "nothing to clean" and
+    /// "could not ask" must not look the same, because one of them is followed by deletions
+    /// elsewhere.
+    pub fn image_inventory(&self, runtime_image: &str) -> Result<Vec<crate::image_gc::ImageEntry>> {
+        let listing = self
+            .try_run_within(
+                &self.fmt(&[
+                    "images",
+                    "--no-trunc",
+                    "--format",
+                    "{{.ID}}|{{.Repository}}|{{.Tag}}|{{.Size}}",
+                ]),
+                INVENTORY_LEASH,
+            )
+            .ok_or_else(|| SandboxError::Docker {
+                command: "docker images".to_string(),
+                stderr: format!(
+                    "the daemon did not answer within {}s, so no image inventory could be read",
+                    INVENTORY_LEASH.as_secs()
+                ),
+            })?;
+
+        let labelled: Vec<String> = self
+            .try_run_within(
+                &self.fmt(&[
+                    "images",
+                    "--no-trunc",
+                    "--filter",
+                    &format!("label={LABEL_DEEPCODE_VERSION}"),
+                    "--format",
+                    "{{.ID}}",
+                ]),
+                INVENTORY_LEASH,
+            )
+            .unwrap_or_default()
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_string)
+            .collect();
+
+        let mut entries = Vec::new();
+        for line in listing.lines() {
+            let mut fields = line.splitn(4, '|');
+            let (Some(id), Some(repository), Some(tag), Some(size)) =
+                (fields.next(), fields.next(), fields.next(), fields.next())
+            else {
+                continue;
+            };
+            let id = id.trim();
+            if id.is_empty() {
+                continue;
+            }
+            let reference = if repository == "<none>" || tag == "<none>" {
+                crate::image_gc::DANGLING_REFERENCE.to_string()
+            } else {
+                format!("{}:{}", repository.trim(), tag.trim())
+            };
+            entries.push(crate::image_gc::ImageEntry {
+                ours: labelled.iter().any(|labelled_id| labelled_id == id)
+                    || crate::image_gc::looks_like_ours(runtime_image, &reference),
+                reference,
+                id: id.to_string(),
+                size: size.trim().to_string(),
+                created_ms: None,
+            });
+        }
+
+        // One inspect for every image's creation time. A tag can move under us, so a failure
+        // here is not fatal: the entries keep `created_ms: None`, which the policy reads as
+        // "unknown age, do not touch".
+        if !entries.is_empty() {
+            let mut args = self.fmt(&["image", "inspect", "--format", "{{.Id}}|{{.Created}}"]);
+            args.extend(entries.iter().map(|entry| entry.id.clone()));
+            if let Some(out) = self.try_run_within(&args, INVENTORY_LEASH) {
+                for line in out.lines() {
+                    let Some((id, created)) = line.split_once('|') else {
+                        continue;
+                    };
+                    let created_ms = crate::ms_from_iso(created.trim());
+                    if let Some(entry) = entries.iter_mut().find(|entry| entry.id == id.trim()) {
+                        entry.created_ms = created_ms;
+                    }
+                }
+            }
+        }
+
+        Ok(entries)
+    }
+
+    /// The image id of every container in this daemon, whoever created it.
+    ///
+    /// Deliberately not filtered to our label: an image that a *foreign* container uses must not
+    /// be removed either. The id is the only identity worth matching, because a container may
+    /// name an image by a tag that has since moved to something else.
+    pub fn images_in_use(&self) -> Result<Vec<String>> {
+        let listing = self
+            .try_run_within(&self.fmt(&["ps", "-aq"]), INVENTORY_LEASH)
+            .ok_or_else(|| SandboxError::Docker {
+                command: "docker ps -aq".to_string(),
+                stderr: format!(
+                    "the daemon did not answer within {}s, so the images in use could not be read",
+                    INVENTORY_LEASH.as_secs()
+                ),
+            })?;
+        let ids: Vec<String> = listing
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_string)
+            .collect();
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut args = self.fmt(&["container", "inspect", "--format", "{{.Image}}"]);
+        args.extend(ids);
+        let out = self
+            .try_run_within(&args, INVENTORY_LEASH)
+            .ok_or_else(|| SandboxError::Docker {
+                command: "docker container inspect".to_string(),
+                stderr: "a container inventory was readable but its images were not; refusing to decide what to delete"
+                    .to_string(),
+            })?;
+        Ok(out
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_string)
+            .collect())
+    }
+
+    /// Remove one image by tag or id.
+    ///
+    /// No `--force`, and no `-f`: an image a container is using is not ours to tear out, and a
+    /// refusal is information (the plan was wrong about something) rather than an obstacle to
+    /// push through.
+    pub fn remove_image(&self, reference: &str) -> bool {
+        self.try_run_within(&self.fmt(&["rmi", reference]), REMOVAL_LEASH)
+            .is_some()
+    }
+
+    /// Remove the images no project would run and no container uses.
+    ///
+    /// The order matters: what is in use is read *first*, so a failure to answer leaves the
+    /// sweep with nothing to do rather than with a plan built on half the facts. Every rule
+    /// about what may go lives in [`crate::image_gc::plan`]; this only gathers and executes.
+    pub fn prune_images(
+        &self,
+        runtime_image: &str,
+        wanted_tags: &[String],
+        grace_ms: i64,
+    ) -> Result<crate::image_gc::Report> {
+        let used = self.images_in_use()?;
+        let images = self.image_inventory(runtime_image)?;
+        let decisions =
+            crate::image_gc::plan(&images, runtime_image, wanted_tags, &used, crate::now_ms(), grace_ms);
+
+        let mut report = crate::image_gc::Report {
+            decisions,
+            removed: Vec::new(),
+            failed: Vec::new(),
+        };
+        let targets: Vec<(String, String)> = report
+            .decisions
+            .iter()
+            .filter(|decision| decision.is_removal())
+            .map(|decision| {
+                // A dangling image has no tag to name it by, so it goes by id.
+                let target = if decision.reference == crate::image_gc::DANGLING_REFERENCE {
+                    decision.id.clone()
+                } else {
+                    decision.reference.clone()
+                };
+                (decision.reference.clone(), target)
+            })
+            .collect();
+        for (reference, target) in targets {
+            if self.remove_image(&target) {
+                report.removed.push(reference);
+            } else {
+                report.failed.push(reference);
+            }
+        }
+        Ok(report)
+    }
+}
+
+/// Whether `tag` is an image built from `stem`: the base tag itself, or one of the derived tags
+/// (`<stem>-t<tools>-r<revision>`) that projects actually run.
+///
+/// This is the question behind the window's "image missing" badge. It used to be answered with
+/// `image inspect <stem>`, and the base tag is built by `runtime/scripts/build-image.mjs` only --
+/// the app builds the derived tags and never the base one. So the badge was wrong in both
+/// directions before this: it survived on an image nothing ran, and once the sweep removed that
+/// image it reported "missing" forever while every project's own image existed.
+///
+/// Looser than [`crate::image_gc::looks_like_ours`] on purpose: that one decides what may be
+/// *deleted*, and being wrong there costs a build. This one only decides what a badge says, so
+/// any `-`-suffixed tag counts, including one built by hand from the build script.
+pub fn tag_is_for_stem(stem: &str, tag: &str) -> bool {
+    tag == stem || tag.strip_prefix(stem).is_some_and(|rest| rest.starts_with('-'))
 }
 
 /// How long a container must have existed before a sweep may call it abandoned.
@@ -2568,6 +2815,28 @@ mod tests {
     #[test]
     fn which_returns_none_for_nonsense() {
         assert!(which("deepsand-definitely-not-installed-xyz").is_none());
+    }
+
+    /// The window's "image missing" badge asks this. It must be true for the tag a project
+    /// actually runs, or the badge lies for as long as the project works -- which is exactly
+    /// what happened: the base tag was swept, and the badge never cleared again.
+    #[test]
+    fn a_derived_tag_counts_as_the_runtime_being_built() {
+        let stem = "deepsand/runtime:0.1.0";
+        assert!(tag_is_for_stem(stem, stem), "the base build counts");
+        assert!(tag_is_for_stem(
+            stem,
+            "deepsand/runtime:0.1.0-tfa9534f3b6d6876a-r708c47d8b82ea923"
+        ));
+        for foreign in [
+            "deepsand/runtime:0.1.01-tfa9534f3b6d6876a-r708c47d8b82ea923",
+            "deepsand/runtime:0.2.0-tfa9534f3b6d6876a-r708c47d8b82ea923",
+            "deepsand/other:0.1.0",
+            "postgres:16",
+            "<none>:<none>",
+        ] {
+            assert!(!tag_is_for_stem(stem, foreign), "{foreign} is not this runtime");
+        }
     }
 
     #[test]

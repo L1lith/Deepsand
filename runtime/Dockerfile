@@ -139,11 +139,15 @@ RUN set -eux; \
     ln -sf /usr/local/lib/deepsand/entrypoint.sh /usr/local/bin/deepsand-entrypoint; \
     ln -sf /usr/local/lib/deepsand/deepsand-mcp-bridge.mjs /usr/local/bin/deepsand-mcp-bridge; \
     ln -sf /usr/local/lib/deepsand/ffdec.sh /usr/local/bin/ffdec; \
+    ln -sf /usr/local/lib/deepsand/mcp-reverse.sh /usr/local/bin/mcp-reverse; \
+    ln -sf /usr/local/lib/deepsand/zero-breach.sh /usr/local/bin/zero-breach; \
     # Fail the build rather than ship a broken shebang.
     head -n 1 /usr/local/lib/deepsand/entrypoint.sh | grep -qx '#!/usr/bin/env bash'; \
     head -n 1 /usr/local/lib/deepsand/netfilter.sh | grep -qx '#!/usr/bin/env bash'; \
     head -n 1 /usr/local/lib/deepsand/deepsand-display.sh | grep -qx '#!/usr/bin/env bash'; \
-    head -n 1 /usr/local/lib/deepsand/ffdec.sh | grep -qx '#!/usr/bin/env bash'
+    head -n 1 /usr/local/lib/deepsand/ffdec.sh | grep -qx '#!/usr/bin/env bash'; \
+    head -n 1 /usr/local/lib/deepsand/mcp-reverse.sh | grep -qx '#!/usr/bin/env bash'; \
+    head -n 1 /usr/local/lib/deepsand/zero-breach.sh | grep -qx '#!/usr/bin/env bash'
 
 # ---------------------------------------------------------------------------
 # Agent Skills.
@@ -440,6 +444,181 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         chmod -R a+rX /opt/java25 /usr/local/share/ffdec /usr/local/share/ffdec-mcp; \
         ;; \
     esac; \
+    # The `mcp-reverse` tool is a source build that also needs a newer Node than the image
+    # carries. Two things make that necessary rather than convenient:
+    #
+    #   * There is no package for it. The `mcp-reverse` name on npm is an unrelated, much
+    #     older project (1.4.0, about 200 kB, one type dependency), so `npm install -g
+    #     mcp-reverse` would install the wrong program. The image builds the pinned GitHub tag.
+    #   * It needs Node 24. The server reads its 4,200-skill library through `node:sqlite`,
+    #     which is behind `--experimental-sqlite` on the base image's Node 22 and stable on
+    #     24. Raising the base image for a tool most projects will not select is the larger
+    #     change, so the tool brings its own runtime -- the same shape as ffdec's JDK.
+    #
+    # Everything is pinned: the upstream tag and the Node build. A moving `main` here would
+    # make two builds of the same image disagree about what the tool is, and the check at the
+    # end would pass either way.
+    #
+    # The check is not decoration. `stats` opens db/skills.db through `node:sqlite`, and a
+    # piped MCP `initialize` proves the server answers on stdio -- the two failures that would
+    # otherwise appear as "the tool does nothing" inside a session, where there is no build log
+    # to read. The stamp file is what the launcher compares against to decide whether its
+    # writable copy is current; it names the upstream tag, so a new tag replaces the copy.
+    case ",$INSTALL_TOOLS," in \
+      *,mcp-reverse,*) \
+        echo "deepsand: building mcp-reverse"; \
+        apt-get update; \
+        apt-get install -y --no-install-recommends xz-utils; \
+        MCPR_VERSION=5.0.1; \
+        MCPR_TMP=/tmp/mcp-reverse-build; \
+        rm -rf "$MCPR_TMP"; \
+        mkdir -p "$MCPR_TMP/src" /opt/node24; \
+        echo "deepsand: fetching Node 24 for mcp-reverse"; \
+        curl -fsSL --retry 2 --retry-delay 2 --max-time 600 \
+          "https://nodejs.org/dist/v24.20.0/node-v24.20.0-linux-x64.tar.xz" \
+          -o "$MCPR_TMP/node24.tar.xz"; \
+        tar -xJf "$MCPR_TMP/node24.tar.xz" -C /opt/node24 --strip-components=1; \
+        echo "deepsand: fetching mcp-reverse v${MCPR_VERSION}"; \
+        curl -fsSL --retry 2 --retry-delay 2 --max-time 300 \
+          "https://github.com/1llu50ry/mcp-reverse/archive/refs/tags/v${MCPR_VERSION}.tar.gz" \
+          -o "$MCPR_TMP/src.tar.gz"; \
+        tar -xzf "$MCPR_TMP/src.tar.gz" -C "$MCPR_TMP/src" --strip-components=1; \
+        # Built with the pinned runtime's own npm, so the compiler and the server resolve
+        # their modules against the Node that will run them. The development dependencies
+        # (TypeScript, tsx) are removed once `dist/` exists: they are build inputs, and their
+        # presence would double the size of the copy the launcher makes in the state volume.
+        ( cd "$MCPR_TMP/src"; \
+          PATH=/opt/node24/bin:$PATH npm ci --no-audit --no-fund --ignore-scripts; \
+          PATH=/opt/node24/bin:$PATH npx tsc; \
+          PATH=/opt/node24/bin:$PATH npm prune --omit=dev --no-audit --no-fund ); \
+        test -s "$MCPR_TMP/src/dist/index.js"; \
+        test -s "$MCPR_TMP/src/db/skills.db"; \
+        test -s "$MCPR_TMP/src/node_modules/@modelcontextprotocol/sdk/package.json"; \
+        mkdir -p /usr/local/share/mcp-reverse; \
+        # The whole built tree, not a hand-picked list. The server reads its own directory for
+        # more than `dist/` -- the skills database, the signature store, the plugin notes and
+        # the docs its wiki check walks -- and a list here would be a second, silent statement
+        # of what it may read. Development dependencies are already gone (pruned above), so
+        # this is the runtime tree plus a few kilobytes of text.
+        cp -a "$MCPR_TMP/src/." /usr/local/share/mcp-reverse/; \
+        /opt/node24/bin/node --version | grep -q '^v24\.'; \
+        chmod -R a+rX /opt/node24 /usr/local/share/mcp-reverse; \
+        # The stamp is written before the checks and names the upstream tag, so the launcher's
+        # copy is replaced when the tag moves -- and `-newer` below becomes a real test of
+        # "nothing wrote into the image tree".
+        printf 'mcp-reverse v%s\n' "$MCPR_VERSION" > /usr/local/share/mcp-reverse/.deepsand-build; \
+        # The startup check goes through the launcher, as the sandbox user, because the
+        # launcher is what the generated settings name. It also proves the two properties the
+        # server needs from this image: a scratch state directory (the real one is the
+        # project's volume, mounted at run time) and a working copy the server may write to.
+        # `stats` then runs from that copy, so the skills database is opened through
+        # `node:sqlite` exactly as it will be in a session.
+        mkdir -p "$MCPR_TMP/state"; \
+        chown 1000:1000 "$MCPR_TMP/state"; \
+        setpriv --reuid=1000 --regid=1000 --clear-groups \
+          env DEEPSAND_MCP_REVERSE_DIR="$MCPR_TMP/state" TMPDIR="$MCPR_TMP" \
+          sh -c "printf '%s\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"deepsand-build\",\"version\":\"0\"}}}' | /usr/local/bin/mcp-reverse" \
+          > "$MCPR_TMP/initialize.out" 2> "$MCPR_TMP/initialize.err" || true; \
+        if ! grep -q '"serverInfo"' "$MCPR_TMP/initialize.out"; then \
+          echo "deepsand: the mcp-reverse launcher did not answer an MCP initialize over stdio" >&2; \
+          sed -n '1,20p' "$MCPR_TMP/initialize.err" >&2; \
+          exit 1; \
+        fi; \
+        test -f "$MCPR_TMP/state/mcp-reverse/dist/index.js"; \
+        setpriv --reuid=1000 --regid=1000 --clear-groups \
+          /opt/node24/bin/node "$MCPR_TMP/state/mcp-reverse/bin/mcp-reverse.mjs" stats \
+          > "$MCPR_TMP/stats.txt"; \
+        grep -q '^skills: ' "$MCPR_TMP/stats.txt"; \
+        cat "$MCPR_TMP/stats.txt"; \
+        # A read-only root filesystem at run time means a write into this tree would fail in a
+        # session, so the check is that the launcher wrote nowhere near it.
+        if find /usr/local/share/mcp-reverse -newer /usr/local/share/mcp-reverse/.deepsand-build | grep -q .; then \
+          echo "deepsand: something wrote into the mcp-reverse image tree; the running server must use its copy" >&2; \
+          find /usr/local/share/mcp-reverse -newer /usr/local/share/mcp-reverse/.deepsand-build | head -5 >&2; \
+          exit 1; \
+        fi; \
+        rm -rf "$MCPR_TMP"; \
+        ;; \
+    esac; \
+    # The `zero-breach` tool is a Python CLI with no package to install, and one property
+    # shapes the whole step: a scan must never resolve or contact an indicator, so the
+    # indicator sets it searches have to be in the image before a sandbox starts. They are
+    # fetched here by the toolkit's own `--update` -- the one command allowed to use the
+    # network -- and the manifest beside them records each source's upstream revision and
+    # SHA-256, so the image says exactly what it will search rather than "some feeds".
+    #
+    # Skipping that step is not a smaller image, it is a different tool: without the sets every
+    # scan reports 29 missing sources as gaps and no findings at all, which reads as "nothing
+    # found" to anyone who does not know the difference. So a failed download fails the build.
+    #
+    # What is copied is the runtime tree. The project's own test suite needs pytest, which is
+    # not in this image, and its agent skill would compete with the one Deepsand installs for
+    # this tool -- a second playbook inside the tree that says "locate the user's copy" is
+    # worse than none at all.
+    #
+    # The check at the end runs the launcher the way a session will: as the sandbox user,
+    # against evidence in a scratch directory, reading the JSON it writes. "Exit 0" alone would
+    # not be enough -- a scan with no indicator sets also exits 0 in some scopes -- so it
+    # asserts the report names the shipped cache and records no indicator-source gap.
+    case ",$INSTALL_TOOLS," in \
+      *,zero-breach,*) \
+        echo "deepsand: installing the Zero Breach Toolkit"; \
+        apt-get update; \
+        apt-get install -y --no-install-recommends python3; \
+        ZBT_VERSION=0.1.14; \
+        ZBT_TMP=/tmp/zero-breach-build; \
+        rm -rf "$ZBT_TMP"; \
+        mkdir -p "$ZBT_TMP/src" "$ZBT_TMP/work/evidence" /usr/local/share/zero-breach-toolkit; \
+        echo "deepsand: fetching the Zero Breach Toolkit v${ZBT_VERSION}"; \
+        curl -fsSL --retry 2 --retry-delay 2 --max-time 300 \
+          "https://github.com/interplains/Zero-Breach-Toolkit/archive/refs/tags/v${ZBT_VERSION}.tar.gz" \
+          -o "$ZBT_TMP/src.tar.gz"; \
+        tar -xzf "$ZBT_TMP/src.tar.gz" -C "$ZBT_TMP/src" --strip-components=1; \
+        test -f "$ZBT_TMP/src/scan/zero-breach-toolkit.py"; \
+        ( cd "$ZBT_TMP/src" && tar -cf - \
+            --exclude=./skills --exclude=./scan/tests --exclude=./build \
+            --exclude=./tools --exclude=./.github . ) \
+          | tar -xf - -C /usr/local/share/zero-breach-toolkit; \
+        test -f /usr/local/share/zero-breach-toolkit/scan/zero-breach-toolkit.py; \
+        test -s /usr/local/share/zero-breach-toolkit/iocs/adfection_iocs.txt; \
+        echo "deepsand: downloading the published spyware indicator sets"; \
+        PYTHONDONTWRITEBYTECODE=1 python3 -X utf8 \
+          /usr/local/share/zero-breach-toolkit/scan/zero-breach-toolkit.py \
+          --update --indicator-cache /usr/local/share/zero-breach-toolkit/indicators \
+          > "$ZBT_TMP/update.out" 2> "$ZBT_TMP/update.err" \
+          || { echo "deepsand: could not download the spyware indicator sets; the scanner would report every source as missing" >&2; tail -20 "$ZBT_TMP/update.err" >&2; exit 1; }; \
+        cat "$ZBT_TMP/update.out"; \
+        python3 -c "import json, sys; m = json.load(open(sys.argv[1])); n = sum(s.get('indicators', 0) for s in m['sources'].values()); print('zero-breach: indicators in this image:', n); sys.exit(0 if n >= 1000 else 1)" \
+          /usr/local/share/zero-breach-toolkit/indicators/manifest.json; \
+        chmod -R a+rX /usr/local/share/zero-breach-toolkit; \
+        # A real scan of supplied evidence, through the launcher, as the sandbox user.
+        printf 'this file is evidence, not a sample\n' > "$ZBT_TMP/work/evidence/note.txt"; \
+        chown -R 1000:1000 "$ZBT_TMP/work"; \
+        setpriv --reuid=1000 --regid=1000 --clear-groups \
+          /usr/local/bin/zero-breach --no-menu --scan-type targeted \
+            --target "$ZBT_TMP/work/evidence" \
+            --json "$ZBT_TMP/work/report.json" \
+            --report "$ZBT_TMP/work/report.txt" \
+            > "$ZBT_TMP/work/stdout.txt" 2> "$ZBT_TMP/work/stderr.txt" || true; \
+        if [ ! -s "$ZBT_TMP/work/report.json" ]; then \
+          echo "deepsand: zero-breach produced no report" >&2; \
+          tail -20 "$ZBT_TMP/work/stderr.txt" >&2; \
+          exit 1; \
+        fi; \
+        python3 -c "import json, sys; r = json.load(open(sys.argv[1])); assert r['schema_version'].startswith('1.'), r['schema_version']; assert r['verdict']['status'] == 'NO_KNOWN_INDICATORS', r['verdict']; assert '/usr/local/share/zero-breach-toolkit/indicators' in r['ioc_set']['path'], r['ioc_set']; gaps = [x for x in r['coverage']['not_checked'] if x.get('module') == 'indicators']; assert not gaps, gaps; print('zero-breach: scanned the fixture through the shipped sets, no indicator gaps')" \
+          "$ZBT_TMP/work/report.json"; \
+        grep -q 'Zero Breach Toolkit' "$ZBT_TMP/work/report.txt"; \
+        grep -q 'NOT a clean bill of health' "$ZBT_TMP/work/report.txt"; \
+        # Bytecode caches or a stray indicator cache in the image tree would mean the launcher
+        # was writing where a sandbox cannot.
+        if find /usr/local/share/zero-breach-toolkit -name '__pycache__' -o -name '*.pyc' | grep -q .; then \
+          echo "deepsand: compiled Python landed in the zero-breach image tree" >&2; \
+          find /usr/local/share/zero-breach-toolkit -name '__pycache__' -o -name '*.pyc' | head -5 >&2; \
+          exit 1; \
+        fi; \
+        rm -rf "$ZBT_TMP"; \
+        ;; \
+    esac; \
     # The browser half of the `puppeteer` tool, which is two things the base image does not have.
     #
     # The npm package is the driver, not the browser: it installs in seconds and leaves puppeteer
@@ -597,6 +776,16 @@ RUN set -eux; \
         cp -a /usr/local/share/deepsand/skills/deepsand-ffdec /home/deepcode/.agents/skills/; \
         ;; \
     esac; \
+    case ",$INSTALL_TOOLS," in \
+      *,mcp-reverse,*) \
+        cp -a /usr/local/share/deepsand/skills/deepsand-mcp-reverse /home/deepcode/.agents/skills/; \
+        ;; \
+    esac; \
+    case ",$INSTALL_TOOLS," in \
+      *,zero-breach,*) \
+        cp -a /usr/local/share/deepsand/skills/deepsand-zero-breach /home/deepcode/.agents/skills/; \
+        ;; \
+    esac; \
     # Every installed skill has to be discoverable: a directory with a SKILL.md whose
     # frontmatter carries a name and a description. This asserts the installed tree,
     # because that is the tree the CLI scans.
@@ -623,6 +812,18 @@ RUN set -eux; \
       case ",$INSTALL_TOOLS," in \
         *,ffdec,*) ;; \
         *) echo "deepsand: the ffdec skill is present but the ffdec tool is not selected" >&2; exit 1 ;; \
+      esac; \
+    fi; \
+    if [ -d /home/deepcode/.agents/skills/deepsand-mcp-reverse ]; then \
+      case ",$INSTALL_TOOLS," in \
+        *,mcp-reverse,*) ;; \
+        *) echo "deepsand: the mcp-reverse skill is present but the mcp-reverse tool is not selected" >&2; exit 1 ;; \
+      esac; \
+    fi; \
+    if [ -d /home/deepcode/.agents/skills/deepsand-zero-breach ]; then \
+      case ",$INSTALL_TOOLS," in \
+        *,zero-breach,*) ;; \
+        *) echo "deepsand: the zero-breach skill is present but the zero-breach tool is not selected" >&2; exit 1 ;; \
       esac; \
     fi; \
     chown -R 1000:1000 /home/deepcode/.agents; \
@@ -670,6 +871,24 @@ ENV PATH="/home/deepcode/.cargo/bin:/home/deepcode/.local/bin:/home/deepcode/.ni
 # reach npm does it pass a timestamp instead, because an unpinned `@latest` install is the one
 # case the layer cache cannot see. An npm cache mount backs both, so even an unpinned install
 # fetches only what changed.
+#
+# The installed CLI's TUI is Ink. Ink's fullscreen/overflow fallback exists because a frame
+# taller than the terminal cannot be rewritten in place -- but it clears the screen *and the
+# scrollback* and rewrites the whole static conversation on every render, so a tall live frame
+# costs tens of megabytes a second and a terminal nobody can scroll. The patch below keeps the
+# fallback and replaces what it writes: one viewport, never the scrollback. --apply fails the
+# build if the bundled renderer no longer has the shape the patch knows (it also undoes the
+# superseded predicate-only patch), and --check proves the installed copy carries it. See
+# bin/patch-deepcode-ink.mjs.
+#
+# The prompt's `@`-mention index is the second patch, for the same kind of reason. It walks the
+# whole workspace in a `useState` initialiser -- during the first render, before anything is
+# painted -- and it descends into dot-directories. On this sandbox's bind mount an entry costs
+# milliseconds, so a workspace with a vendored 31,000-file `.toolchain` left the operator staring
+# at an empty terminal for minutes ("it hangs"), and the item cap was exhausted by the toolchain
+# before any real source was indexed. The patch starts that state empty (the mount effect three
+# lines below already fills it after the first frame) and skips hidden directories. See
+# bin/patch-deepcode-mentions.mjs.
 # ---------------------------------------------------------------------------
 ARG DEEPCODE_REFRESH=0
 RUN --mount=type=cache,target=/root/.npm,sharing=locked \
@@ -687,10 +906,17 @@ RUN --mount=type=cache,target=/root/.npm,sharing=locked \
         exit 1; \
       fi; \
     fi; \
-    deepcode --version
+    deepcode --version; \
+    node /usr/local/lib/deepsand/patch-deepcode-ink.mjs --self-test; \
+    node /usr/local/lib/deepsand/patch-deepcode-ink.mjs --apply; \
+    node /usr/local/lib/deepsand/patch-deepcode-ink.mjs --check; \
+    node /usr/local/lib/deepsand/patch-deepcode-mentions.mjs --apply; \
+    node /usr/local/lib/deepsand/patch-deepcode-mentions.mjs --check; \
+    node /usr/local/lib/deepsand/patch-deepcode-mentions.mjs --self-test
 
 LABEL deepsand.tools="$INSTALL_TOOLS"
 LABEL deepsand.deepcode.refresh="$DEEPCODE_REFRESH"
+LABEL deepsand.deepcode.patch="ink-viewport-repaint,mention-index-deferred"
 # What was actually asked for, so the host can tell whether this image's CLI is still current
 # without starting a container to ask it. The host passes the version it resolved from npm and
 # compares it with this label on every start; when they differ it rebuilds this layer first.

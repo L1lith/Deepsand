@@ -30,6 +30,17 @@
 
   --radius: 10px;
   --radius-sm: 6px;
+
+  /* Scrollbars are chrome, so the thumb sits between the border greys and the
+     faint text: findable without competing with the content. It only takes the
+     accent while the pointer is on it. */
+  --scrollbar-size: 0.7rem;
+  --scrollbar-inset: 2px;
+  --scrollbar-min-thumb: 2rem;
+  --scrollbar-thumb: color-mix(in srgb, var(--text-faint) 45%, var(--border-strong));
+  --scrollbar-thumb-hover: color-mix(in srgb, var(--accent) 60%, var(--border-strong));
+  --scrollbar-thumb-active: var(--accent);
+
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
@@ -68,6 +79,95 @@ pre,
 .mono {
   font-family: var(--mono);
   font-size: 0.86em;
+}
+
+/* --------------------------------------------------------------------------
+   Scrollbars
+   -------------------------------------------------------------------------- */
+
+/* The webview is Chromium on Windows and WebKit everywhere else, so this one
+   set of pseudo-elements themes every scroll container the browser makes: the
+   project list, a panel, the build log, the dialog bodies, the language list
+   and the toast body. There is no per-element rule to drift out of step when a
+   new scrolling panel is added. The terminal is the one exception, because
+   xterm draws its own scrollbar out of divs; it is styled further down.
+
+   `scrollbar-width`/`scrollbar-color` are deliberately not declared. Chromium
+   honours the standard properties over these pseudo-elements, so setting both
+   is how a themed scrollbar silently reverts to the platform one.
+
+   The track is transparent and the thumb is a rounded pill inset by a
+   transparent border, so it reads as part of the surface it belongs to rather
+   than as an OS widget. It rests as a mix of --border-strong and --text-faint
+   -- a scrollbar is chrome and should not compete with the content, but it has
+   to be findable -- and takes the accent only once the pointer is on it. */
+
+::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+/* No stepper arrows: they are the one part of the chrome that cannot be made to
+   match a dark instrument panel. */
+::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  /* The floor is what keeps a long document's thumb grabbable: the ratio
+     decides its size, and a 2000-line log would otherwise leave a few pixels.
+     Both axes, because the build log scrolls sideways as well. */
+  min-height: var(--scrollbar-min-thumb);
+  min-width: var(--scrollbar-min-thumb);
+  border: var(--scrollbar-inset) solid transparent;
+  border-radius: 999px;
+  /* Colour, not `background`, so the clip set above survives the overrides
+     below -- the shorthand would reset it and square off the pill. */
+  background-color: var(--scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+
+::-webkit-scrollbar-thumb:active {
+  background-color: var(--scrollbar-thumb-active);
+}
+
+/* xterm does not use the browser's scrollbar: it lays out its own slider as a
+   div inside .xterm-scrollable-element (14px wide, painted from the theme's
+   foreground at low alpha) and positions it with an inline style. So the rules
+   above never reach it, and it is styled here to the same pill: the same
+   colour at rest, the accent on hover, the same inset achieved with a border
+   because the slider's width is inline and cannot be overridden.
+
+   The extra `.terminal-host` is what makes these win: xterm injects its own
+   `.xterm .xterm-scrollable-element > .scrollbar > .slider` block into the
+   document after this stylesheet, so an equally specific rule here would lose
+   on source order. */
+
+.terminal-host .xterm .xterm-scrollable-element > .scrollbar > .slider {
+  border-left: calc(var(--scrollbar-inset) + 2px) solid transparent;
+  border-right: calc(var(--scrollbar-inset) + 2px) solid transparent;
+  border-radius: 999px;
+  background-color: var(--scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+.terminal-host .xterm .xterm-scrollable-element > .scrollbar > .slider:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+
+.terminal-host .xterm .xterm-scrollable-element > .scrollbar > .slider.active {
+  background-color: var(--scrollbar-thumb-active);
 }
 
 /* --------------------------------------------------------------------------
@@ -948,6 +1048,23 @@ pre.output {
   background: var(--bg-panel);
   font-size: 0.78rem;
   color: var(--text-dim);
+}
+
+/* One line, whatever the translation says.
+   This bar is inside the terminal pane's flex column, and its height is the difference between
+   the pane the PTY is created in and the pane the TUI then draws in. A sentence that wraps in
+   one language (or at one window width) makes the pane shorter *after* the session starts,
+   which is the wrong-sized-frame scroll this bar already caused once. Keep the text on one line
+   and the control unshrinkable; the bar's height then depends only on the button. */
+.queue-note span {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.queue-note .btn {
+  flex: none;
 }
 
 

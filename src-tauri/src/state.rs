@@ -336,7 +336,8 @@ pub struct ToolView {
     pub id: String,
     pub label: String,
     pub description: String,
-    /// "Utilities", "Languages", "Package managers", "Capabilities", "Reverse Engineering".
+    /// "Utilities", "Languages", "Package managers", "Capabilities", "Reverse Engineering",
+    /// "Cyber Security".
     pub category: String,
     /// The project's own home page, for the link beside the tool. `None` would hide the link;
     /// a test asserts every catalogue entry has one, so it should not happen.
@@ -638,6 +639,14 @@ pub struct AppState {
     /// some other size, and a TUI that is even one row taller than its terminal scrolls on
     /// every repaint instead of overwriting: the status line stacks up the screen.
     pub terminal_sizes: Mutex<HashMap<String, (u16, u16)>>,
+    /// The last terminal size *any* project asked for.
+    ///
+    /// A pane that has never been on screen has never reported a size, so a project selected
+    /// for the first time while another tab is showing would start at the 40x120 guess even
+    /// though the window's terminal area is some other size. Every project in a window shares
+    /// that area, so the last size any of them reported is a far better guess than a constant.
+    /// It is only a fallback: a per-project size still wins.
+    pub last_terminal_size: Mutex<Option<(u16, u16)>>,
     /// Sandboxes that started before their tools existed, by the image being built for them.
     ///
     /// Keyed by image rather than by project because that is what the build knows when it
@@ -738,6 +747,7 @@ impl AppState {
             sessions: Mutex::new(HashMap::new()),
             early_input: Mutex::new(HashMap::new()),
             terminal_sizes: Mutex::new(HashMap::new()),
+            last_terminal_size: Mutex::new(None),
             tools_arriving: Mutex::new(HashMap::new()),
             pending: Mutex::new(HashMap::new()),
             pending_order: Mutex::new(Vec::new()),
@@ -845,6 +855,10 @@ impl AppState {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .insert(project_id.to_string(), (rows, cols));
+        *self
+            .last_terminal_size
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Some((rows, cols));
     }
 
     /// The size the window last asked for, if it has asked at all.
@@ -854,6 +868,18 @@ impl AppState {
             .unwrap_or_else(|p| p.into_inner())
             .get(project_id)
             .copied()
+    }
+
+    /// The size the next start should use when this project has never reported one.
+    ///
+    /// A pane that has never been shown has no size of its own, but it lives in the same
+    /// window as every project that has, so the last size reported by any project is the
+    /// closest thing to the truth available without asking the window.
+    pub fn fallback_terminal_size(&self) -> Option<(u16, u16)> {
+        *self
+            .last_terminal_size
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
     }
 
     /// Container names a live session owns, which is what "not an orphan" means.

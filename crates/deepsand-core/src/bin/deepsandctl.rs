@@ -85,6 +85,7 @@ fn run() -> Result<()> {
         "watch" => cmd_watch(&data_dir, &rest),
         "requests" => cmd_requests(&data_dir, &rest),
         "network" => cmd_network(&data_dir, &rest),
+        "images" => cmd_images(&data_dir, &rest),
         other => Err(SandboxError::Other(anyhow::anyhow!(
             "unknown command '{other}'. Run `deepsandctl help`."
         ))),
@@ -115,6 +116,8 @@ COMMANDS
   requests <project>            List requests currently waiting for a decision
   network <project> [mode]      Show or change the egress policy
                                 (none|internet|allowlisted|full)
+  images [--prune]              List the runtime images, or remove the ones no
+                                project would run and no container uses
 
 NOTES
   `run` and `watch` are meant to be used together in two terminals: `run`
@@ -152,10 +155,19 @@ fn cmd_doctor(data_dir: &Path) -> Result<()> {
     // The settings tag is the stem every project's tag is derived from, and it is not the
     // image any project runs. Printing it alone read as "the runtime image is present" while
     // a project's own tag could be missing entirely, so both are shown.
+    //
+    // "present" here means an image built *from* this stem -- the base tag or any derived one --
+    // because that is the question the window's badge asks. It used to ask whether the base tag
+    // existed, which the app never builds; once the sweep removed that unused base image, the
+    // badge said "missing" permanently while every project's image was there.
     println!(
         "runtime stem   : {} ({})",
         store.settings().image,
-        if docker_status.image_present { "present" } else { "MISSING - build it from the app, or run the project" }
+        if docker_status.image_present {
+            "present - at least one image built from it"
+        } else {
+            "MISSING - build it from the app, or run the project"
+        }
     );
     if !docker_status.detail.is_empty() {
         println!("note           : {}", docker_status.detail);
@@ -206,6 +218,33 @@ fn cmd_doctor(data_dir: &Path) -> Result<()> {
                 println!("runtime files : DAMAGED - {}", entry.describe());
             }
             println!("                a build repairs these from the copy inside the app");
+        }
+
+        // Which patches an image built from *this* tree would carry. A window running an older
+        // build resolves the `runtime/` next to its own executable, and that tree can predate
+        // both TUI patches: the terminal then scrolls on every repaint and the `@`-index blocks
+        // the first frame, while every other line of output reads normally. The revision in the
+        // tag is derived from this tree, so it is printed beside the patches for comparison.
+        let revision = deepsand_core::seccomp::runtime_revision(&dir);
+        let patches = deepsand_core::runtime_files::tui_patches(&dir);
+        if patches.len() == deepsand_core::runtime_files::TUI_PATCHES.len() {
+            println!("runtime tree  : {revision} (TUI patches: {})", patches.join(", "));
+        } else {
+            let missing = deepsand_core::runtime_files::missing_tui_patches(&dir);
+            println!(
+                "runtime tree  : {revision} (NO TUI PATCHES: missing {})",
+                missing.join(", ")
+            );
+            println!(
+                "                an image built from this tree repaints its whole conversation on every"
+            );
+            println!(
+                "                tick -- the terminal scrolls -- and its @-index delays the first frame."
+            );
+            println!(
+                "                This is what a build older than the patches looks like: install a"
+            );
+            println!("                current Deepsand, or run it from the repository.");
         }
     }
 
@@ -967,6 +1006,105 @@ fn cmd_network(data_dir: &Path, args: &[String]) -> Result<()> {
             store.save()?;
             println!("'{}' egress policy is now {}", project.name, mode);
             Ok(())
+        }
+    }
+}
+
+/* ------------------------------------------------------------------------- */
+/* images                                                                    */
+/* ------------------------------------------------------------------------- */
+
+/// List the runtime images, or remove the ones nothing would run.
+///
+/// The decision itself is in [`deepsand_core::image_gc`], shared with the app's startup sweep,
+/// so what a reviewer sees here is exactly what the app does on launch.
+fn cmd_images(data_dir: &Path, args: &[String]) -> Result<()> {
+    let prune = args.iter().any(|arg| arg == "--prune");
+    let store = Store::load(data_dir.to_path_buf())?;
+    let docker = Docker::locate()?;
+    let stem = store.settings().image.clone();
+    let wanted = deepsand_core::image_gc::tags_in_use(store.settings(), store.projects());
+    let grace = deepsand_core::image_gc::IMAGE_GRACE_MS;
+
+    if prune {
+        let report = docker.prune_images(&stem, &wanted, grace)?;
+        for reference in &report.removed {
+            println!("removed        {reference}");
+        }
+        for reference in &report.failed {
+            println!("not removed    {reference} (Docker refused; a container may use it)");
+        }
+        println!(
+            "\n{} removed, {} kept, {} refused",
+            report.removed.len(),
+            report.kept(),
+            report.failed.len()
+        );
+        return Ok(());
+    }
+
+    let used = docker.images_in_use()?;
+    let images = docker.image_inventory(&stem)?;
+    let decisions =
+        deepsand_core::image_gc::plan(&images, &stem, &wanted, &used, deepsand_core::now_ms(), grace);
+    if decisions.is_empty() {
+        println!("no images");
+        return Ok(());
+    }
+
+    println!("stem: {stem}");
+    for tag in &wanted {
+        println!("a project would run: {tag}");
+    }
+    println!();
+    let now = deepsand_core::now_ms();
+    for decision in &decisions {
+        let (verdict, reason) = match &decision.action {
+            deepsand_core::image_gc::Action::Remove => ("would remove".to_string(), String::new()),
+            deepsand_core::image_gc::Action::Keep(keep) => {
+                ("keep".to_string(), format!(" ({})", keep.code()))
+            }
+        };
+        println!(
+            "{:<13} {:>8} {:>5}  {}{}",
+            verdict,
+            decision.size,
+            human_age(now, decision_reference_age(&images, decision)),
+            decision.reference,
+            reason
+        );
+    }
+    if decisions.iter().any(|decision| decision.is_removal()) {
+        println!("\nrun `deepsandctl images --prune` to remove what is marked \"would remove\"");
+    } else {
+        println!("\nnothing to remove");
+    }
+    Ok(())
+}
+
+fn decision_reference_age(
+    images: &[deepsand_core::image_gc::ImageEntry],
+    decision: &deepsand_core::image_gc::Decision,
+) -> Option<i64> {
+    images
+        .iter()
+        .find(|image| image.id == decision.id)
+        .and_then(|image| image.created_ms)
+}
+
+/// A coarse age for a listing: minutes, hours or days. An image Docker could not date is "?".
+fn human_age(now_ms: i64, created_ms: Option<i64>) -> String {
+    match created_ms {
+        None => "?".to_string(),
+        Some(created) => {
+            let minutes = now_ms.saturating_sub(created).max(0) / 60_000;
+            if minutes < 60 {
+                format!("{minutes}m")
+            } else if minutes < 60 * 24 {
+                format!("{}h", minutes / 60)
+            } else {
+                format!("{}d", minutes / (60 * 24))
+            }
         }
     }
 }

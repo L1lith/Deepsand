@@ -11,6 +11,10 @@ runtime/
 │  ├─ entrypoint.sh              settings, egress rules, privilege drop, exec
 │  ├─ netfilter.sh               the network policy, installed as root
 │  ├─ ffdec.sh                   the JPEXS FFDec CLI, for exports MCP does not wrap
+│  ├─ mcp-reverse.sh             starts mcp-reverse from its writable copy in the state volume
+│  ├─ zero-breach.sh             the spyware triage CLI, with the image's indicator sets
+│  ├─ patch-deepcode-ink.mjs     repaints one viewport where Ink rewrote the conversation
+│  ├─ patch-deepcode-mentions.mjs  builds the @-index after the first frame, not during it
 │  └─ deepsand-mcp-bridge.mjs    the API DeepCode asks permission through
 ├─ skills/
 │  ├─ deepsand-permissions/
@@ -21,8 +25,12 @@ runtime/
 │  │  └─ SKILL.md                REA's playbook, installed only when rea is selected
 │  ├─ deepsand-dejared/
 │  │  └─ SKILL.md                Dejared's playbook, installed only when dejared is selected
-│  └─ deepsand-ffdec/
-│     └─ SKILL.md                FFDec's playbook, installed only when ffdec is selected
+│  ├─ deepsand-ffdec/
+│  │  └─ SKILL.md                FFDec's playbook, installed only when ffdec is selected
+│  ├─ deepsand-mcp-reverse/
+│  │  └─ SKILL.md                mcp-reverse's playbook, installed only when it is selected
+│  └─ deepsand-zero-breach/
+│     └─ SKILL.md                the spyware triage playbook, installed only when it is selected
 ├─ seccomp-hardened.json         opt-in additive seccomp profile
 └─ scripts/
    ├─ build-image.mjs            docker build with the configured tag
@@ -88,6 +96,64 @@ setpriv --reuid=1000 --regid=1000 --clear-groups \
 
 and `exec`s DeepCode. After that point nothing in the container can run
 `iptables`, regain a capability, or become root.
+
+## The TUI renderer patch
+
+The installed CLI renders its TUI with Ink. Ink has a fallback for a frame that is as tall
+as, or taller than, the terminal: clear the screen **and the scrollback**
+(`ESC[2J ESC[3J ESC[H`) and rewrite the whole static conversation plus the live frame. The
+fallback itself is necessary -- a frame taller than the viewport cannot be rewritten in place,
+because its top is off screen and moving the cursor up clamps at the first row -- but as a
+steady state it is catastrophic. A tall live frame (the process-output panel, a long prompt, a
+session list) hits it on every status tick: the screen cannot be read or scrolled, the PTY sees
+tens of megabytes of rewritten conversation, and the app's xterm has only one screen to show
+for it.
+
+`bin/patch-deepcode-ink.mjs` leaves the rule alone and replaces **what the repaint writes**: the
+viewport only (`ESC[H ESC[2J`, never `ESC[3J`), the live frame's last `rows` lines when it is
+taller than the screen -- the same lines upstream leaves visible -- and, when the frame fits
+again, the last screenful of history above it, bottom-aligned. So a repaint costs one viewport,
+never scrolls, and never writes the conversation twice. `--check` also proves the normal
+(erase-and-rewrite) path is still byte-for-byte upstream's: only that one branch differs. The
+same run undoes the earlier predicate-only patch, because a rebuild that cannot reach the
+registry keeps the CLI copy the image already has.
+
+The Dockerfile applies the patch after installing the CLI and then runs `--check`. If the
+bundled renderer changes shape, `--apply` refuses and fails the build. Do not weaken that
+failure into a warning: an unpatched image looks fine until the next tall view. `--self-test`
+runs without the CLI and without Docker, and asserts the bytes: one screenful per repaint, no
+scrollback wipe, no scrolling, and a repaint that does not grow with the conversation.
+
+## The mention-index patch
+
+The prompt's `@`-file completion index is built by walking the whole workspace, and upstream
+builds it in the **initialiser of a `useState`** -- which runs during the component's first
+render, so Ink has no frame to paint until the walk finishes. On a local filesystem that is
+milliseconds. The workspace here is a Docker Desktop bind mount, where one directory entry costs
+milliseconds: measured from inside a container, 39,192 entries took **2m35s**, and the CLI
+painted nothing for the first ~90 seconds of a resume. The operator sees an empty pane with no
+status bar and no cursor, and reasonably calls it a hang.
+
+Two things are wrong there, and `bin/patch-deepcode-mentions.mjs` fixes each on its own terms:
+
+* Starting empty is enough, because three lines below the initialiser upstream already runs the
+  same scan in a mount effect -- and again when the agent goes idle and when a mention token
+  first appears. The first frame stops walking anything.
+* The walk descends into dot-directories (`.toolchain`, `.cargo`, `.venv`, `.npm`), which are
+  tool state rather than source. This workspace carries a 31,000-file `.toolchain`; the scan's
+  cap is on *items* (20,000), so the toolchain consumed the budget and `ui/` and `crates/` were
+  never indexed at all. `@` completion was slow *and* wrong. Hidden directories are now skipped
+  except the ones that hold source (`.github`, `.vscode`, `.devcontainer`, `.storybook`,
+  `.well-known`, `.deepcode`, `.claude`); hidden *files* are untouched, so `.env.example` is
+  still offered.
+
+The index is a completion aid, so skipping entries removes nothing from the sandbox: the model
+can still read any path it names. `--apply` refuses a bundle it does not recognise, and also
+refuses if the mount effect that fills the index has gone (starting empty would then leave it
+empty forever). `--check` proves the installed copy carries both edits. `--self-test` runs the
+scanner **from the file being patched** against a temporary tree: real source and
+`.github/workflows` are found, a 300-file `.toolchain` and a hidden symlink are not, hidden
+files still are, and the shipped noisy list still applies.
 
 ## The MCP bridge
 

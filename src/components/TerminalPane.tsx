@@ -10,7 +10,7 @@
  *    itself, which is what lets the container's TUI initialise at all.
  */
 
-import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -421,8 +421,26 @@ export function TerminalPane() {
     mirrored = lines.length;
   });
 
+  /**
+   * The selected project's id, as a value that only changes on a real switch.
+   *
+   * This used to be read straight from `project()`, which tracks the whole `projects` array.
+   * That array is replaced on every `refreshProjects()`, and a refresh arrives on ordinary
+   * events -- a session status change, a broker answer, a container sweep, Docker coming back.
+   * So a routine refresh re-ran the effect below, and `term.reset()` wiped the screen behind a
+   * TUI that was still running. Ink tracks how many lines it has written and moves the cursor
+   * up that many on the next frame; with the buffer cleared underneath it that arithmetic lands
+   * in the wrong place, and every repaint scrolls instead of overwriting. From the outside that
+   * is the session scrolling itself over and over, too fast to read.
+   *
+   * A memo compares with `===`, so a new array holding the same selected project keeps the same
+   * id and does not notify the effect: that is not a project switch and must not touch the
+   * terminal.
+   */
+  const selectedProjectId = createMemo(() => project()?.id);
+
   createEffect(() => {
-    const current = project();
+    const projectId = selectedProjectId();
     if (!term) return;
     // Put the theme back before the buffer is used again. `reset()` does not do it, and a
     // pane recoloured by a sequence from before this guard existed would otherwise stay
@@ -430,9 +448,9 @@ export function TerminalPane() {
     // back, rather than an app restart.
     term.options.theme = { ...TERMINAL_THEME };
     term.reset();
-    if (!current) return;
+    if (!projectId) return;
 
-    const detach = attachTerminal(current.id, (bytes) => term?.write(bytes));
+    const detach = attachTerminal(projectId, (bytes) => term?.write(bytes));
     onCleanup(detach);
 
     // Ask the container to repaint by nudging the PTY size: a TUI re-renders on
@@ -852,16 +870,38 @@ export function TerminalPane() {
       <Show when={dropping() || attaching()}>
         <div class="terminal-drop-hint">{attaching() ? t("terminal.attaching") : t("terminal.dropToAttach")}</div>
       </Show>
-      <Show when={project()?.running}>
-        <div class="queue-note">
-          <span>
-            {t("terminal.containerRunning", { name: project()?.containerName ?? "" })}
-          </span>
+
+      {/*
+       * Always rendered, and therefore always the same height.
+       *
+       * This bar used to exist only while the session was running. It appeared *after* the PTY
+       * had been created, took 45px away from the terminal (three rows at the default font
+       * size), and left the TUI drawing a three-rows-too-tall frame in a pane that had just
+       * shrunk -- every repaint scrolled instead of overwriting. The fix is not to remove the
+       * information: it is to make its footprint independent of `running`, so the pane has the
+       * same box before and after a start. The stopped state gets the same bar with a Run, the
+       * running state the container name and a Stop. The text is `nowrap` + ellipsis so a
+       * longer translation cannot wrap the bar into a second line and change the height again.
+       */}
+      <div class="queue-note">
+        <span>
+          {project()?.running
+            ? t("terminal.containerRunning", { name: project()?.containerName ?? "" })
+            : t("terminal.notRunning", { name: project()?.name ?? "" })}
+        </span>
+        <Show
+          when={project()?.running}
+          fallback={
+            <button class="btn btn-sm btn-primary" disabled={busy()} onClick={() => void run()}>
+              {busy() ? t("common.starting") : t("app.run")}
+            </button>
+          }
+        >
           <button class="btn btn-sm" disabled={busy()} onClick={() => void stop()}>
             {busy() ? t("common.stopping") : t("app.stop")}
           </button>
-        </div>
-      </Show>
+        </Show>
+      </div>
 
       {/* The operator dropped something from outside the project's folders. Nothing has been
           copied yet: this is the decision, and its "don't warn me again" is the global

@@ -1019,4 +1019,37 @@ mod mcp_server_tests {
             "a project that did not select ffdec must not start its server"
         );
     }
+
+    /// mcp-reverse's settings entry has to name the launcher rather than the pinned runtime.
+    /// The launcher is what copies the server into the writable state volume and sets the
+    /// directories it creates; naming `node dist/index.js` here would start a server that
+    /// cannot write its database's side files, its cache or its audit log on a read-only root.
+    #[test]
+    fn mcp_reverse_is_started_through_its_launcher_and_only_when_selected() {
+        let creds = ResolvedCredentials::default();
+        let selected = build_deepcode_settings(
+            &project_with_tools(Some(vec!["mcp-reverse".to_string()])),
+            &[],
+            &creds,
+            45_000,
+        );
+        let server = &selected["mcpServers"]["mcp-reverse"];
+        assert_eq!(server["command"], crate::tools::MCP_REVERSE_LAUNCHER);
+        assert_eq!(server["args"], serde_json::json!([]));
+        assert!(
+            server.get("env").is_none(),
+            "the launcher owns the paths, so settings cannot disagree with what it creates"
+        );
+
+        let other = build_deepcode_settings(
+            &project_with_tools(Some(vec!["ffdec".to_string()])),
+            &[],
+            &creds,
+            45_000,
+        );
+        assert!(
+            other["mcpServers"].get("mcp-reverse").is_none(),
+            "a project that did not select mcp-reverse must not start its server"
+        );
+    }
 }
