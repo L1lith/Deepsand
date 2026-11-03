@@ -607,6 +607,14 @@ These are load-bearing. Breaking one is how this project gets a CVE.
   sharing probe did not set the flag at all, so the runtime looked fine and no button appeared, and
   the window did not re-read the status after a failed operation, so it went on showing the stale
   "Docker is fine". Any new failure that means "Docker, not this project" has to do both.
+  **The control also belongs on the error box, not only the callout.** The callout lives on the
+  terminal tab; the operator who sees a start fail may be on another one. `restartDockerAction`
+  puts the same restart-and-retry on the error toast, and `dockerIsNotAnswering` decides when:
+  the sharing probe's "did not answer within", a start-path leash's "gave no answer within", or
+  `docker_status`'s "container runtime is not answering" all mean pressing Run again cannot help.
+  A refused start because the sharing probe went silent is exactly this case -- the directory is
+  not the problem, Docker Desktop is. Retrying the mount would only teach the operator to press a
+  button that cannot work.
 * **Nothing this app starts outlives it.** Windows does not end a child when its parent exits,
   and `std::process::exit` in the shutdown path abandons whatever is still running: a hung
   `docker build` was found an hour and a half after the app had gone, still holding the image

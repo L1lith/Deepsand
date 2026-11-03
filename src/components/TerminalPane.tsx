@@ -16,7 +16,18 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import * as api from "../lib/api";
-import { attachTerminal, describeError, refreshSettings, restartDocker, selectedProject, sessionOperation, store, toast } from "../store";
+import {
+  attachTerminal,
+  describeError,
+  dockerIsNotAnswering,
+  refreshSettings,
+  restartDocker,
+  restartDockerAction,
+  selectedProject,
+  sessionOperation,
+  store,
+  toast,
+} from "../store";
 import { t } from "../i18n";
 import { dockerDetail } from "../lib/types";
 import { RestartDockerControl } from "./RestartDocker";
@@ -460,6 +471,26 @@ export function TerminalPane() {
     window.setTimeout(() => safeFit(), 30);
   });
 
+  /**
+   * Report a failed start, with an action when the failure was Docker not answering.
+   *
+   * `restartDockerAction` is the same restart-and-retry the callout offers; attaching it to the
+   * error box means the operator does not have to find the callout on a tab they may have left.
+   */
+  function toastStartFailure(error: unknown, current: { id: string; name: string }) {
+    const body = describeError(error);
+    toast(
+      "error",
+      t("terminal.startFailed"),
+      body,
+      dockerIsNotAnswering(error)
+        ? restartDockerAction(current.id, current.name, () =>
+            window.setTimeout(() => safeFit(), 120),
+          )
+        : undefined,
+    );
+  }
+
   async function run() {
     const current = project();
     if (!current) return;
@@ -474,7 +505,7 @@ export function TerminalPane() {
           window.setTimeout(() => safeFit(), 120);
         }
       } catch (error) {
-        toast("error", t("terminal.startFailed"), describeError(error));
+        toastStartFailure(error, current);
       }
     });
   }
@@ -497,7 +528,7 @@ export function TerminalPane() {
           window.setTimeout(() => safeFit(), 120);
         }
       } catch (error) {
-        toast("error", t("terminal.startFailed"), describeError(error));
+        toastStartFailure(error, current);
       }
     });
   }
@@ -525,7 +556,7 @@ export function TerminalPane() {
         window.setTimeout(() => safeFit(), 120);
       }
     } catch (error) {
-      toast("error", t("terminal.startFailed"), describeError(error));
+      toastStartFailure(error, current);
     } finally {
       setSkipping(false);
     }

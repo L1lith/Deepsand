@@ -255,6 +255,69 @@ export async function restartDocker(): Promise<void> {
   await refreshDockerStatus();
 }
 
+/**
+ * Is this failure Docker failing to answer, rather than something about the project?
+ *
+ * The sharing probe's silence says "did not answer within 15s", a start-path leash timeout says
+ * "gave no answer within", and `docker_status` says "container runtime is not answering". They
+ * all mean the same thing: restarting the engine is the only in-app action, and retrying the
+ * mount is not. The distinction matters because an error box that offers "try again" for a
+ * wedged file-sharing layer teaches the operator to press a button that cannot work.
+ */
+export function dockerIsNotAnswering(error: unknown): boolean {
+  const text = describeError(error);
+  return (
+    text.includes("did not answer within") ||
+    text.includes("gave no answer within") ||
+    text.includes("file sharing not responding") ||
+    text.includes("container runtime is not answering")
+  );
+}
+
+/**
+ * The action a refused start offers when the refusal was Docker not answering.
+ *
+ * This is the same restart-and-retry the terminal's callout offers, put on the error box itself:
+ * the operator should not have to find another tab to reach the only thing that can help. The
+ * retry can fail for the same reason -- a Docker Desktop restart that did not take, or a wedge
+ * that survived it -- so the new failure is reported with the action again rather than as a dead
+ * end.
+ */
+export function restartDockerAction(
+  projectId: string,
+  projectName: string,
+  onStarted?: () => void,
+): ToastAction {
+  return {
+    label: t("terminal.restartDockerAndRetry"),
+    run: async () => {
+      await sessionOperation(projectId, async () => {
+        try {
+          await restartDocker();
+        } catch (error) {
+          toast("error", t("app.couldNotRestartDocker"), describeError(error));
+          return;
+        }
+        try {
+          await api.startSession(projectId, true);
+          toast("ok", t("terminal.restartedDocker", { name: projectName }));
+          onStarted?.();
+        } catch (error) {
+          const body = describeError(error);
+          toast(
+            "error",
+            t("terminal.startFailed"),
+            body,
+            dockerIsNotAnswering(error)
+              ? restartDockerAction(projectId, projectName, onStarted)
+              : undefined,
+          );
+        }
+      });
+    },
+  };
+}
+
 export async function refreshProjects() {
   const projects = await api.listProjects();
   setStore("projects", projects);
@@ -499,7 +562,15 @@ export async function wireEvents(): Promise<() => void> {
       // Re-reading Docker is the same rule as a failed manual operation: the answer may have
       // changed, and the restart control is what the status probe draws.
       if (payload.error) {
-        toast("error", t("terminal.startFailed"), payload.error);
+        const failed = store.projects.find((project) => project.id === payload.projectId);
+        toast(
+          "error",
+          t("terminal.startFailed"),
+          payload.error,
+          dockerIsNotAnswering(payload.error)
+            ? restartDockerAction(payload.projectId, failed?.name ?? payload.projectId)
+            : undefined,
+        );
         void refreshDockerStatus();
       }
     }),

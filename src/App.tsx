@@ -17,8 +17,10 @@ import {
   cancelBuild,
   describeError,
   moveProject,
+  dockerIsNotAnswering,
   refreshProjectData,
   restartDocker,
+  restartDockerAction,
   revealProjectDir,
   selectProject,
   selectedProject,
@@ -236,7 +238,18 @@ export default function App() {
           setTab("terminal");
         }
       } catch (error) {
-        toast("error", t("app.couldNotStartSandbox"), describeError(error));
+        const body = describeError(error);
+        toast(
+          "error",
+          t("app.couldNotStartSandbox"),
+          body,
+          // A sharing-probe timeout is Docker Desktop not answering, and no amount of pressing
+          // Run again will fix it. Put the restart-and-retry where the error is, not only on the
+          // terminal tab the operator may not be looking at.
+          dockerIsNotAnswering(error)
+            ? restartDockerAction(current.id, current.name, () => setTab("terminal"))
+            : undefined,
+        );
       }
     });
   }
