@@ -4,7 +4,9 @@
 //! What is cached and what is not, and why:
 //!
 //! * **cargo installs** -- compiled from source, minutes of work, the biggest win.
-//! * **npm globals** (including the DeepCode CLI) -- registry round-trips and unpacking.
+//! * **npm globals** -- registry round-trips and unpacking, except the DeepCode CLI, which is
+//!   resolved and pinned on its own layer before every start (`cli_refresh`). Caching it here
+//!   would not save that install and would make a CLI release look like a moved tool.
 //! * **not apt packages** -- the build already has cache mounts for `/var/cache/apt` and
 //!   `/var/lib/apt/lists`, so apt re-resolves but does not re-download, and copying installed
 //!   system packages out of an image and back in is the fiddliest thing here for the smallest
@@ -208,6 +210,11 @@ pub fn read_versions(dir: &Path) -> (Versions, Versions) {
 ///
 /// Only the top level: the point is the tools, not the tree under them, and a transitive
 /// dependency moving is not a reason to rebuild an image.
+///
+/// The DeepCode CLI is dropped here even though it appears in the listing. The listing is taken
+/// from the *finished* image, where the CLI's own layer has already installed it, but it is not
+/// a cached tool: `cli_refresh` owns its version and rebuilds its layer before a start. Left in,
+/// every CLI release looked like a moved tool and emptied the whole tools cache.
 pub fn parse_npm_versions(json: &str) -> Versions {
     let mut out = Versions::new();
     let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json) else {
@@ -215,6 +222,9 @@ pub fn parse_npm_versions(json: &str) -> Versions {
     };
     if let Some(deps) = parsed.get("dependencies").and_then(|value| value.as_object()) {
         for (name, detail) in deps {
+            if name == crate::cli::CLI_PACKAGE {
+                continue;
+            }
             if let Some(version) = detail.get("version").and_then(|value| value.as_str()) {
                 out.insert(name.clone(), version.to_string());
             }
@@ -461,21 +471,30 @@ RUN npm install -g something-else
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// The npm listing, in the shape `npm ls -g --depth=0 --json` really produces.
+    /// The npm listing, in the shape `npm ls -g --depth=0 --json` really produces. It carries the
+    /// DeepCode CLI because the listing is taken from the finished image, but the CLI is not a
+    /// tool this cache tracks -- `cli_refresh` owns it. Treating it as one emptied the whole
+    /// tools cache on every CLI release.
     #[test]
-    fn the_npm_listing_gives_the_names_and_versions() {
+    fn the_npm_listing_keeps_the_tools_and_drops_the_deepcode_cli() {
         let fixture = r#"{
           "dependencies": {
             "@vegamo/deepcode-cli": { "version": "1.2.3" },
+            "@scope/tool": { "version": "0.1.0" },
             "typescript": { "version": "5.6.2", "overridden": false }
           }
         }"#;
         let parsed = parse_npm_versions(fixture);
         assert_eq!(parsed.get("typescript").map(String::as_str), Some("5.6.2"));
         assert_eq!(
-            parsed.get("@vegamo/deepcode-cli").map(String::as_str),
-            Some("1.2.3"),
-            "a scoped name is a name"
+            parsed.get("@scope/tool").map(String::as_str),
+            Some("0.1.0"),
+            "a scoped tool name is still a tool"
+        );
+        assert_eq!(
+            parsed.get("@vegamo/deepcode-cli"),
+            None,
+            "the CLI is refreshed on its own layer, not cached as a tool"
         );
         assert!(parse_npm_versions("not json").is_empty());
     }

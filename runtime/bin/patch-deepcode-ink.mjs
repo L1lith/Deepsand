@@ -46,9 +46,20 @@
  *   node patch-deepcode-ink.mjs --self-test
  */
 
-import { chmodSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { execFileSync } from "node:child_process";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 
 const PREDICATE_NAME = "shouldClearTerminalForFrame";
 const RENDER_NAME = "renderInteractiveFrame";
@@ -213,12 +224,63 @@ function defaultCliJs() {
   }
 }
 
+/**
+ * Every JavaScript file the CLI's entry point can load, transitively.
+ *
+ * 0.5.0 stopped shipping one bundle: `cli.js` is a small dispatcher and the TUI
+ * lives in `chunks/cli-app-<hash>.js`, so looking only at the entry point found
+ * nothing and the build failed with "could not find ... in the bundled CLI"
+ * while the renderer was there, unchanged, one directory over. The package also
+ * carries chunks that nothing references (stale build output), so this follows
+ * the bundle's own relative imports rather than scanning the directory: what is
+ * patched is what a container can load.
+ */
+function bundleFiles(entry) {
+  const queue = [resolve(entry)];
+  const seen = new Set();
+  const files = [];
+  while (queue.length > 0) {
+    const file = queue.shift();
+    if (seen.has(file)) continue;
+    seen.add(file);
+    let source;
+    try {
+      source = readFileSync(file, "utf8");
+    } catch {
+      continue;
+    }
+    files.push({ file, source });
+    for (const match of source.matchAll(/["'`](\.{1,2}\/[^"'`\n]+?\.(?:mjs|cjs|js))["'`]/g)) {
+      queue.push(resolve(dirname(file), match[1]));
+    }
+  }
+  return files;
+}
+
+/** The files that carry the renderer. There has to be at least one. */
+function rendererFiles(entry) {
+  const carrying = bundleFiles(entry).filter(
+    ({ source }) => source.includes(`"${PREDICATE_NAME}"`) || source.includes(`'${PREDICATE_NAME}'`),
+  );
+  if (carrying.length === 0) {
+    refuse(`could not find "${PREDICATE_NAME}" in the bundled CLI; the renderer shape changed`);
+  }
+  return carrying;
+}
+
+/** The package version, from the nearest `package.json` above the bundle. */
 function cliVersion(cliJs) {
-  try {
-    const pkg = JSON.parse(readFileSync(join(dirname(cliJs), "package.json"), "utf8"));
-    return typeof pkg.version === "string" ? pkg.version : "unknown";
-  } catch {
-    return "unknown";
+  let dir = dirname(resolve(cliJs));
+  while (true) {
+    try {
+      const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+      if (typeof pkg.version === "string") return pkg.version;
+    } catch {
+      // A `chunks/` directory has no package.json; the root does.
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return "unknown";
+    dir = parent;
   }
 }
 
@@ -670,6 +732,33 @@ var Ink = class {
     fail("self-test: the predicate was not restored to upstream");
   }
 
+  // ---- structural: 0.5.0 moved the renderer into a chunk the entry point imports.
+  // Only reachable chunks are patched: the package also ships stale chunks that nothing imports.
+  const root = mkdtempSync(join(tmpdir(), "deepsand-ink-split-"));
+  try {
+    mkdirSync(join(root, "chunks"), { recursive: true });
+    writeFileSync(join(root, "package.json"), JSON.stringify({ version: "split-test" }));
+    writeFileSync(join(root, "cli.js"), 'const app = await import("./chunks/app-ABC.js");\n');
+    writeFileSync(join(root, "chunks", "app-ABC.js"), fixture);
+    writeFileSync(join(root, "chunks", "stale-XYZ.js"), fixture);
+    const entry = join(root, "cli.js");
+    const found = rendererFiles(entry);
+    if (found.length !== 1) {
+      fail(`self-test: the renderer in a chunk was found ${found.length} times, not once`);
+    }
+    if (!found[0].file.endsWith("app-ABC.js")) {
+      fail(`self-test: followed the wrong bundle file (${found[0].file})`);
+    }
+    if (cliVersion(found[0].file) !== "split-test") {
+      fail("self-test: the version was not read from the package root above a chunk");
+    }
+    const chunkPatch = apply(found[0].source);
+    verify(chunkPatch.source, found[0].file, "split-test");
+    if (!chunkPatch.source.includes(RENDER_MARKER)) fail("self-test: the chunk was not patched");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+
   // ---- semantic: a frame taller than the viewport
   const rows = 12;
   const columns = 40;
@@ -764,42 +853,58 @@ if (mode === "self-test") {
 }
 
 const fileIndex = args.indexOf("--file");
-const file = fileIndex >= 0 && args[fileIndex + 1] ? args[fileIndex + 1] : defaultCliJs();
-let source;
-try {
-  source = readFileSync(file, "utf8");
-} catch (error) {
-  fail(`could not read ${file}: ${error.message}`);
+const entry = fileIndex >= 0 && args[fileIndex + 1] ? args[fileIndex + 1] : defaultCliJs();
+if (!existsSync(entry)) {
+  fail(`could not read ${entry}: no such file`);
 }
-const version = cliVersion(file);
+const version = cliVersion(entry);
 
-if (mode === "check") {
-  try {
-    verify(source, file, version);
-  } catch (error) {
-    fail(error.message);
-  }
-  console.log(`deepsand: patch-deepcode-ink: verified DeepCode ${version} at ${file}`);
-  process.exit(0);
-}
-
-let result;
+let targets;
 try {
-  result = apply(source);
+  targets = rendererFiles(entry);
 } catch (error) {
   fail(error.message);
 }
-if (result.reverted) {
-  console.log(`deepsand: patch-deepcode-ink: restored the superseded predicate patch in DeepCode ${version}`);
-}
-if (!result.changed) {
-  console.log(`deepsand: patch-deepcode-ink: already applied to DeepCode ${version} at ${file}`);
+
+if (mode === "check") {
+  try {
+    for (const { file, source } of targets) verify(source, file, version);
+  } catch (error) {
+    fail(error.message);
+  }
+  console.log(
+    `deepsand: patch-deepcode-ink: verified DeepCode ${version} in ${targets.length} file(s) under ${dirname(entry)}`,
+  );
   process.exit(0);
 }
-writeAtomically(file, result.source);
+
+// Validate every target in memory before writing any of them: a renderer this
+// patch does not know must not leave the CLI half patched.
+let results;
 try {
-  verify(readFileSync(file, "utf8"), file, version);
+  results = targets.map(({ file, source }) => ({ file, ...apply(source) }));
 } catch (error) {
-  fail(`the patch did not survive being written back: ${error.message}`);
+  fail(error.message);
 }
-console.log(`deepsand: patch-deepcode-ink: patched DeepCode ${version} at ${file}`);
+
+let changed = false;
+for (const result of results) {
+  if (result.reverted) {
+    console.log(`deepsand: patch-deepcode-ink: restored the superseded predicate patch in DeepCode ${version}`);
+  }
+  if (!result.changed) continue;
+  changed = true;
+  writeAtomically(result.file, result.source);
+  try {
+    verify(readFileSync(result.file, "utf8"), result.file, version);
+  } catch (error) {
+    fail(`the patch did not survive being written back: ${error.message}`);
+  }
+  console.log(`deepsand: patch-deepcode-ink: patched DeepCode ${version} at ${result.file}`);
+}
+
+if (!changed) {
+  console.log(
+    `deepsand: patch-deepcode-ink: already applied to DeepCode ${version} in ${results.length} file(s) under ${dirname(entry)}`,
+  );
+}

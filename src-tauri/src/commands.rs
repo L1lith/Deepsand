@@ -5790,9 +5790,13 @@ fn fill_tool_cache(
     image: &str,
     dir: &std::path::Path,
 ) -> bool {
+    // The DeepCode CLI is removed after the copy. Its own layer installs the version
+    // `cli_refresh` resolved, so a copy here saves nothing; it would only let the tools layer
+    // preinstall a stale CLI, and it made the cache claim to hold a tool that is not one.
     let script = "mkdir -p /cache/bin /cache/node_modules \
                   && cp -a /usr/local/bin/. /cache/bin/ \
                   && cp -a /usr/local/lib/node_modules/. /cache/node_modules/ \
+                  && rm -rf /cache/node_modules/@vegamo /cache/bin/deepcode \
                   && { npm ls -g --depth=0 --json > /cache/versions-npm.json 2>/dev/null || true; } \
                   && { cargo install --list > /cache/versions-cargo.txt 2>/dev/null || true; }";
     let args: Vec<String> = [

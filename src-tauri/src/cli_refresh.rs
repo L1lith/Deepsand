@@ -179,16 +179,27 @@ pub async fn refresh(
             // If the tag moved, the build did happen and the new image still will not say what it
             // has. Record that against this image id so the next start does not rebuild the same
             // thing again -- one broken label must not cost a build per Run for ever.
+            //
+            // If it did not move, the build did not produce an image at all (it failed, or was
+            // stopped). Saying "the image was rebuilt" there is how a failed patch read as a
+            // working rebuild with a stale CLI, which sent the operator looking in the wrong
+            // place.
             let after = docker.image_id(image);
-            if after != before {
+            let rebuilt = after != before;
+            if rebuilt {
                 if let Some(id) = &after {
                     cli::mark_unverifiable(&cli::cache_dir(data_dir), id);
                 }
             }
-            Refresh::Failed(format!(
-                "the image was rebuilt but its CLI is still {}, not {version}",
-                installed.unwrap_or_else(|| "unknown".to_string())
-            ))
+            let holds = installed.unwrap_or_else(|| "unknown".to_string());
+            Refresh::Failed(if rebuilt {
+                format!("the image was rebuilt but its CLI is still {holds}, not {version}")
+            } else {
+                format!(
+                    "rebuilding {image} for DeepCode {version} did not produce a new image (it \
+                     still carries {holds}), so the sandbox was started on the CLI it already had"
+                )
+            })
         }
     }
 }

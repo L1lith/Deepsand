@@ -50,7 +50,7 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 const PREFIX = "deepsand: patch-deepcode-mentions:";
@@ -83,9 +83,12 @@ const SKIP_PATCHED = `      if (entry.name === "." || entry.name === ".." || ent
 
 /**
  * The premise of edit 1: the same scan already runs after the first frame. Written against
- * normalized text so formatting cannot hide it, and required by both `apply` and `verify`.
+ * normalized text so formatting cannot hide it. The React namespace is left open because
+ * esbuild renames it between releases (`import_react48` in 0.4, `import_react50` in 0.5), and
+ * a rename must not read as a bundle without the mount effect.
  */
-const MOUNT_EFFECT = `(0, import_react48.useEffect)(() => { refreshFileMentionItems(); }, [refreshFileMentionItems]);`;
+const MOUNT_EFFECT =
+  /\(0, ([\w$]+)\.useEffect\)\(\(\) => \{ refreshFileMentionItems\(\); \}, \[refreshFileMentionItems\]\)/;
 
 /** Marks the inserted rule, so `--check` can tell "not yet patched" from "patched". */
 const RULE_MARKER = "deepsand: a dot-directory is tool state, not source";
@@ -135,12 +138,58 @@ function defaultCliJs() {
   }
 }
 
+/**
+ * Every JavaScript file the CLI's entry point can load, transitively.
+ *
+ * 0.5.0 stopped shipping one bundle: `cli.js` is a small dispatcher and the UI (including this
+ * scanner and the prompt input) lives in `chunks/cli-app-<hash>.js`. The package also carries
+ * chunks that nothing references (stale build output), so this follows the bundle's own relative
+ * imports rather than scanning the directory: what is patched is what a container can load.
+ */
+function bundleFiles(entry) {
+  const queue = [resolve(entry)];
+  const seen = new Set();
+  const files = [];
+  while (queue.length > 0) {
+    const file = queue.shift();
+    if (seen.has(file)) continue;
+    seen.add(file);
+    let source;
+    try {
+      source = readFileSync(file, "utf8");
+    } catch {
+      continue;
+    }
+    files.push({ file, source });
+    for (const match of source.matchAll(/["'`](\.{1,2}\/[^"'`\n]+?\.(?:mjs|cjs|js))["'`]/g)) {
+      queue.push(resolve(dirname(file), match[1]));
+    }
+  }
+  return files;
+}
+
+/** The files that carry the file-mention module. There has to be at least one. */
+function mentionFiles(entry) {
+  const carrying = bundleFiles(entry).filter(({ source }) => source.includes(MODULE_HEADER));
+  if (carrying.length === 0) {
+    refuse(`the bundle has no "${MODULE_HEADER}" module, so the file-mention scanner is not where this expects it`);
+  }
+  return carrying;
+}
+
+/** The package version, from the nearest `package.json` above the bundle. */
 function cliVersion(cliJs) {
-  try {
-    const pkg = JSON.parse(readFileSync(join(dirname(cliJs), "package.json"), "utf8"));
-    return typeof pkg.version === "string" ? pkg.version : "unknown";
-  } catch {
-    return "unknown";
+  let dir = dirname(resolve(cliJs));
+  while (true) {
+    try {
+      const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+      if (typeof pkg.version === "string") return pkg.version;
+    } catch {
+      // A `chunks/` directory has no package.json; the root does.
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return "unknown";
+    dir = parent;
   }
 }
 
@@ -206,7 +255,7 @@ function inspect(source) {
     rulePresent: text.includes(RULE_MARKER) && countOf(text, SKIP_PATCHED) === 1,
     skipUpstream: countOf(text, SKIP_UPSTREAM) === 1,
     skipPatched: countOf(text, SKIP_PATCHED) === 1,
-    mountEffect: normalize(source).includes(normalize(MOUNT_EFFECT)),
+    mountEffect: countRegex(normalize(source), MOUNT_EFFECT) === 1,
   };
 }
 
@@ -239,10 +288,11 @@ function apply(source) {
     if (!state.eagerInitializer) {
       refuse("the file-mention index does not start from a scan of the project this patch recognises");
     }
+    const namespace = source.match(EAGER_INITIALIZER)[1];
     const replacement = [
       `  // ${LAZY_MARKER}. Scanning here ran a whole-workspace walk inside the first render,`,
       "  // so Ink got no frame to paint until it finished: a blank pane that looks like a hang.",
-      "  const [fileMentionItems, setFileMentionItems] = (0, import_react48.useState)(() => []);",
+      `  const [fileMentionItems, setFileMentionItems] = (0, ${namespace}.useState)(() => []);`,
     ].join("\n");
     next = next.replace(EAGER_INITIALIZER, replacement);
     changed = true;
@@ -294,15 +344,16 @@ function loadScanner(source) {
   if (/\bimport\s/.test(body)) {
     refuse("the file-mention module imports something this harness does not provide");
   }
-  const factory = new Function(
-    "__toESM",
-    "__name",
-    "init_esbuild_shims",
-    "require_ignore2",
-    "fs23",
-    "path22",
-    `${body}\nreturn { scanFileMentionItems };`,
-  );
+  // esbuild renames these between releases (`fs23`/`path22` in 0.4, `fs4`/`path3` in 0.5), so
+  // read the names out of the module rather than assuming them.
+  const fsName = text.match(/import \* as ([\w$]+) from "(?:node:)?fs"/)?.[1];
+  const pathName = text.match(/import \* as ([\w$]+) from "(?:node:)?path"/)?.[1];
+  if (!fsName || !pathName) {
+    refuse("the file-mention module does not import fs and path the way this harness expects");
+  }
+  // Same for the `ignore` package's shim: `require_ignore2` and `require_ignore` are the same
+  // thing under different names.
+  const moduleNames = [...new Set([...body.matchAll(/\b(require_[\w$]+)\b/g)].map((match) => match[1]))];
   const require = createRequire(import.meta.url);
   const __name = (fn) => fn;
   const __toESM = (mod) => {
@@ -312,8 +363,8 @@ function loadScanner(source) {
   };
   // No pattern here names `.toolchain`, so if the scanner descended into it the item would be in
   // the result -- which is what makes the assertion below a measurement of the new rule.
-  // The bundle calls `require_ignore2()` to get the *module* -- whose default export is the
-  // `ignore` function -- and then `(0, import_ignore2.default)().add(...)`. So the module is
+  // The bundle calls `require_ignore()` to get the *module* -- whose default export is the
+  // `ignore` function -- and then `(0, import_ignore.default)().add(...)`. So the module is
   // `() => ignore`, and `ignore()` is what returns a matcher.
   //
   // The matcher understands a name and a `*` glob, which is all the scanner's own patterns are.
@@ -345,9 +396,18 @@ function loadScanner(source) {
     };
     return matcher;
   };
-  const fs = require("node:fs");
-  const path = require("node:path");
-  return factory(__toESM, __name, () => {}, () => ignore, fs, path);
+
+  const values = {
+    __toESM,
+    __name,
+    init_esbuild_shims: () => {},
+    [fsName]: require("node:fs"),
+    [pathName]: require("node:path"),
+  };
+  for (const name of moduleNames) values[name] = () => ignore;
+  const names = Object.keys(values);
+  const factory = new Function(...names, `${body}\nreturn { scanFileMentionItems };`);
+  return factory(...names.map((name) => values[name]));
 }
 
 function makeFixtureTree() {
@@ -496,10 +556,16 @@ function selfTest(file) {
   judge(".env.example", "file", false);
   judge("src", "dir", false);
 
-  // --- semantic, against the real scanner when this machine has one
-  const target = file ?? defaultCliJs();
+  // --- semantic, against the real scanner when this machine has one.
+  // 0.5.0 keeps the scanner in a chunk the entry point imports, not in cli.js.
+  let target = null;
+  try {
+    target = mentionFiles(file ?? defaultCliJs())[0].file;
+  } catch {
+    target = null;
+  }
   let measured = 0;
-  if (existsSync(target)) {
+  if (target && existsSync(target)) {
     const source = readFileSync(target, "utf8");
     const state = inspect(source);
     if (!state.lazyInitializer) {
@@ -551,39 +617,53 @@ if (mode === "self-test") {
 }
 
 const fileIndex = args.indexOf("--file");
-const file = fileIndex >= 0 && args[fileIndex + 1] ? args[fileIndex + 1] : defaultCliJs();
-let source;
-try {
-  source = readFileSync(file, "utf8");
-} catch (error) {
-  fail(`could not read ${file}: ${error.message}`);
+const entry = fileIndex >= 0 && args[fileIndex + 1] ? args[fileIndex + 1] : defaultCliJs();
+if (!existsSync(entry)) {
+  fail(`could not read ${entry}: no such file`);
 }
-const version = cliVersion(file);
+const version = cliVersion(entry);
 
-if (mode === "check") {
-  try {
-    verify(source, file, version);
-  } catch (error) {
-    fail(error.message);
-  }
-  console.log(`${PREFIX} verified DeepCode ${version} at ${file}`);
-  process.exit(0);
-}
-
-let result;
+let targets;
 try {
-  result = apply(source);
+  targets = mentionFiles(entry);
 } catch (error) {
   fail(error.message);
 }
-if (!result.changed) {
-  console.log(`${PREFIX} already applied to DeepCode ${version} at ${file}`);
+
+if (mode === "check") {
+  try {
+    for (const { file, source } of targets) verify(source, file, version);
+  } catch (error) {
+    fail(error.message);
+  }
+  console.log(`${PREFIX} verified DeepCode ${version} in ${targets.length} file(s) under ${dirname(entry)}`);
   process.exit(0);
 }
-writeAtomically(file, result.source);
+
+// Validate every target in memory before writing any of them: a bundle this
+// patch does not know must not leave the CLI half patched.
+let results;
 try {
-  verify(readFileSync(file, "utf8"), file, version);
+  results = targets.map(({ file, source }) => ({ file, ...apply(source) }));
 } catch (error) {
-  fail(`the patch did not survive being written back: ${error.message}`);
+  fail(error.message);
 }
-console.log(`${PREFIX} patched DeepCode ${version} at ${file}`);
+
+let changed = false;
+for (const result of results) {
+  if (!result.changed) continue;
+  changed = true;
+  writeAtomically(result.file, result.source);
+  try {
+    verify(readFileSync(result.file, "utf8"), result.file, version);
+  } catch (error) {
+    fail(`the patch did not survive being written back: ${error.message}`);
+  }
+  console.log(`${PREFIX} patched DeepCode ${version} at ${result.file}`);
+}
+
+if (!changed) {
+  console.log(
+    `${PREFIX} already applied to DeepCode ${version} in ${results.length} file(s) under ${dirname(entry)}`,
+  );
+}
