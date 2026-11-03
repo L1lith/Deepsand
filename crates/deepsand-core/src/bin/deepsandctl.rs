@@ -16,6 +16,7 @@
 use deepsand_core::broker::Broker;
 use deepsand_core::credentials;
 use deepsand_core::docker::Docker;
+use deepsand_core::docker_shares;
 use deepsand_core::model::*;
 use deepsand_core::policy::{self, MountKind, PlanInput};
 use deepsand_core::secrets;
@@ -85,6 +86,7 @@ fn run() -> Result<()> {
         "watch" => cmd_watch(&data_dir, &rest),
         "requests" => cmd_requests(&data_dir, &rest),
         "network" => cmd_network(&data_dir, &rest),
+        "docker-shares" => cmd_docker_shares(&rest),
         "images" => cmd_images(&data_dir, &rest),
         other => Err(SandboxError::Other(anyhow::anyhow!(
             "unknown command '{other}'. Run `deepsandctl help`."
@@ -116,6 +118,8 @@ COMMANDS
   requests <project>            List requests currently waiting for a decision
   network <project> [mode]      Show or change the egress policy
                                 (none|internet|allowlisted|full)
+  docker-shares [--prune]       List Docker Desktop's host file shares, or remove
+                                entries whose paths no longer exist
   images [--prune]              List the runtime images, or remove the ones no
                                 project would run and no container uses
 
@@ -269,6 +273,29 @@ fn cmd_doctor(data_dir: &Path) -> Result<()> {
             }
         }
         Err(err) => println!("  skipped   : docker CLI not found ({err})"),
+    }
+
+    println!();
+    println!("Docker Desktop host shares (stale entries slow the file-sharing watcher):");
+    match docker_shares::read() {
+        Ok(report) => {
+            println!("  settings  : {}", report.settings_path.display());
+            println!("  configured: {}", report.configured_count());
+            println!("  missing   : {}", report.missing_count());
+            let shown = report.missing().take(8).collect::<Vec<_>>();
+            for share in &shown {
+                println!("    {}", share.configured);
+            }
+            if report.missing_count() > shown.len() {
+                println!("    ... and {} more", report.missing_count() - shown.len());
+            }
+            if report.missing_count() > 0 {
+                println!(
+                    "  run `deepsandctl docker-shares --prune` to remove the missing entries"
+                );
+            }
+        }
+        Err(err) => println!("  unavailable: {err}"),
     }
 
     println!();
@@ -1086,6 +1113,138 @@ fn cmd_images(data_dir: &Path, args: &[String]) -> Result<()> {
         println!("\nnothing to remove");
     }
     Ok(())
+}
+
+/* ------------------------------------------------------------------------- */
+/* docker-shares                                                             */
+/* ------------------------------------------------------------------------- */
+
+/// List Docker Desktop's host file-sharing allowlist, or remove entries whose paths no longer
+/// exist.
+///
+/// The settings file belongs to Docker Desktop, so a prune stops Docker Desktop first, writes a
+/// timestamped backup, removes only missing paths, and starts it again. Existing shares are never
+/// removed: a path that still exists is somebody's project or grant.
+fn cmd_docker_shares(args: &[String]) -> Result<()> {
+    let prune = args.iter().any(|arg| arg == "--prune");
+    let report = docker_shares::read()?;
+
+    println!("settings  : {}", report.settings_path.display());
+    println!("configured: {}", report.configured_count());
+    println!("existing  : {}", report.existing_count());
+    println!("missing   : {}", report.missing_count());
+
+    if report.missing_count() == 0 {
+        println!("\nnothing to prune");
+        return Ok(());
+    }
+
+    println!("\nmissing entries:");
+    for share in report.missing() {
+        println!("  {}", share.configured);
+    }
+
+    if !prune {
+        println!("\nrun `deepsandctl docker-shares --prune` to remove the missing entries");
+        return Ok(());
+    }
+
+    let docker = Docker::locate()?;
+    let status = docker.try_run_within(&desktop_args("status"), Docker::START_LEASH);
+    let was_running = status.as_deref().map(desktop_is_up).unwrap_or(false);
+    if status.is_none()
+        && docker
+            .try_run_within(&["version".to_string()], Docker::START_LEASH)
+            .is_some()
+    {
+        return Err(SandboxError::Other(anyhow::anyhow!(
+            "Docker Desktop is answering but `docker desktop status` did not; \
+             quit Docker Desktop manually and run this again"
+        )));
+    }
+
+    if was_running {
+        println!("\nstopping Docker Desktop (this ends every container)...");
+        docker.run_within(&desktop_args("stop"), Docker::COMMAND_TIMEOUT)?;
+        if !wait_for_desktop_stopped(&docker) {
+            return Err(SandboxError::Other(anyhow::anyhow!(
+                "Docker Desktop did not stop; the share list was not changed"
+            )));
+        }
+    }
+
+    let outcome = docker_shares::prune(&report)?;
+    if let Some(outcome) = &outcome {
+        println!("\nbackup : {}", outcome.backup.display());
+        println!("removed: {} missing entries", outcome.removed.len());
+        println!("kept   : {} entries", outcome.kept);
+    }
+
+    if was_running {
+        println!("\nstarting Docker Desktop...");
+        if let Err(err) = docker.run_within(&desktop_args("start"), Docker::COMMAND_TIMEOUT) {
+            eprintln!("Docker Desktop did not start: {err}");
+            if let Some(outcome) = &outcome {
+                eprintln!("the share list backup is {}", outcome.backup.display());
+            }
+            return Err(SandboxError::Other(anyhow::anyhow!(
+                "the share list was pruned but Docker Desktop did not restart"
+            )));
+        }
+        if !wait_for_engine(&docker) {
+            eprintln!("Docker Desktop started but the engine did not answer");
+            if let Some(outcome) = &outcome {
+                eprintln!("the share list backup is {}", outcome.backup.display());
+            }
+            return Err(SandboxError::Other(anyhow::anyhow!(
+                "the share list was pruned but the Docker engine did not answer"
+            )));
+        }
+    }
+
+    match outcome {
+        Some(outcome) => println!(
+            "\npruned {} missing Docker Desktop shares",
+            outcome.removed.len()
+        ),
+        None => println!("\nnothing to prune"),
+    }
+    Ok(())
+}
+
+fn desktop_args(command: &str) -> Vec<String> {
+    vec!["desktop".to_string(), command.to_string()]
+}
+
+fn desktop_is_up(status: &str) -> bool {
+    status.lines().any(|line| {
+        let line = line.trim();
+        line.starts_with("Status") && (line.contains("running") || line.contains("starting"))
+    })
+}
+
+fn wait_for_desktop_stopped(docker: &Docker) -> bool {
+    for _ in 0..40 {
+        std::thread::sleep(Duration::from_millis(500));
+        let status = docker.try_run_within(&desktop_args("status"), Docker::START_LEASH);
+        if !status.as_deref().map(desktop_is_up).unwrap_or(false) {
+            return true;
+        }
+    }
+    false
+}
+
+fn wait_for_engine(docker: &Docker) -> bool {
+    for _ in 0..90 {
+        std::thread::sleep(Duration::from_secs(1));
+        if docker
+            .try_run_within(&["version".to_string()], Docker::START_LEASH)
+            .is_some()
+        {
+            return true;
+        }
+    }
+    false
 }
 
 fn decision_reference_age(

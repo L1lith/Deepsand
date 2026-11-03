@@ -59,7 +59,8 @@ npm run app:dev         # app with hot reload
 | `crates/deepsand-core/src/remote.rs` | What a remote client may do. Kept separate from HTTP so it is testable. |
 | `crates/deepsand-core/src/seccomp.rs` | The profile's digest, the runtime-tree resolver, and the check that the applied profile is the shipped one. |
 | `crates/deepsand-core/tests/seccomp_profile.rs` | Claims about the profile itself: address families, `CLONE_NEW*` bits, the ptrace family. Reads the repo artifact, so no Docker needed. |
-| `crates/deepsand-core/src/bin/deepsandctl.rs` | Headless driver: `doctor`, `project`, `grants`, `plan`, `run`, `watch`, `requests`, `network`, `images`. |
+| `crates/deepsand-core/src/docker_shares.rs` | Docker Desktop's host file-sharing allowlist: reports stale entries and prunes only missing ones, with a backup. |
+| `crates/deepsand-core/src/bin/deepsandctl.rs` | Headless driver: `doctor`, `project`, `grants`, `plan`, `run`, `watch`, `requests`, `network`, `docker-shares`, `images`. |
 | `src-tauri/src/commands.rs` | The ~30 desktop commands, and `runtime_revision`. |
 | `src-tauri/src/remote_server.rs` | HTTP translation of the command surface. Binds loopback, bearer token. |
 | `src-tauri/src/update.rs` | Self-updates: the check, the download, the restart. Our own commands, not the plugin's JS bindings. |
@@ -615,6 +616,18 @@ These are load-bearing. Breaking one is how this project gets a CVE.
   A refused start because the sharing probe went silent is exactly this case -- the directory is
   not the problem, Docker Desktop is. Retrying the mount would only teach the operator to press a
   button that cannot work.
+* **A stale Docker Desktop share is Docker Desktop's cache, not a grant.** On Windows with the
+  Hyper-V backend, Docker Desktop records every bind-mount source in `FilesharingDirectories` in
+  `%APPDATA%\Docker\settings-store.json` and never removes an entry when the path disappears.
+  Those dead entries do not grant the sandbox anything, but the gRPC FUSE watcher still walks the
+  list, and a long list makes the known Hyper-V watcher hang more likely. `docker_shares` reports
+  them from `deepsandctl doctor`, and `deepsandctl docker-shares --prune` stops Docker Desktop,
+  copies the settings file to a timestamped backup, removes **only entries whose path no longer
+  exists**, starts Docker Desktop again and verifies the engine answers. Existing paths are never
+  removed -- a path that still exists may be a project or a grant. Normal app operation never
+  edits Docker Desktop's settings; this is an explicit maintenance command. The app cannot stop
+  Docker Desktop from recording new unique sources, so test and verification harnesses should
+  mount under one stable root instead of a new timestamped directory per run.
 * **Nothing this app starts outlives it.** Windows does not end a child when its parent exits,
   and `std::process::exit` in the shutdown path abandons whatever is still running: a hung
   `docker build` was found an hour and a half after the app had gone, still holding the image
