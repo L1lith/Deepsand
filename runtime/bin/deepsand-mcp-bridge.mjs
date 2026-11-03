@@ -236,6 +236,33 @@ const TOOLS = [
     },
   },
   {
+    name: "deepsand_request_packages",
+    description:
+      "Ask the operator to add Debian packages to this project's image. Name them exactly as apt does: " +
+      "['graphviz'], ['libpq-dev', 'ffmpeg']. Call deepsand_sandbox_info first - it lists the packages the image " +
+      "already has. They are installed when the image is rebuilt, as root, so they are NOT usable until then. " +
+      "You cannot install them yourself: this sandbox has no root and a read-only filesystem, so every " +
+      "`apt-get install` you run here fails with a permission error.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        packages: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Debian binary package names, lower case (for example ['graphviz'], or ['ffmpeg', 'imagemagick']). " +
+            "Ask for everything you need in one request rather than one at a time.",
+        },
+        purpose: {
+          type: "string",
+          description: "One short sentence explaining what you need them for.",
+        },
+      },
+      required: ["packages", "purpose"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "deepsand_check_request",
     description:
       "Check the result of a permission request that previously returned 'pending'. Returns the operator's decision and, " +
@@ -521,6 +548,12 @@ async function sandboxInfoText() {
     lines.push(
       `tools       : ${tools.length > 0 ? tools.join(", ") : "none (the image was built without any)"}`,
     );
+    // Always shown, even when empty: this is the answer to "did the package I asked for
+    // arrive", and an absent line would be indistinguishable from a list nobody filled in.
+    const packages = s.packages ?? [];
+    lines.push(
+      `packages    : ${packages.length > 0 ? packages.join(", ") : "none (no extra Debian packages)"}   <- installed at the project's request, by the image build`,
+    );
     // Said here as well as at submit time, because this is what the model reads first:
     // learning it before composing a request is better than learning it afterwards.
     if (s.requests_enabled === false) {
@@ -583,17 +616,19 @@ async function sandboxInfoText() {
     "enforced by the container runtime, not by policy, so there is no alternative path to those paths - do not",
     "go looking for one.",
     "",
-    "Need something more? Five tools, one per kind of need:",
+    "Need something more? Six tools, one per kind of need:",
     "",
     "  deepsand_request_directory_access  - you can name the host path",
     "  deepsand_request_resource          - you know what you need but not where it lives",
     "  deepsand_request_network_access    - a destination the network policy is blocking",
-    "  deepsand_request_tool              - a program that is not installed",
+    "  deepsand_request_tool              - a program the catalogue has, that is not installed",
+    "  deepsand_request_packages          - a Debian package this image does not have",
     "  deepsand_request_secret            - a key, token or password this project needs",
     "",
     "Approved directory access is applied by recreating this container, which restarts your session.",
-    "Approved network access takes effect at once. An approved tool needs its image rebuilt first, so it",
-    "will not be usable until then.",
+    "Approved network access takes effect at once. An approved tool or package is installed into the",
+    "image, which has to be rebuilt first, so it will not be usable until then. `apt-get install`",
+    "cannot run here at all: no root, and a read-only root filesystem.",
   );
   return lines.join("\n");
 }
@@ -633,6 +668,25 @@ function renderDecision(kind, response) {
   if (decision === "allow") {
     const grant = response.grant ?? {};
     const parts = [`APPROVED.`, ""];
+
+    // Tools and packages live in the *image*, not in this container. The directory-grant text
+    // below says the sandbox is recreated automatically, which is true for a new mount and not
+    // true here -- so a model told that would wait for a restart that only happens when the
+    // operator rebuilds. Say what actually has to happen, and how to check.
+    if (kind === "tool" || kind === "package") {
+      parts.push(
+        "It is now part of this project. It is installed when the image is rebuilt, and the sandbox has to be",
+        "restarted afterwards -- neither of which is instant, and neither of which happens because of this",
+        "answer alone. Until then it is genuinely not there.",
+        "",
+        "Do not retry the command that needed it, and do not try to install it yourself: `apt-get install`",
+        "cannot write here, and anything installed by hand would be gone when the container is recreated.",
+        "`deepsand_sandbox_info` reports the tools and packages the running image actually has -- check it",
+        "before concluding anything.",
+      );
+      return textResult(parts.join("\n") + message);
+    }
+
     if (grant.container_path) {
       parts.push(`The resource is now available at: ${grant.container_path}`);
       if (grant.access === "write") parts.push(`Access level: read-write`);
@@ -824,6 +878,22 @@ async function callTool(name, args) {
       const early = earlyOutcome(outcome, "tool", "the decision");
       if (early) return early;
       return renderDecision("tool", outcome.response);
+    }
+
+    case "deepsand_request_packages": {
+      const purpose = String(args?.purpose ?? "").trim();
+      if (!purpose) return textResult("purpose is required.", true);
+      // Lower-cased here as a courtesy to the model, because Debian names are lower case by
+      // policy and `apt-get install JQ` is a different request from `jq`. The host decides
+      // what is a package name at all; this only makes the common typo work.
+      const packages = normaliseStrings(args?.packages).map((name) => name.toLowerCase());
+      if (packages.length === 0) {
+        return textResult("packages must name at least one Debian package.", true);
+      }
+      const outcome = await submitAndWait("package_install", { packages, purpose });
+      const early = earlyOutcome(outcome, "package", "the decision");
+      if (early) return early;
+      return renderDecision("package", outcome.response);
     }
 
     case "deepsand_check_request": {

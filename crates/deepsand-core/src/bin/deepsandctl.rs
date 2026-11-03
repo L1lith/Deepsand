@@ -186,9 +186,12 @@ fn cmd_doctor(data_dir: &Path) -> Result<()> {
     match (Docker::locate(), profile) {
         (Ok(docker), Some(profile)) => {
             for project in store.projects() {
-                let image =
-                    container_settings::settings_for_project(store.settings(), project.tools.as_deref())
-                        .image;
+                let image = container_settings::settings_for_project(
+                    store.settings(),
+                    project.tools.as_deref(),
+                    &project.packages,
+                )
+                .image;
                 let verdict = if docker.image_present(&image) {
                     match verify_profile_against_image(&docker, &image, &profile) {
                         Ok(_) => "present, profile matches".to_string(),
@@ -536,8 +539,11 @@ fn build_plan(store: &Store, project: &Project, resume: bool, offline: bool) -> 
     // tag in settings is a stem, and the tools and the runtime revision are appended to it.
     // The probe, the profile check and the plan all have to name the same tag, or `plan`
     // reports on an image nothing runs.
-    let project_settings =
-        container_settings::settings_for_project(store.settings(), project.tools.as_deref());
+    let project_settings = container_settings::settings_for_project(
+        store.settings(),
+        project.tools.as_deref(),
+        &project.packages,
+    );
     let project_image = project_settings.image.clone();
 
     let (docker_status, docker) = if offline {

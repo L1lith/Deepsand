@@ -67,3 +67,19 @@ fn the_skill_says_how_to_check_for_a_browser_and_how_to_launch_one() {
         );
     }
 }
+
+/// A command the agent writes itself has to go somewhere its later commands will find, and the
+/// skill is the only place that says where. The rest of the filesystem is read-only, so an agent
+/// that does not know about `~/.deepcode/bin` concludes it cannot add anything at all.
+#[test]
+fn the_skill_says_where_a_command_of_the_agents_own_goes() {
+    let text = skill();
+    assert!(
+        text.contains("~/.deepcode/bin"),
+        "the writable bin directory is invisible unless the skill names it"
+    );
+    assert!(
+        text.contains("shadows"),
+        "it is first on PATH, so the agent has to be told not to shadow a tool the image gave it"
+    );
+}

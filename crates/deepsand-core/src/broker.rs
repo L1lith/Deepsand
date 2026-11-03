@@ -411,6 +411,34 @@ fn sanitize_args(args: serde_json::Value) -> serde_json::Value {
         }
     }
 
+    // Package names reach an `apt-get install` argument list, so only names that are
+    // actually Debian package names survive. This is the dialog's copy of the rule; the
+    // store enforces it again when the operator approves, because this pass exists to
+    // keep the window from showing a name that could never be installed, not to decide
+    // what gets installed.
+    if let Some(value) = map.get("packages").cloned() {
+        let offered: Vec<String> = match value {
+            serde_json::Value::Array(items) => items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .map(str::to_string)
+                .collect(),
+            serde_json::Value::String(one) => vec![one],
+            _ => Vec::new(),
+        };
+        let kept = crate::packages::normalise(&offered);
+        if kept.is_empty() {
+            map.remove("packages");
+        } else {
+            map.insert(
+                "packages".to_string(),
+                serde_json::Value::Array(
+                    kept.into_iter().map(serde_json::Value::String).collect(),
+                ),
+            );
+        }
+    }
+
     serde_json::Value::Object(map)
 }
 
@@ -841,6 +869,7 @@ mod tests {
             notes: String::new(),
             reasoning_effort: Default::default(),
             tools: None,
+            packages: Vec::new(),
             user_prompt_mode: Default::default(),
             user_prompt: String::new(),
         };
@@ -889,6 +918,7 @@ mod tests {
             notes: String::new(),
             reasoning_effort: Default::default(),
             tools: None,
+            packages: Vec::new(),
             user_prompt_mode: Default::default(),
             user_prompt: String::new(),
         };
@@ -968,5 +998,27 @@ mod tests {
         }));
         assert!(dirty.get("access").is_none());
         assert!(dirty.get("kind").is_none());
+    }
+
+    /// Package names end up in an `apt-get install` argument list, so whatever is not a
+    /// Debian package name is dropped before the dialog exists. The operator sees what
+    /// would be installed rather than what the sandbox typed, and an apt option can never
+    /// be approved into the build.
+    #[test]
+    fn only_real_package_names_survive_sanitising() {
+        let clean = sanitize_args(serde_json::json!({
+            "packages": ["JQ", "graphviz", "--option", "jq=1.6", "-x", "libpq-dev"],
+            "purpose": "graph",
+        }));
+        assert_eq!(
+            clean["packages"],
+            serde_json::json!(["graphviz", "jq", "libpq-dev"]),
+            "valid names survive, lower-cased and ordered; options and version pins do not"
+        );
+
+        // A request left with nothing installable has no package list at all, so an empty
+        // grant cannot be approved by accident.
+        let empty = sanitize_args(serde_json::json!({ "packages": ["--help", " "] }));
+        assert!(empty.get("packages").is_none());
     }
 }

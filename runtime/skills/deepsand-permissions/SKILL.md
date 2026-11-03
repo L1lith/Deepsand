@@ -30,7 +30,9 @@ Do not guess at host paths. A guessed path wastes the operator's attention and c
 
 **`deepsand_request_network_access`** — use this when a command failed because a destination is blocked: an unreachable host, a package install that cannot reach its registry, a `git clone` that hangs. Include the blocked command verbatim and ask for the narrowest pattern that will work. See the network section below.
 
-**`deepsand_request_tool`** — use this when you need a program that is not installed. You cannot install it yourself in a way that survives, so ask. See the toolbox skill for what is available.
+**`deepsand_request_tool`** — use this when you need a program that is not installed. You cannot install it yourself at all: the sandbox has no root and a read-only root filesystem, so `apt-get install` and friends fail rather than being undone later. Ask instead. See the toolbox skill for what is available.
+
+**`deepsand_request_packages`** — use this when you need a Debian package that is not in the image, including a library, a compiler or a command-line tool the catalogue does not list. Name the packages exactly as apt does (`graphviz`, `libpq-dev`, `ffmpeg`). Each request is one operator decision, so ask for everything you need at once. An approved package is installed into the image at the next build and needs a restart before it is on `PATH` — see "Packages" below.
 
 ## Before you ask
 
@@ -131,7 +133,7 @@ purpose:  "installing the project's dependencies"
 
 ```
 patterns: ["pypi.org", "files.pythonhosted.org"]
-command:  "pip install -r requirements.txt"
+command:  ".venv/bin/pip install -r requirements.txt"
 purpose:  "installing the project's Python dependencies"
 ```
 
@@ -159,11 +161,15 @@ The refusal may come with a reason. You get **one** further attempt, and only wi
 
 ## Tools
 
-If a program you need is not on `PATH`, do not try to install it yourself: an install inside the running container is lost when the sandbox is recreated, and for a package manager it may not even be the same thing the project would use.
+If a program you need is not on `PATH`, do not try to install it yourself: the image's filesystem is read-only and nothing runs as root, so `apt-get install`, `dpkg` and a system-wide `pip` cannot write where they would have to.
 
 Call **`deepsand_sandbox_info`** to see which tools are already present, then **`deepsand_request_tool`** with the ids you need. Ask for several at once if you know you need them together.
 
 An approved tool is added to the project's image, which means it is **not usable yet**. The reply says so. Do not retry the original command expecting it to work; report that the tool has been approved and needs the image rebuilt, and continue with what you can do.
+
+### Commands you write yourself
+
+`~/.deepcode/bin` is on `PATH` and is writable, so a wrapper script, a compiled binary, or a virtualenv's entry point belongs there and needs no permission at all: it changes nothing outside this sandbox. It is not a substitute for asking when the *image* should carry something — a command you write lives in this project's session volume, not in the image. Python dependencies go in a virtualenv under `~/.deepcode` or the workspace; the system `pip` refuses to install into a read-only, externally managed image.
 
 ## What not to do
 

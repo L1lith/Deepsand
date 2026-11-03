@@ -5,11 +5,13 @@ description: What tools this Deepsand sandbox has, what it could have, and how t
 
 # What is in the box
 
-This sandbox's container image was built for this project, with the tools the operator selected. That set is fixed while the sandbox runs. You cannot add to it by installing: anything you `apt-get install`, `npm install -g` or `cargo install` lives only in the running container and is discarded when Deepsand recreates it — which happens whenever a permission is granted.
+This sandbox's container image was built for this project, with the tools the operator selected and any Debian packages they approved. That set is fixed while the sandbox runs.
+
+**You cannot install anything into this sandbox.** It runs as an unprivileged user over a read-only root filesystem, so `apt-get install`, `apt-get update`, `dpkg -i` and `npm install -g` cannot write where they would have to. `apt` fails immediately with `Could not open lock file /var/lib/dpkg/lock-frontend ... Permission denied` or `List directory /var/lib/apt/lists/partial is missing` — that is not a missing permission you can work around, it is the sandbox. Asking is the only supported way to add something, and it is installed into the image, not into the running container.
 
 ## Check before you assume
 
-Call **`deepsand_sandbox_info`**. It lists the tools this sandbox was built with. That output is the truth; do not infer from what a typical machine has, and do not assume a tool is missing just because a command failed — read the error.
+Call **`deepsand_sandbox_info`**. It lists the tools *and the extra Debian packages* this sandbox was built with. That output is the truth; do not infer from what a typical machine has, and do not assume a tool is missing just because a command failed — read the error.
 
 Note that a tool being absent is not an accident or an oversight. The operator chose the set, and the image is deliberately small.
 
@@ -25,6 +27,40 @@ purpose: "running the project's build script"
 Ask for everything you know you need in one request. `tools` takes a list, and three separate requests for three tools waste three of the operator's decisions.
 
 An approved tool is added to the project's image. **It is not installed yet.** The image has to be rebuilt and the sandbox restarted, which the operator does from the Tools tab. The reply says so explicitly. Do not retry the command that needed it, and do not try to install it yourself in the meantime — report that it is approved and pending a rebuild, and carry on with something else.
+
+## Asking for a Debian package
+
+The catalogue above is a fixed list; a package it does not mention is requested by name, with **`deepsand_request_packages`**:
+
+```
+packages: ["graphviz", "libpq-dev"]
+purpose:  "rendering the dependency graph the README promises"
+```
+
+Names are exactly as apt writes them: lower case, digits, `+`, `-` and `.` only. `graphviz` and `libjq1` are package names; `apt-get install graphviz`, `graphviz=2.42` and `graphviz:amd64` are not, and are refused rather than guessed at. Ask for everything you need together — a library and the tool that links it are one request, not two.
+
+What happens next is the same as for a tool: the package is added to the project, installed the next time the image is built, and usable only after the sandbox has been rebuilt and restarted. It is **not** on `PATH` yet. Do not retry the command that needed it, and do not try to fetch or unpack it yourself: dependencies, `PATH` and library locations are what the package manager exists to get right, and a hand-unpacked copy is a support case rather than a tool.
+
+## A bin directory of your own
+
+`~/.deepcode/bin` is on `PATH` — first, ahead of the image — and it is writable. A shell script, a compiled binary, or a copy of a virtualenv's entry point that you put there is found by your later commands, with no permission needed: it changes nothing outside this sandbox, and no host path or Deepsand credential is involved. It lives in this project's session volume, so it survives a restart, and it goes when that volume is wiped.
+
+Two things to keep in mind:
+
+- Because it comes first, a file there **shadows** an image tool of the same name for every later command. Do not shadow something the sandbox gave you — if `python` is installed, do not put your own `python` there.
+- It is not how the image gains a tool. A command you write belongs to this project's sandboxes; it is not in the image, so a different project will not have it. Ask for `deepsand_request_tool` or `deepsand_request_packages` when the image should carry it.
+
+### Python packages: use a virtualenv
+
+Debian's `pip` refuses to install into the system interpreter (`error: externally-managed-environment`, PEP 668), and `pip install --user` would write to `~/.local`, which is part of the read-only image. Neither is a bug you can work around with `--break-system-packages`: the right answer is a virtualenv, which needs no root and no permission.
+
+```bash
+python -m venv ~/.deepcode/venv            # or /workspace/.venv, which travels with the project
+~/.deepcode/venv/bin/pip install -r requirements.txt
+~/.deepcode/venv/bin/python script.py
+```
+
+Put the venv in `~/.deepcode` or the workspace, **not in `/tmp`**: `/tmp` is mounted no-exec, so `venv/bin/pip` there fails with `Permission denied` even though the venv was created fine. If you want one of its commands bare on `PATH`, link it into your bin directory (`ln -s ~/.deepcode/venv/bin/graph-easy ~/.deepcode/bin/`).
 
 ## The catalogue
 
@@ -71,14 +107,15 @@ These are the ids. Anything not in this list does not exist as far as Deepsand i
 |---|---|---|
 | `node` | Node.js | already in the base image; enabling pins a current line |
 | `npm` | npm | |
-| `python` | Python 3 with pip and venv | |
+| `python` | Python 3 with pip and venv | `python`, `python3`, `pip` and `pip3` are all on `PATH`; `python -m venv` works |
 | `cargo` | Rust toolchain via rustup | large; the first build is slow |
 | `go` | Go toolchain | |
-| `apt` | let you install Debian packages yourself | the widest of these; it can install almost anything, so it is off unless asked for |
-| `brew` | Homebrew on Linux | |
+| `brew` | Homebrew on Linux | installs into the sandbox user's home, so it works without root |
 | `nix` | Nix with flakes | large |
 
 **Not available here:** `apk`. It is Alpine's package manager and this image is Debian, so it could never install anything. If you see it greyed out, that is why.
+
+**Not available here either: `apt` as a tool you can turn on.** apt is on the image, but it cannot install anything from inside a session — no root, read-only root filesystem. There is no switch to find. Individual Debian packages are requested by name with `deepsand_request_packages`, above.
 
 ## A screen, and a browser
 
@@ -182,10 +219,10 @@ exfiltration easy, and that warning is about exactly this.
 
 ## What not to do
 
-- Do not run `apt-get install` and then rely on it. It will appear to work and then vanish.
+- Do not run `apt-get install`, `apt-get update`, `dpkg -i` or `pip install --system`: they cannot write here, and the error they print names a lock file or a missing directory rather than the real reason. Ask instead.
 - Do not report a language as unavailable before calling `deepsand_sandbox_info`. It may already be there.
-- Do not request a package manager to install something that is already in the catalogue. Ask for the tool.
-- Do not request tools "just in case". Each one enlarges the image and the operator has to decide about it.
+- Do not request a package for something the catalogue already has as a tool, and do not request a tool for a package that is really a plain Debian package. One request each, to the thing that actually installs it.
+- Do not request tools or packages "just in case". Each one enlarges the image and the operator has to decide about it.
 
 
 ## Tools can arrive while you are running
@@ -199,7 +236,8 @@ What that means in practice:
 - `deepsand_sandbox_info` lists the tools this sandbox was built with. If it lists one that is
   not actually on `PATH` yet, the build has not finished. Try again in a minute or two rather
   than reporting the tool as missing.
-- Only compiled binaries and npm globals arrive this way. A tool installed as a system package
-  needs the sandbox restarted, which the operator does from Deepsand.
+- Only compiled binaries and npm globals arrive this way. A tool installed as a system package,
+  and every Debian package from `deepsand_request_packages`, is part of the image: it needs the
+  sandbox rebuilt and restarted, which the operator does from Deepsand.
 - None of this is a failure and none of it needs reporting as one. Do not install, reinstall or
   work around a tool that is listed but not yet present -- wait, then use it.

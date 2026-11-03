@@ -496,6 +496,7 @@ fn migrate(state: &mut StoreDocument) {
             // own idea of the default was an empty list. `Some([])` is the real "nothing
             // selected", and it is what a new project gets.
             tools: Some(crate::tools::default_selection()),
+            packages: Vec::new(),
             // A new project follows the app-wide prompt, which is what makes setting one
             // app-wide take effect everywhere rather than everywhere-but-new-projects.
             user_prompt_mode: UserPromptMode::default(),

@@ -573,6 +573,9 @@ pub struct DecisionPayload {
     /// Tool ids the operator approved, which may be fewer than what was asked for.
     #[serde(default)]
     pub tools: Option<Vec<String>>,
+    /// Debian packages the operator approved, which may be fewer than what was asked for.
+    #[serde(default)]
+    pub packages: Option<Vec<String>>,
     #[serde(default)]
     pub access: Option<String>,
     /// Restart the sandbox immediately so the new mount takes effect.

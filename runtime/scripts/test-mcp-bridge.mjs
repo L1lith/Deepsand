@@ -245,6 +245,7 @@ async function main() {
       "deepsand_list_requests",
       "deepsand_request_directory_access",
       "deepsand_request_network_access",
+      "deepsand_request_packages",
       "deepsand_request_resource",
       "deepsand_request_secret",
       "deepsand_request_tool",
@@ -294,6 +295,16 @@ async function main() {
     assert.match(info, /deepsand_request_directory_access/);
     assert.match(info, /deepsand_request_resource/);
   });
+
+  // "Did the package I asked for arrive?" has to be answerable from the sandbox's own
+  // description, or the model's only way to find out is to try the command again.
+  const sandboxState = JSON.parse(
+    await fsp.readFile(path.join(broker.spool, "state", "sandbox.json"), "utf8"),
+  );
+  await broker.writeState("sandbox.json", { ...sandboxState, packages: ["graphviz"] });
+  const withPackages = textOf(await bridge.callTool("deepsand_sandbox_info", {}));
+  check("names the extra Debian packages the image carries", () =>
+    assert.match(withPackages, /packages\s*:\s*graphviz/));
 
   /* --------------------------------------------------------------------- */
   section("the operator's standing instructions");
@@ -574,6 +585,38 @@ async function main() {
   check("a well-formed tool request reaches the operator", () => {
     assert.notEqual(toolPending.isError, true);
     assert.match(textOf(toolPending), /PENDING|request_id/);
+  });
+
+  const noPackages = await bridge.callTool("deepsand_request_packages", {
+    packages: [],
+    purpose: "why",
+  });
+  check("a package request must name at least one package", () =>
+    assert.equal(noPackages.isError, true));
+
+  const packagesNoPurpose = await bridge.callTool("deepsand_request_packages", {
+    packages: ["graphviz"],
+  });
+  check("a package request without a purpose is rejected", () =>
+    assert.equal(packagesNoPurpose.isError, true));
+
+  const packageCall = bridge.callTool("deepsand_request_packages", {
+    packages: ["Graphviz", "libpq-dev"],
+    purpose: "rendering the dependency graph",
+  });
+  const packageReq = await broker.awaitNew("package_install");
+  const packagePending = await packageCall;
+  check("a well-formed package request reaches the operator", () => {
+    assert.notEqual(packagePending.isError, true);
+    assert.match(textOf(packagePending), /PENDING|request_id/);
+  });
+  check("and the spool carries the names as apt will see them", () => {
+    assert.equal(packageReq.kind, "package_install");
+    assert.deepEqual(
+      packageReq.args.packages,
+      ["graphviz", "libpq-dev"],
+      "lower-cased, in one list, so the dialog shows what will be installed",
+    );
   });
 
   check("an unknown tool name is rejected", () => assert.equal(unknownTool.isError, true));

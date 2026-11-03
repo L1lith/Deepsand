@@ -198,7 +198,7 @@ impl Report {
 pub fn tags_in_use(app: &AppSettings, projects: &[Project]) -> Vec<String> {
     let mut tags: Vec<String> = Vec::new();
     for project in projects {
-        let tag = crate::seccomp::project_image(&app.image, project.tools.as_deref());
+        let tag = crate::seccomp::project_image(&app.image, project.tools.as_deref(), &project.packages);
         if !tags.contains(&tag) {
             tags.push(tag);
         }
@@ -387,7 +387,7 @@ mod tests {
         assert_eq!(wanted.len(), 1, "{wanted:?}");
         assert_eq!(
             wanted[0],
-            crate::seccomp::project_image(&app.image, Some(&["jq".to_string(), "curl".to_string()]))
+            crate::seccomp::project_image(&app.image, Some(&["jq".to_string(), "curl".to_string()]), &[])
         );
     }
 
@@ -397,8 +397,8 @@ mod tests {
     fn a_project_without_a_tool_choice_keeps_the_legacy_tag() {
         let app = AppSettings::default();
         let wanted = tags_in_use(&app, &[project("Old One", None)]);
-        assert_eq!(wanted, vec![crate::seccomp::project_image(&app.image, None)]);
-        assert_ne!(wanted[0], crate::seccomp::project_image(&app.image, Some(&[])));
+        assert_eq!(wanted, vec![crate::seccomp::project_image(&app.image, None, &[])]);
+        assert_ne!(wanted[0], crate::seccomp::project_image(&app.image, Some(&[]), &[]));
     }
 
     /// The base tag is what `runtime/scripts/build-image.mjs` builds, and no project runs it.

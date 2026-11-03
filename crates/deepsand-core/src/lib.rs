@@ -29,6 +29,7 @@ pub mod git;
 pub mod image_gc;
 pub mod model;
 pub mod models;
+pub mod packages;
 pub mod paths;
 pub mod remote;
 pub mod policy;

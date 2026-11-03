@@ -58,6 +58,7 @@ pub fn already_covered(
         RequestKind::DirectoryAccess => covered_directory(request, workspace_root, snapshot),
         RequestKind::NetworkAccess => covered_network(request, snapshot),
         RequestKind::ToolInstall => covered_tools(request, snapshot),
+        RequestKind::PackageInstall => covered_packages(request, snapshot),
         // "I need something but do not know where it is" has no target to compare, so
         // there is nothing here that can be certain.
         RequestKind::LocateResource => None,
@@ -185,6 +186,27 @@ fn covered_tools(request: &PermissionRequest, snapshot: &SandboxSnapshot) -> Opt
     )))
 }
 
+fn covered_packages(request: &PermissionRequest, snapshot: &SandboxSnapshot) -> Option<AlreadyCovered> {
+    let packages = request.requested_packages();
+    if packages.is_empty() {
+        return None;
+    }
+    let missing: Vec<&String> = packages
+        .iter()
+        .filter(|name| !snapshot.packages.iter().any(|have| have == *name))
+        .collect();
+    if !missing.is_empty() {
+        return None;
+    }
+    Some(AlreadyCovered::new(format!(
+        "You already have this: {} {} already part of this project's image, so asking again would \
+         add nothing. `deepsand_sandbox_info` reports what the running image actually carries -- \
+         an approved package appears there once the image has been rebuilt.",
+        packages.join(", "),
+        if packages.len() == 1 { "is" } else { "are" }
+    )))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,6 +222,7 @@ mod tests {
             network_mode: "allowlisted".into(),
             egress_allowlist: allow.iter().map(|s| (*s).to_string()).collect(),
             tools: tools.iter().map(|s| (*s).to_string()).collect(),
+            packages: Vec::new(),
             user_prompt: String::new(),
             started_at_ms: 0,
             grants: vec![SandboxGrant {
@@ -439,6 +462,33 @@ mod tests {
         .is_none());
     }
 
+    /// A package the image already carries is a request with nothing left to decide, so
+    /// it is refused on the host rather than turned into a dialog. Anything the image does
+    /// not carry is left to the operator, including a mixed request.
+    #[test]
+    fn a_package_the_image_already_has_is_already_covered() {
+        let mut snapshot = snapshot(&[], &[]);
+        snapshot.packages = vec!["libjq1".into(), "jq".into()];
+
+        let covered = already_covered(
+            &request(RequestKind::PackageInstall, serde_json::json!({ "packages": ["jq"] })),
+            Path::new("/work/site"),
+            &snapshot,
+        )
+        .expect("a package the image has needs no request");
+        assert!(covered.message.contains("jq"), "{}", covered.message);
+
+        assert!(already_covered(
+            &request(
+                RequestKind::PackageInstall,
+                serde_json::json!({ "packages": ["jq", "graphviz"] }),
+            ),
+            Path::new("/work/site"),
+            &snapshot,
+        )
+        .is_none());
+    }
+
     #[test]
     fn a_locate_resource_request_is_never_auto_refused() {
         let snapshot = snapshot(&[], &[]);
@@ -462,6 +512,7 @@ mod tests {
             RequestKind::DirectoryAccess,
             RequestKind::NetworkAccess,
             RequestKind::ToolInstall,
+            RequestKind::PackageInstall,
         ] {
             assert!(
                 already_covered(&request(kind, serde_json::json!({})), Path::new("/work/site"), &snapshot)

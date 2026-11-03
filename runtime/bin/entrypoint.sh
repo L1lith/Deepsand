@@ -188,6 +188,25 @@ if [ "$AS_ROOT" = "1" ]; then
   chmod 0700 "$DEEPCODE_DIR" 2>/dev/null || true
 fi
 
+# A bin directory of the agent's own, already first on PATH (see `ENV PATH` in the
+# Dockerfile). The root filesystem is read-only and Debian's own directories are root-owned,
+# so without this there is nowhere a wrapper script, a `pip install --user` console script or
+# a compiled experiment can go that the next command will find. It is created as the sandbox
+# user rather than as root: root here lacks CAP_DAC_OVERRIDE, so it could not write into a
+# 0700 directory owned by uid 1000 -- and creating it as the user is also the check that the
+# user can write there.
+BIN_DIR="$DEEPCODE_DIR/bin"
+if [ "$AS_ROOT" = "1" ]; then
+  if ! as_target mkdir -p "$BIN_DIR" 2>/dev/null; then
+    warn "could not create $BIN_DIR; the agent will have no PATH directory of its own"
+  elif ! as_target test -w "$BIN_DIR"; then
+    warn "$BIN_DIR is not writable by uid $TARGET_USER; commands the agent adds there will not appear"
+  fi
+else
+  mkdir -p "$BIN_DIR" 2>/dev/null ||
+    warn "could not create $BIN_DIR; the agent will have no PATH directory of its own"
+fi
+
 # ---------------------------------------------------------------------------
 # 2. Egress policy
 # ---------------------------------------------------------------------------

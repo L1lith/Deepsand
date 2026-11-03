@@ -472,17 +472,18 @@ export interface PermissionRequestView {
   projectId: string;
   projectName: string;
   /**
-   * Which of the four request tools the agent used.
+   * Which request tool the agent used.
    *
-   * "network_access" and "tool_install" reuse the same dialog; the backend writes a
-   * `title` per kind, and `description` carries the destinations or tool names for
-   * those two.
+   * "network_access", "tool_install" and "package_install" reuse the same dialog; the
+   * backend writes a `title` per kind, and `description` carries the destinations, tool
+   * ids or package names for those three.
    */
   kind:
     | "directory_access"
     | "locate_resource"
     | "network_access"
     | "tool_install"
+    | "package_install"
     | "secret";
   title: string;
   description: string;
@@ -553,6 +554,8 @@ export interface DecisionPayload {
   /** What the operator settled on for a secret request. */
   secretName?: string | null;
   secretValue?: string | null;
+  /** Debian packages the operator approved, when narrower than the request. */
+  packages?: string[] | null;
 }
 
 export const DEFAULT_LIMITS: ResourceLimits = {

@@ -1184,3 +1184,95 @@ fn the_zero_breach_skill_scopes_the_scan_and_names_its_author() {
         "report text comes from the scanned machine and must be treated as data"
     );
 }
+
+/// A Debian package the operator granted is installed by the same apt step as the tools, and
+/// recorded in a label of its own.
+///
+/// Both halves are load-bearing. The install is what makes the package exist -- the sandbox
+/// itself cannot run apt, so a grant that never reaches the build is a promise that is never
+/// kept. The label is what `deepsand_sandbox_info` reports, so without it the model's only
+/// answer to "did my package arrive" is to try the command again.
+#[test]
+fn the_project_packages_are_installed_and_recorded_in_their_own_label() {
+    let text = dockerfile();
+
+    let declaration = text
+        .find("ARG PROJECT_PACKAGES=\"\"")
+        .expect("the build needs the argument the app passes for the project's packages");
+    let label = text
+        .find("LABEL deepsand.packages=\"$PROJECT_PACKAGES\"")
+        .expect("the image has to record the packages the operator granted");
+    assert!(
+        declaration < label,
+        "a build argument is only usable after it is declared: ARG at {declaration}, LABEL at {label}"
+    );
+
+    // The app merges the project's packages into APT_PACKAGES, so the single apt branch is
+    // also the one place a granted package is installed -- as root, at build time, which is
+    // the only place apt can run at all.
+    assert!(
+        text.contains("apt-get install -y --no-install-recommends $APT_PACKAGES"),
+        "the apt branch is what installs the packages"
+    );
+}
+
+/// The `python` tool installed `python3`, and the agent was told to run `python`. The tool was
+/// installed, was reported as installed, and every `python ...` still failed -- which the agent
+/// and the operator both read as "the grant did not work". Debian has no bare `python`, so the
+/// image has to provide the name the catalogue and the skills use.
+#[test]
+fn the_python_tool_provides_the_command_the_agent_is_told_to_run() {
+    let text = dockerfile();
+
+    let gate = text
+        .find("*,python,*)")
+        .expect("the python step is gated on the tool id, so it runs only when python is selected");
+    let link = text
+        .find("ln -sf /usr/bin/python3 /usr/local/bin/python")
+        .expect("the python tool has to provide the name the agent types");
+    assert!(
+        gate < link,
+        "the name belongs to the python tool ({gate}), not to every image ({link})"
+    );
+
+    // The catalogue promises pip and venv, so the build proves both against the interpreter
+    // the agent will actually run, rather than proving that the packages were asked for.
+    assert!(
+        text.contains("python -m pip --version"),
+        "pip has to be importable by the `python` the agent runs"
+    );
+    assert!(
+        text.contains("python -m venv --help"),
+        "the `venv` module is part of what the entry promises"
+    );
+}
+
+/// A command the agent writes has to be found by its *next* command. The root filesystem is
+/// read-only, so the only place that can be true is the writable session volume -- and the
+/// directory has to be on `PATH` already, because an agent cannot change the environment a later
+/// shell inherits. This is the whole answer to "let it adjust its own PATH": no new permission,
+/// no host environment, just a writable directory inside the sandbox.
+#[test]
+fn the_agent_has_a_writable_bin_directory_first_on_path() {
+    let text = dockerfile();
+    let env = text
+        .find("ENV PATH=\"/home/deepcode/.deepcode/bin:")
+        .expect("the agent's own bin directory has to be on PATH, ahead of the image's");
+    assert!(
+        env < text.find("${PATH}\"").expect("PATH keeps the image's directories"),
+        "the image's own directories have to still be there, after the agent's"
+    );
+
+    // And it has to exist and be writable, which only the entrypoint can arrange: the volume is
+    // mounted over `.deepcode` at run time, so nothing baked into the image survives there.
+    let entry = entrypoint();
+    assert!(
+        entry.contains("BIN_DIR=\"$DEEPCODE_DIR/bin\""),
+        "the entrypoint has to create the directory the image puts on PATH"
+    );
+    assert!(
+        entry.contains("as_target mkdir -p \"$BIN_DIR\""),
+        "it is created as the sandbox user: root here cannot write into a 0700 directory it does \
+         not own, and creating it as the user is also the check that they can write there"
+    );
+}

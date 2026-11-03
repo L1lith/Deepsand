@@ -1005,7 +1005,11 @@ fn prepare_plan(
     // sandbox reads and the plan itself all have to agree on which image this is. The tag in
     // settings is only the stem the project's tag is derived from, and `image_present` has to
     // mean "this project's image is there", not "some image with that stem is".
-    let mut app_settings = container_settings::settings_for_project(&app_settings, project.tools.as_deref());
+    let mut app_settings = container_settings::settings_for_project(
+        &app_settings,
+        project.tools.as_deref(),
+        &project.packages,
+    );
     if let Some(image) = image_override {
         app_settings.image = image.to_string();
     }
@@ -1043,10 +1047,9 @@ fn prepare_plan(
     // papered over with the configured list.
     let image = app_settings.image.clone();
     sandbox.image = image.clone();
-    let label = state
-        .app_state()
-        .docker()
-        .ok()
+    let labelled = state.app_state().docker().ok();
+    let label = labelled
+        .as_ref()
         .and_then(|docker| docker.image_label(&image, "deepsand.tools"));
     match label {
         Some(label) => {
@@ -1058,12 +1061,26 @@ fn prepare_plan(
         }
         None => {
             sandbox.notes.push(
-                "The tool list above is what this project is configured to want. The image \
-                 itself could not be inspected, so it is not known whether it matches -- run \
-                 the sandbox and check with `command -v`, rather than trusting the list."
+                "The tool and package lists above are what this project is configured to want. \
+                 The image itself could not be inspected, so it is not known whether they match \
+                 -- run the sandbox and check with `command -v`, rather than trusting the list."
                     .to_string(),
             );
         }
+    }
+    // No note when this label is absent, unlike the tool list: an image built before packages
+    // existed carries none, and "no extra packages" is then the truth rather than a gap. The
+    // tool label is the one whose absence means the image could not be read at all, and that
+    // note has already been added above.
+    if let Some(label) = labelled
+        .as_ref()
+        .and_then(|docker| docker.image_label(&image, "deepsand.packages"))
+    {
+        sandbox.packages = label
+            .split(',')
+            .map(|package| package.trim().to_string())
+            .filter(|package| !package.is_empty())
+            .collect();
     }
     sandbox.notes.push(
         "The model API key is readable from inside this sandbox, in the DeepCode settings \
@@ -1414,7 +1431,11 @@ fn gather_launch(state: &impl AsAppState, project_id: &str) -> CmdResult<Launch>
     let project = store.project(project_id).cloned().map_err(fail)?;
     // Per-project image, because the tools are baked in and two projects may want different
     // ones. Shared with the plan so the image this builds is the image the plan names.
-    let app_settings = container_settings::settings_for_project(store.settings(), project.tools.as_deref());
+    let app_settings = container_settings::settings_for_project(
+        store.settings(),
+        project.tools.as_deref(),
+        &project.packages,
+    );
     let image = app_settings.image.clone();
     // The launch record feeds the proxy, so its allowlist has to be the merged one.
     let project = with_effective_allowlist(&project, &app_settings);
@@ -1528,7 +1549,7 @@ pub async fn start_session_impl(
         tracing::info!("start: image ready");
 if without_tools {
         let settings =
-            container_settings::settings_for_project(store(&state).settings(), Some(&[] as &[String]));
+            container_settings::settings_for_project(store(&state).settings(), Some(&[] as &[String]), &[]);
         launch.image = settings.image;
     }
 
@@ -1691,9 +1712,18 @@ if !docker.image_present(&launch.image) {
     if without_tools {
         // Recorded against the image the project actually wants, because that is what the build
         // knows when it finishes.
+        //
+        // Cloned out of the guard rather than read through it: `store(&state)` locks, the lock is
+        // not re-entrant, and `settings_for_project` below needs it again on this thread.
+        let (tools, packages) = {
+            let guard = store(&state);
+            let project = guard.project(&project_id).map_err(fail)?;
+            (project.tools.clone(), project.packages.clone())
+        };
         let wanted = container_settings::settings_for_project(
             store(&state).settings(),
-            store(&state).project(&project_id).map_err(fail)?.tools.as_deref(),
+            tools.as_deref(),
+            &packages,
         )
         .image;
         {
@@ -2547,8 +2577,11 @@ fn blocked_refusal(
             None
         }
         // A block is about a place on the machine or a place on the network. A secret, a
-        // tool and "somewhere, I do not know where" have nothing to match against.
-        RequestKind::LocateResource | RequestKind::ToolInstall | RequestKind::Secret => None,
+        // tool, a package and "somewhere, I do not know where" have nothing to match against.
+        RequestKind::LocateResource
+        | RequestKind::ToolInstall
+        | RequestKind::PackageInstall
+        | RequestKind::Secret => None,
     }
 }
 
@@ -2636,6 +2669,12 @@ fn request_view(state: &impl AsAppState, request: &PermissionRequest) -> Permiss
         ),
         RequestKind::ToolInstall => format!(
             "DeepCode is asking for a tool: {}",
+            request.description()
+        ),
+        // Named "packages" rather than "a tool": the operator is being asked to add a
+        // Debian package to the image, which is installed as root at the next build.
+        RequestKind::PackageInstall => format!(
+            "DeepCode is asking for Debian packages: {}",
             request.description()
         ),
         RequestKind::Secret => match request.secret_name() {
@@ -3130,6 +3169,97 @@ pub fn answer_request_impl(app: &AppHandle, state: &AppState, payload: DecisionP
                     format!(
                         "Approved: {}. The tool is added to this project, but it is baked into the                          container image, so it will not be on PATH until the image has been rebuilt                          and the sandbox restarted. Do not try to install it yourself in the meantime;                          it would not persist.",
                         applied.join(", ")
+                    ),
+                    None,
+                    // Signals to the operator that a rebuild is outstanding.
+                    true,
+                ))
+                .map_err(fail)?;
+            broker.clear_request(&request_id);
+            let _ = app.emit(
+                events::BROKER_RESOLVED,
+                serde_json::json!({ "requestId": request_id, "decision": "allow" }),
+            );
+            return Ok(true);
+        }
+
+        // A package request has the same answer as a tool request -- stored on the project,
+        // installed by the build, unusable until the image is rebuilt and the sandbox
+        // restarted -- but the list comes from the agent rather than the catalogue. So it is
+        // re-validated here. `sanitize_args` already filtered the spool's copy for the
+        // dialog; that is a courtesy to the window, and this is the check that decides what
+        // reaches an `apt-get install` argument list.
+        RequestKind::PackageInstall => {
+            let named = payload
+                .packages
+                .clone()
+                .filter(|list| !list.is_empty())
+                .unwrap_or_else(|| request.requested_packages());
+
+            let invalid = deepsand_core::packages::invalid(&named);
+            let packages = deepsand_core::packages::normalise(&named);
+            let refusal = if !invalid.is_empty() {
+                Some(format!(
+                    "This is not a Debian package name, so nothing was installed: {}. Names are \
+                     lower case letters, digits, '+', '-' and '.', and apt is never handed \
+                     anything else.",
+                    invalid.join(", ")
+                ))
+            } else if packages.is_empty() {
+                Some("No package was named, so there was nothing to install.".to_string())
+            } else {
+                None
+            };
+
+            if let Some(message) = refusal {
+                broker
+                    .answer(&PermissionResponse::deny(&request_id, &message))
+                    .map_err(fail)?;
+                broker.clear_request(&request_id);
+                guard.append_audit(
+                    &request.project,
+                    &format!("DENY  package {} ({message})", named.join(", ")),
+                );
+                drop(guard);
+                let _ = app.emit(
+                    events::BROKER_RESOLVED,
+                    serde_json::json!({
+                        "requestId": request_id,
+                        "decision": "deny",
+                        "reason": message,
+                    }),
+                );
+                return Ok(false);
+            }
+
+            {
+                let project = guard.project_mut(&request.project).map_err(fail)?;
+                let mut ids = project.packages.clone();
+                ids.extend(packages.iter().cloned());
+                project.packages = deepsand_core::packages::normalise(&ids);
+            }
+            guard.save().map_err(fail)?;
+            guard.append_audit(
+                &request.project,
+                &format!(
+                    "ALLOW package {} (image rebuild needed before it is installed)",
+                    packages.join(", ")
+                ),
+            );
+            drop(guard);
+
+            broker
+                .answer(&PermissionResponse::allow(
+                    &request_id,
+                    format!(
+                        "Approved: {}. Debian packages are installed by this project's image \
+                         build, as root, so it is not available yet: the image has to be rebuilt \
+                         and the sandbox restarted, which the next Run of this project does. Do \
+                         not run apt-get install yourself in the meantime -- this sandbox has no \
+                         root and a read-only filesystem, so it cannot install anything into \
+                         itself, and this is now on the project rather than being something to \
+                         retry.",
+                        deepsand_core::packages::list_phrase(&packages)
                     ),
                     None,
                     // Signals to the operator that a rebuild is outstanding.
@@ -3925,7 +4055,12 @@ pub fn list_tools_impl(state: &AppState, project_id: &str) -> CmdResult<ToolCata
         let project = store.project(project_id).map_err(fail)?;
         (
             project.tools.clone(),
-            container_settings::settings_for_project(store.settings(), project.tools.as_deref()).image,
+            container_settings::settings_for_project(
+                store.settings(),
+                project.tools.as_deref(),
+                &project.packages,
+            )
+            .image,
         )
     };
 
@@ -3990,7 +4125,7 @@ pub async fn set_project_tools_impl(
         let store = store(state);
         let project = store.project(project_id).map_err(fail)?.clone();
         let app = store.settings().clone();
-        container_settings::settings_for_project(&app, project.tools.as_deref()).image
+        container_settings::settings_for_project(&app, project.tools.as_deref(), &project.packages).image
     };
 
     {
@@ -4009,7 +4144,7 @@ pub async fn set_project_tools_impl(
         let store = store(state);
         let project = store.project(project_id).map_err(fail)?.clone();
         let app = store.settings().clone();
-        container_settings::settings_for_project(&app, project.tools.as_deref()).image
+        container_settings::settings_for_project(&app, project.tools.as_deref(), &project.packages).image
     };
     if deepsand_core::docker::Docker::cancel_superseded(&previous_image, &wanted_image) {
         tracing::info!(
@@ -5244,18 +5379,38 @@ pub fn build_runtime_image_impl(
 ) -> CmdResult<()> {
 
     let docker = state.docker().map_err(fail)?;
-    let selection = if no_tools {
-        Some(Vec::new())
+    // The packages are part of the image exactly as the tools are: they move the tag and they
+    // join the image's one `apt-get install`. `no_tools` is the minimal runway image, so it
+    // carries neither the tools nor the extra packages this project was granted.
+    let (selection, packages) = if no_tools {
+        (Some(Vec::new()), Vec::new())
     } else {
         match &project_id {
-            Some(id) => store(&state).project(id).map_err(fail)?.tools.clone(),
+            Some(id) => {
+                let project = store(&state).project(id).map_err(fail)?.clone();
+                (
+                    project.tools.clone(),
+                    deepsand_core::packages::normalise(&project.packages),
+                )
+            }
             // No project named: build the defaults, which is what a first-run build is.
-            None => None,
+            None => (None, Vec::new()),
         }
     };
-    let image = container_settings::settings_for_project(store(&state).settings(), selection.as_deref()).image;
+    let image = container_settings::settings_for_project(
+        store(&state).settings(),
+        selection.as_deref(),
+        &packages,
+    )
+    .image;
 
     let plan = deepsand_core::tools::install_plan(selection.as_deref());
+
+    // One `apt-get install` list, because that is where apt can run: as root, during the
+    // build. A package the project asked for is not different from one a tool needs, except
+    // that it is also recorded in the image's own `deepsand.packages` label. The merge lives
+    // in the core so it is the same list wherever a plan is read.
+    let apt_packages = deepsand_core::packages::with_tool_packages(&plan.apt, &packages);
 
     /// Join for the Dockerfile, which splits on commas.
     fn csv(values: &[String]) -> String {
@@ -5274,7 +5429,12 @@ pub fn build_runtime_image_impl(
 
     let build_args: Vec<(&str, String)> = vec![
         ("INSTALL_TOOLS", deepsand_core::tools::build_argument(selection.as_deref())),
-        ("APT_PACKAGES", csv(&plan.apt)),
+        ("APT_PACKAGES", csv(&apt_packages)),
+        // The project's own packages, for the image's `deepsand.packages` label. Separate
+        // from APT_PACKAGES because that list also carries what the tools need, and the
+        // sandbox's answer to "did the operator grant me graphviz" should not be a list of
+        // every package a selected tool dragged in.
+        ("PROJECT_PACKAGES", csv(&packages)),
         ("NPM_GLOBALS", csv(&plan.npm)),
         ("CARGO_INSTALLS", csv(&plan.cargo)),
         ("WITH_NODE_REPO", u8::from(plan.node_repo).to_string()),

@@ -342,7 +342,6 @@ impl Tool {
             "python" => Some("https://www.python.org/"),
             "cargo" => Some("https://doc.rust-lang.org/cargo/"),
             "go" => Some("https://go.dev/"),
-            "apt" => Some("https://wiki.debian.org/Apt"),
             "apk" => Some("https://wiki.alpinelinux.org/wiki/Alpine_Package_Keeper"),
             "brew" => Some("https://brew.sh/"),
             "nix" => Some("https://nixos.org/"),
@@ -609,19 +608,11 @@ pub const CATALOG: &[Tool] = &[
         base: Base::Debian,
     },
     /* --- package managers ------------------------------------------------- */
-    Tool {
-        id: "apt",
-        label: "apt",
-        description:
-            "Let the agent install Debian packages itself. This is the base image's own package \
-             manager, and it can install almost anything, so treat it as the widest of these.",
-        category: ToolCategory::PackageManager,
-        provider: Provider::BuiltIn,
-        package: "",
-        hosts: &["deb.debian.org", "security.debian.org"],
-        cost: None,
-        base: Base::Debian,
-    },
+    // There is deliberately no `apt` entry here. The sandbox has no root and a read-only
+    // root filesystem, so `apt-get install` cannot run inside it: a row that offers that
+    // is a promise the image cannot keep. Packages an agent needs are requested by name
+    // (`deepsand_request_packages`), approved by the operator, and installed by the build;
+    // see `crate::packages`.
     Tool {
         id: "apk",
         label: "apk",
@@ -980,9 +971,19 @@ mod tests {
             .filter(|tool| tool.category == ToolCategory::PackageManager)
             .map(|tool| tool.id)
             .collect();
-        assert_eq!(
-            package_managers,
-            ["npm", "wrangler", "apt", "apk", "brew", "nix"]
+        assert_eq!(package_managers, ["npm", "wrangler", "apk", "brew", "nix"]);
+    }
+
+    /// `apt` is not a tool this image can be built with, and the catalogue must not offer
+    /// it. Selecting it used to install nothing, advertise it in the image label and open
+    /// the Debian mirrors, while `apt-get install` inside the sandbox could only fail --
+    /// no root, read-only root filesystem. Packages are requested by name instead.
+    #[test]
+    fn apt_is_not_a_tool_because_the_sandbox_cannot_install_anything() {
+        assert!(find("apt").is_none());
+        assert!(
+            crate::packages::is_valid("curl"),
+            "the replacement path has to accept real package names"
         );
     }
 
@@ -996,7 +997,7 @@ mod tests {
     #[test]
     fn every_tool_the_operator_asked_for_exists() {
         for id in [
-            "git", "npm", "node", "python", "cargo", "go", "brew", "nix", "apt", "apk", "wrangler",
+            "git", "npm", "node", "python", "cargo", "go", "brew", "nix", "apk", "wrangler",
             "xvfb", "puppeteer", "rea", "dejared", "ffdec", "mcp-reverse", "zero-breach",
         ] {
             assert!(find(id).is_some(), "{id} is missing from the catalogue");

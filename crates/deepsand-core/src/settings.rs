@@ -71,9 +71,9 @@ const STRICT_ALLOW: &[&str] = &[
 /// replaced by the tag that project actually runs.
 ///
 /// Every caller that builds a plan has to go through this. The base tag in settings is a
-/// stem -- [`crate::seccomp::project_image`] appends the tool selection and the runtime
-/// revision -- and a plan that names the stem starts a container from whatever that tag
-/// happens to hold.
+/// stem -- [`crate::seccomp::project_image`] appends the tool selection, the packages the
+/// project was granted and the runtime revision -- and a plan that names the stem starts a
+/// container from whatever that tag happens to hold.
 ///
 /// This is not a hypothetical. The app built the derived tag, read the tool list out of its
 /// label, checked its seccomp digest and told the sandbox what tools it had, and then
@@ -81,9 +81,13 @@ const STRICT_ALLOW: &[&str] = &[
 /// and the runtime revision, whose whole purpose is to force a rebuild when a script
 /// changes, never reached a container. Two call sites deriving the same tag and one of them
 /// being forgotten is what this function exists to make impossible.
-pub fn settings_for_project(app: &AppSettings, selection: Option<&[String]>) -> AppSettings {
+pub fn settings_for_project(
+    app: &AppSettings,
+    selection: Option<&[String]>,
+    packages: &[String],
+) -> AppSettings {
     let mut settings = app.clone();
-    settings.image = crate::seccomp::project_image(&app.image, selection);
+    settings.image = crate::seccomp::project_image(&app.image, selection, packages);
     settings
 }
 
@@ -407,6 +411,29 @@ pub fn build_agents_md(
         }
     ));
 
+    // The one writable place an executable can go, and the one thing the model needs to know
+    // about PATH: the root filesystem is read-only, so a wrapper, a compiled experiment or a
+    // virtualenv entry point is invisible to later commands unless it lands here.
+    // Saying it here rather than only in a skill matters because the file is read at start,
+    // before the model has decided how to approach anything.
+    out.push_str(
+        "\n## Commands of your own\n\n\
+         `~/.deepcode/bin` is on `PATH` (first), and it is writable. A script, a compiled binary\n\
+         or a virtualenv's entry point that you put there is found by your later commands.\n\
+         Nothing outside this sandbox can see it, it survives a restart of\n\
+         this project, and it disappears when the project's session volume is wiped. A file\n\
+         there shadows an image tool of the same name, so do not shadow something the sandbox\n\
+         gave you.\n\
+         \n\
+         Python dependencies go in a virtualenv under `~/.deepcode` or the workspace, not into\n\
+         the system interpreter: Debian's `pip` refuses that by policy (PEP 668) and the image\n\
+         is read-only. Do not build one in `/tmp`, which is mounted no-exec.\n\
+         \n\
+         This is not how a tool is added to the image: a command you write is yours for this\n\
+         sandbox only. If the image should have it, ask with `deepsand_request_tool` or\n\
+         `deepsand_request_packages`.\n",
+    );
+
     // Said before the list of request tools rather than after it: a sandbox that cannot ask
     // should not be told how to, or it spends the turn composing a request that is refused
     // on arrival.
@@ -428,6 +455,9 @@ pub fn build_agents_md(
            example `C:\\\\Users\\\\me\\\\Documents\\\\brand`). The operator sees a dialog naming that exact path.\n\
          * `deepsand_request_resource` - you know what you need but not where it lives (\"the\n  \
            my-website repo\"). The operator gets a folder picker so they can locate it for you.\n\
+         * `deepsand_request_packages` - a Debian package this image does not have. It is installed\n  \
+           into the *image*, which has to be rebuilt first, so it is not on `PATH` until then and\n  \
+           `apt-get install` inside this sandbox can never work.\n\
          * `deepsand_check_request` - collect the answer if the operator was slow to respond.\n\
          * `deepsand_list_requests` - list the requests this sandbox has on record and where each\n  \
            one stands. Use it after a request call that failed or timed out.\n\n\
@@ -499,6 +529,11 @@ pub fn build_sandbox_snapshot(
             .iter()
             .map(|tool| tool.id.to_string())
             .collect(),
+        // What the project has been granted, not what the build produced: this value is
+        // replaced from the image's own `deepsand.packages` label once the image is known.
+        // It is here so a snapshot built without an image (a plan, a test) still says what
+        // the project is asking for.
+        packages: crate::packages::normalise(&project.packages),
         // Resolved here rather than passed in, so the generated file and the sandbox's own copy of
         // these instructions can never disagree about which one applies.
         user_prompt: resolve_user_prompt(project, settings).unwrap_or_default().to_string(),
@@ -855,7 +890,7 @@ mod project_settings_tests {
             ..AppSettings::default()
         };
         let selection = vec!["htmlq".to_string()];
-        let for_project = settings_for_project(&base, Some(&selection));
+        let for_project = settings_for_project(&base, Some(&selection), &[]);
 
         assert_ne!(for_project.image, base.image, "the stem is not what a project runs");
         assert!(
@@ -882,9 +917,9 @@ mod project_settings_tests {
             image: "deepsand/runtime:9.9.9".to_string(),
             ..AppSettings::default()
         };
-        let one = settings_for_project(&base, Some(&["htmlq".to_string()]));
-        let two = settings_for_project(&base, Some(&["jq".to_string()]));
-        let none = settings_for_project(&base, None);
+        let one = settings_for_project(&base, Some(&["htmlq".to_string()]), &[]);
+        let two = settings_for_project(&base, Some(&["jq".to_string()]), &[]);
+        let none = settings_for_project(&base, None, &[]);
         assert_ne!(one.image, two.image);
         assert_ne!(one.image, none.image);
     }

@@ -122,16 +122,26 @@ pub fn runtime_revision(runtime: &Path) -> String {
 /// The tag of the image a project runs.
 ///
 /// The base tag in settings is only the stem: [`crate::tools::image_for`] appends the tool
-/// selection and this appends the runtime revision, so a project's image changes when its
-/// tools change or when anything the image is built from changes.
+/// selection, [`crate::packages::tag_component`] appends the packages the project asked
+/// for, and this appends the runtime revision -- so a project's image changes when its
+/// tools change, when it is granted a package, or when anything the image is built from
+/// changes. The package component is empty for the empty list, so a project that never
+/// asked for one keeps the tag it had.
 ///
 /// **This is the tag a plan has to name**, and getting that wrong is not cosmetic. The app
 /// used to plan the *stem* while it built, labelled and digest-checked the derived tag, so
 /// the sandbox ran whichever image the stem happened to point at. A project's selected
 /// tools were therefore never the tools in its sandbox, and the revision that exists to
-/// force a rebuild never reached the container.
-pub fn project_image(base: &str, selection: Option<&[String]>) -> String {
-    let tag = crate::tools::image_for(base, selection);
+/// force a rebuild never reached the container. The same argument is why the package list
+/// is a parameter here rather than something a caller may remember to add: an approved
+/// package that does not move the tag is a build that never happens, and a sandbox that
+/// goes on saying the package is coming.
+pub fn project_image(base: &str, selection: Option<&[String]>, packages: &[String]) -> String {
+    let tag = format!(
+        "{}{}",
+        crate::tools::image_for(base, selection),
+        crate::packages::tag_component(packages)
+    );
     match runtime_dir().map(|dir| runtime_revision(&dir)) {
         Some(revision) if !revision.is_empty() => format!("{tag}-{revision}"),
         _ => tag,
@@ -369,13 +379,35 @@ mod tests {
     #[test]
     fn a_project_image_extends_the_base_tag_rather_than_replacing_it() {
         let selection = vec!["htmlq".to_string()];
-        let tag = project_image("deepsand/runtime:1.2.3", Some(&selection));
+        let tag = project_image("deepsand/runtime:1.2.3", Some(&selection), &[]);
         assert!(
             tag.starts_with("deepsand/runtime:1.2.3-t"),
             "the base tag is the stem of the project tag: {tag}"
         );
         assert_ne!(tag, "deepsand/runtime:1.2.3", "the stem is not what a project runs");
         // And the tool selection is what distinguishes two projects.
-        assert_ne!(tag, project_image("deepsand/runtime:1.2.3", None));
+        assert_ne!(tag, project_image("deepsand/runtime:1.2.3", None, &[]));
+    }
+
+    /// A package the operator granted has to move the tag, or the rebuild never happens:
+    /// the build would reuse the image that is already there and the package would never
+    /// be installed, while the project went on saying it had been granted. An empty list,
+    /// by contrast, must leave every existing project's tag exactly where it was.
+    #[test]
+    fn a_granted_package_moves_the_image_tag_and_an_empty_list_does_not() {
+        let base = "deepsand/runtime:1.2.3";
+        let plain = project_image(base, None, &[]);
+        let one = project_image(base, None, &["jq".to_string()]);
+        let two = project_image(base, None, &["jq".to_string(), "graphviz".to_string()]);
+
+        assert_ne!(plain, one, "a granted package must force a different image");
+        assert!(one.contains("-p"), "the package component is part of the tag: {one}");
+        assert_ne!(one, two, "a second package is a different image");
+
+        // Order and case are the same selection, not a new image on every save.
+        assert_eq!(
+            project_image(base, None, &["jq".to_string(), "graphviz".to_string()]),
+            project_image(base, None, &["Graphviz".to_string(), "jq".to_string()])
+        );
     }
 }

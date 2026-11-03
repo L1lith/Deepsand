@@ -385,6 +385,7 @@ mod tests {
             blocked_hosts: vec![],
             reasoning_effort: Default::default(),
             tools: None,
+            packages: Vec::new(),
             requests_enabled: true,
             resume_on_launch: false,
             was_running: false,

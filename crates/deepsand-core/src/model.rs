@@ -443,6 +443,17 @@ pub struct Project {
     /// than being indistinguishable from never having chosen.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<String>>,
+    /// Debian packages this project's agent asked for and the operator approved.
+    ///
+    /// They are installed by the image build, as root, beside the tools -- the sandbox
+    /// itself has no root and a read-only root filesystem, so an `apt-get install` inside
+    /// a session can never work. Stored normalised (`packages::normalise`), because this
+    /// list is an input to the image tag and to the build's command line.
+    ///
+    /// Additive and skipped when empty, so a file that has one is still readable by an
+    /// older build and a project that never asked for a package does not grow the field.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub packages: Vec<String>,
     /// Secrets that are stored but deliberately not handed to the sandbox.
     ///
     /// Kept on the project rather than in the encrypted store: the store is one map of name
@@ -925,6 +936,13 @@ pub struct SandboxSnapshot {
     /// instead of guessing or trying to install something itself.
     #[serde(default)]
     pub tools: Vec<String>,
+    /// Debian packages this image was built with at the project's request.
+    ///
+    /// Read from the image's own label at start, like `tools`, so this is what the image
+    /// carries rather than what the project currently asks for -- the two differ exactly
+    /// when a package has been approved and the rebuild has not happened yet.
+    #[serde(default)]
+    pub packages: Vec<String>,
     /// The operator's standing instructions, already resolved from the app-wide setting or this
     /// project's own.
     ///
@@ -993,6 +1011,13 @@ pub enum RequestKind {
     NetworkAccess,
     /// "DeepCode is asking for a tool to be installed"
     ToolInstall,
+    /// "DeepCode is asking for Debian packages to be added to the image"
+    ///
+    /// A second kind rather than more ids in [`Self::ToolInstall`], because the catalogue
+    /// is a fixed list of things the image can be built with and an agent's need for a
+    /// package is open-ended. What they share is the consequence: neither is usable until
+    /// the image has been rebuilt.
+    PackageInstall,
     /// "DeepCode is asking for a secret to be added to the project"
     ///
     /// The one kind whose answer carries data back to the model besides a yes: the
@@ -1008,6 +1033,7 @@ impl RequestKind {
             RequestKind::LocateResource => "locate_resource",
             RequestKind::NetworkAccess => "network_access",
             RequestKind::ToolInstall => "tool_install",
+            RequestKind::PackageInstall => "package_install",
             RequestKind::Secret => "secret",
         }
     }
@@ -1080,6 +1106,14 @@ impl PermissionRequest {
                     tools.join(", ")
                 }
             }
+            RequestKind::PackageInstall => {
+                let packages = self.requested_packages();
+                if packages.is_empty() {
+                    from("description").unwrap_or_else(|| "(unspecified package)".to_string())
+                } else {
+                    packages.join(", ")
+                }
+            }
             RequestKind::Secret => match self.secret_name() {
                 Some(name) => {
                     if self.secret_value().is_some_and(|value| !value.is_empty()) {
@@ -1139,6 +1173,15 @@ impl PermissionRequest {
     /// Tool ids a tool request asks for.
     pub fn requested_tools(&self) -> Vec<String> {
         self.string_list("tools")
+    }
+
+    /// Debian package names a package request asks for, as the sandbox wrote them.
+    ///
+    /// Only ever offered to the operator, and only after [`crate::packages::normalise`]
+    /// has removed anything that is not a package name. The host re-validates on the way
+    /// into the store, because the spool this came from is writable by the sandbox.
+    pub fn requested_packages(&self) -> Vec<String> {
+        self.string_list("packages")
     }
 
     fn string_list(&self, key: &str) -> Vec<String> {
@@ -1900,5 +1943,40 @@ mod permission_response_tests {
             assert_eq!(read_back.id, "req_abc_1234");
             assert_eq!(read_back.v, 1);
         }
+    }
+}
+
+#[cfg(test)]
+mod package_state_tests {
+    use super::Project;
+
+    /// A project's package list is additive, which is the rule that keeps an installed
+    /// build and a development build sharing one data directory from eating each other's
+    /// projects: a file written before packages existed has no such field and must load,
+    /// and a project that never asked for one must not grow it on the next save.
+    #[test]
+    fn a_package_list_is_read_additively_and_never_written_when_empty() {
+        let older: Project = serde_json::from_value(serde_json::json!({
+            "id": "p1",
+            "name": "my-website",
+            "slug": "my-website",
+            "root_dir": "/projects/my-website",
+            "created_at_ms": 0
+        }))
+        .expect("a project from before packages existed");
+        assert!(older.packages.is_empty());
+
+        let written = serde_json::to_value(&older).expect("serialise");
+        assert!(
+            written.get("packages").is_none(),
+            "an empty list is not written, so an older build sees the same file it wrote"
+        );
+
+        let mut with_packages = older;
+        with_packages.packages = vec!["graphviz".into()];
+        let written = serde_json::to_value(&with_packages).expect("serialise");
+        assert_eq!(written["packages"], serde_json::json!(["graphviz"]));
+        let read_back: Project = serde_json::from_value(written).expect("parse");
+        assert_eq!(read_back.packages, ["graphviz"]);
     }
 }

@@ -53,6 +53,7 @@ npm run app:dev         # app with hot reload
 | `crates/deepsand-core/src/proxy.rs` | Allowlist egress; resolves names itself and refuses private results. |
 | `crates/deepsand-core/src/secrets.rs` | ChaCha20-Poly1305 secrets, keyed from the OS keystore. |
 | `crates/deepsand-core/src/tools.rs` | Tool catalogue and the image tag a selection produces. |
+| `crates/deepsand-core/src/packages.rs` | The Debian package names a project was granted: grammar, normalisation and the tag component. |
 | `crates/deepsand-core/src/image_gc.rs` | Which runtime images may be deleted, and the reason each one is kept. |
 | `crates/deepsand-core/src/remote.rs` | What a remote client may do. Kept separate from HTTP so it is testable. |
 | `crates/deepsand-core/src/seccomp.rs` | The profile's digest, the runtime-tree resolver, and the check that the applied profile is the shipped one. |
@@ -994,15 +995,27 @@ These are load-bearing. Breaking one is how this project gets a CVE.
   such a change recompiles everything — including in CI, where it costs one cache
   miss on the next release. Changing `RUSTFLAGS` does the same.
 * **One image tag, derived in one place.** The `image` in settings is a *stem*: the tool
-  selection and the runtime revision are appended to it, so the stem is not what any project
-  runs. `settings::settings_for_project` is the only place that substitution happens, and
+  selection, the Debian packages the project was granted, and the runtime revision are
+  appended to it, so the stem is not what any project runs.
+  `settings::settings_for_project` is the only place that substitution happens, and
   every caller that builds a plan goes through it. This was wrong for a while in the most
   expensive way: two call sites derived the tag, one was forgotten, and the plan named the
   stem while the app built, labelled and digest-checked the derived tag -- so the selected
   tools were never in the sandbox and the revision that forces a rebuild never reached a
   container. If you add a plan path, add a test that the argv names the project's tag.
   `deepsandctl plan <project> --offline` prints the argv without touching Docker, which is
-  how this was caught.
+  how this was caught. A granted package is the newest input and the most dangerous one to
+  forget: the tag would not move, the build would reuse the image already there, and the
+  project would go on saying the package was coming. An empty package list deliberately
+  contributes nothing to the tag, so projects that never asked for one do not rebuild.
+* **The sandbox cannot install anything; the image can.** `apt-get install` inside a session
+  fails on two independent walls -- nothing runs as root, and the root filesystem is mounted
+  read-only -- so a `tool` entry that offered it was a promise the image could never keep.
+  There is no such entry, and there must not be one. A package an agent needs is requested by
+  name with `deepsand_request_packages`, approved by the operator (never automatically), stored
+  in `Project::packages`, and installed by the build's own `apt-get install` as root. The
+  installed set is recorded in the image's `deepsand.packages` label, because that label is
+  what `deepsand_sandbox_info` reports as the truth.
 * **The image's slow step depends on the tool selection, not on the app.** The
   tools layer (`apt` plus `cargo install`, e.g. htmlq) is ~70 s and only rebuilds
   when a project's tools change; the DeepCode layer is keyed by the CLI version the host

@@ -99,6 +99,8 @@ function requestTitle(request: PermissionRequestView): string {
       return t("request.title.network", { target });
     case "tool_install":
       return t("request.title.tool", { target });
+    case "package_install":
+      return t("request.title.packages", { target });
     // Without this case a secret request falls through to the backend's own English title,
     // and the body below used to label it "Tools requested" -- which is how a secret
     // request came to look like a tool request.
@@ -387,12 +389,20 @@ export function PermissionDialog(props: { request: PermissionRequestView; queued
         </div>
         </Show>
 
-        <Show when={request().kind === "network_access" || request().kind === "tool_install"}>
+        <Show
+          when={
+            request().kind === "network_access" ||
+            request().kind === "tool_install" ||
+            request().kind === "package_install"
+          }
+        >
           <div class="field">
             <label>
               {request().kind === "network_access"
                 ? t("request.destinationsRequested")
-                : t("request.toolsRequested")}
+                : request().kind === "tool_install"
+                  ? t("request.toolsRequested")
+                  : t("request.packagesRequested")}
             </label>
             <div class="request-path mono">{request().description}</div>
             <Show when={request().kind === "network_access"}>
@@ -400,6 +410,9 @@ export function PermissionDialog(props: { request: PermissionRequestView; queued
             </Show>
             <Show when={request().kind === "tool_install"}>
               <span class="hint">{t("request.toolHint")}</span>
+            </Show>
+            <Show when={request().kind === "package_install"}>
+              <span class="hint">{t("request.packageHint")}</span>
             </Show>
           </div>
         </Show>

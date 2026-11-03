@@ -214,6 +214,10 @@ RUN set -eux; \
 
 ARG INSTALL_TOOLS=""
 ARG APT_PACKAGES=""
+# The project's own Debian packages, already part of APT_PACKAGES above. They are passed
+# separately only so the image can record exactly what the operator granted in its label;
+# the sandbox reads that label to answer "is this package here" instead of guessing.
+ARG PROJECT_PACKAGES=""
 ARG NPM_GLOBALS=""
 ARG CARGO_INSTALLS=""
 ARG WITH_NODE_REPO=0
@@ -278,6 +282,23 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       apt-get update; \
       apt-get install -y --no-install-recommends $APT_PACKAGES; \
     fi; \
+    # Debian names the interpreter for its version: there has been no bare `python` since
+    # Bookworm, only `python3`. The catalogue entry is called "python" and the skills tell
+    # the agent to run `python`, so provide the name it will actually type. Without this the
+    # tool is installed, is reported as installed, and every `python ...` still fails -- which
+    # reads as "the permission did not work" rather than "the binary is called something else".
+    case ",$INSTALL_TOOLS," in \
+      *,python,*) \
+        ln -sf /usr/bin/python3 /usr/local/bin/python; \
+        # pip's own name is equally versioned in some Debian releases; only fill the gap.
+        if [ ! -e /usr/bin/pip ] && [ ! -e /usr/local/bin/pip ]; then \
+          ln -sf /usr/bin/pip3 /usr/local/bin/pip; \
+        fi; \
+        python --version; \
+        python -m pip --version; \
+        python -m venv --help >/dev/null; \
+        ;; \
+    esac; \
     if [ "$WITH_GO" = "1" ]; then \
       echo "deepsand: apt-get install golang-go"; \
       apt-get update; \
@@ -853,7 +874,15 @@ RUN set -eux; \
 # cargo-installed program lands in $CARGO_HOME/bin, which is not on the base image's
 # PATH. Listing every home-relative location a provider might use means adding a
 # provider later does not silently produce an invisible tool.
-ENV PATH="/home/deepcode/.cargo/bin:/home/deepcode/.local/bin:/home/deepcode/.nix-profile/bin:/home/deepcode/.linuxbrew/bin:${PATH}"
+#
+# `/home/deepcode/.deepcode/bin` is first, and it is the one entry that is not a
+# provider's: it is a directory inside the sandbox's writable volume that belongs to the
+# agent. The root filesystem is read-only, so without it there is nowhere a wrapper
+# script, a virtualenv's entry point or a compiled experiment can go that
+# later commands will find. Nothing outside the container can see or reach it, and the
+# volume disappears with the sandbox. Being first means the agent's own file wins over an
+# image tool of the same name -- which is the point, and the skill says so.
+ENV PATH="/home/deepcode/.deepcode/bin:/home/deepcode/.cargo/bin:/home/deepcode/.local/bin:/home/deepcode/.nix-profile/bin:/home/deepcode/.linuxbrew/bin:${PATH}"
 
 # Record what the image was built with, so "which tools does this project have" is
 # answerable from the image itself rather than by rebuilding the answer from settings
@@ -915,6 +944,10 @@ RUN --mount=type=cache,target=/root/.npm,sharing=locked \
     node /usr/local/lib/deepsand/patch-deepcode-mentions.mjs --self-test
 
 LABEL deepsand.tools="$INSTALL_TOOLS"
+# The packages the operator granted, which are already in APT_PACKAGES but not distinguishable
+# there from what a tool needed. `deepsand_sandbox_info` reports this, so a model that was told
+# "approved, it will be installed" can check whether this image is the one with it in.
+LABEL deepsand.packages="$PROJECT_PACKAGES"
 LABEL deepsand.deepcode.refresh="$DEEPCODE_REFRESH"
 LABEL deepsand.deepcode.patch="ink-viewport-repaint,mention-index-deferred"
 # What was actually asked for, so the host can tell whether this image's CLI is still current
