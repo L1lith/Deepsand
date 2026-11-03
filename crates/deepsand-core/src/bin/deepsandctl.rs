@@ -1150,56 +1150,12 @@ fn cmd_docker_shares(args: &[String]) -> Result<()> {
     }
 
     let docker = Docker::locate()?;
-    let status = docker.try_run_within(&desktop_args("status"), Docker::START_LEASH);
-    let was_running = status.as_deref().map(desktop_is_up).unwrap_or(false);
-    if status.is_none()
-        && docker
-            .try_run_within(&["version".to_string()], Docker::START_LEASH)
-            .is_some()
-    {
-        return Err(SandboxError::Other(anyhow::anyhow!(
-            "Docker Desktop is answering but `docker desktop status` did not; \
-             quit Docker Desktop manually and run this again"
-        )));
-    }
-
-    if was_running {
-        println!("\nstopping Docker Desktop (this ends every container)...");
-        docker.run_within(&desktop_args("stop"), Docker::COMMAND_TIMEOUT)?;
-        if !wait_for_desktop_stopped(&docker) {
-            return Err(SandboxError::Other(anyhow::anyhow!(
-                "Docker Desktop did not stop; the share list was not changed"
-            )));
-        }
-    }
-
-    let outcome = docker_shares::prune(&report)?;
+    println!("\npruning stale Docker Desktop shares...");
+    let outcome = docker_shares::prune_with_desktop(&docker)?;
     if let Some(outcome) = &outcome {
-        println!("\nbackup : {}", outcome.backup.display());
+        println!("backup : {}", outcome.backup.display());
         println!("removed: {} missing entries", outcome.removed.len());
         println!("kept   : {} entries", outcome.kept);
-    }
-
-    if was_running {
-        println!("\nstarting Docker Desktop...");
-        if let Err(err) = docker.run_within(&desktop_args("start"), Docker::COMMAND_TIMEOUT) {
-            eprintln!("Docker Desktop did not start: {err}");
-            if let Some(outcome) = &outcome {
-                eprintln!("the share list backup is {}", outcome.backup.display());
-            }
-            return Err(SandboxError::Other(anyhow::anyhow!(
-                "the share list was pruned but Docker Desktop did not restart"
-            )));
-        }
-        if !wait_for_engine(&docker) {
-            eprintln!("Docker Desktop started but the engine did not answer");
-            if let Some(outcome) = &outcome {
-                eprintln!("the share list backup is {}", outcome.backup.display());
-            }
-            return Err(SandboxError::Other(anyhow::anyhow!(
-                "the share list was pruned but the Docker engine did not answer"
-            )));
-        }
     }
 
     match outcome {
@@ -1210,41 +1166,6 @@ fn cmd_docker_shares(args: &[String]) -> Result<()> {
         None => println!("\nnothing to prune"),
     }
     Ok(())
-}
-
-fn desktop_args(command: &str) -> Vec<String> {
-    vec!["desktop".to_string(), command.to_string()]
-}
-
-fn desktop_is_up(status: &str) -> bool {
-    status.lines().any(|line| {
-        let line = line.trim();
-        line.starts_with("Status") && (line.contains("running") || line.contains("starting"))
-    })
-}
-
-fn wait_for_desktop_stopped(docker: &Docker) -> bool {
-    for _ in 0..40 {
-        std::thread::sleep(Duration::from_millis(500));
-        let status = docker.try_run_within(&desktop_args("status"), Docker::START_LEASH);
-        if !status.as_deref().map(desktop_is_up).unwrap_or(false) {
-            return true;
-        }
-    }
-    false
-}
-
-fn wait_for_engine(docker: &Docker) -> bool {
-    for _ in 0..90 {
-        std::thread::sleep(Duration::from_secs(1));
-        if docker
-            .try_run_within(&["version".to_string()], Docker::START_LEASH)
-            .is_some()
-        {
-            return true;
-        }
-    }
-    false
 }
 
 fn decision_reference_age(

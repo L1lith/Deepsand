@@ -809,5 +809,16 @@
   "settings.apiKeyCouldNotSave": "Não foi possível salvar a chave de API",
   "settings.apiKeyCouldNotRemove": "Não foi possível remover a chave de API",
   "app.openWithCode": "Abrir com o Code",
-  "app.couldNotOpenWithCode": "Não foi possível abrir com o Code"
+  "app.couldNotOpenWithCode": "Não foi possível abrir com o Code",
+  "settings.dockerMaintenance": "Pastas compartilhadas do Docker Desktop",
+  "settings.dockerMaintenanceHint": "Entradas obsoletas deixam o monitor de compartilhamento de arquivos do Docker Desktop mais lento. A limpeza remove apenas caminhos que não existem mais, após fazer backup das configurações do Docker.",
+  "settings.dockerShares": "{configured} configuradas, {missing} obsoletas",
+  "settings.pruneDockerShares": "Limpar compartilhamentos obsoletos",
+  "settings.pruneDockerWarning": "Isso para o Docker Desktop e encerra todos os contêineres desta máquina. As configurações do Docker são copiadas primeiro.",
+  "settings.pruneDockerAndRestart": "Limpar e reiniciar o Docker",
+  "settings.pruningDocker": "Limpando…",
+  "settings.dockerPruned": "Compartilhamentos do Docker limpos",
+  "settings.dockerPrunedBody": "{removed} removidas; {kept} mantidas. Backup: {backup}",
+  "settings.dockerNothingToPrune": "Não há compartilhamentos antigos do Docker. Nada para limpar.",
+  "settings.couldNotPruneDocker": "Não foi possível limpar os compartilhamentos do Docker"
 }

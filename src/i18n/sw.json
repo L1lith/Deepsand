@@ -809,5 +809,16 @@
   "settings.apiKeyCouldNotSave": "Haikuweza kuhifadhi ufunguo wa API",
   "settings.apiKeyCouldNotRemove": "Haikuweza kuondoa ufunguo wa API",
   "app.openWithCode": "Fungua kwa Code",
-  "app.couldNotOpenWithCode": "Imeshindwa kufungua kwa Code"
+  "app.couldNotOpenWithCode": "Imeshindwa kufungua kwa Code",
+  "settings.dockerMaintenance": "Hifadhi za Docker Desktop",
+  "settings.dockerMaintenanceHint": "Maingizo ya zamani hupunguza kasi ya kifuatiliaji cha faili za Docker Desktop. Kusafisha huondoa tu njia zisizopo tena, baada ya kuhifadhi mipangilio ya Docker.",
+  "settings.dockerShares": "{configured} zimesanidiwa, {missing} za zamani",
+  "settings.pruneDockerShares": "Safisha hifadhi za zamani",
+  "settings.pruneDockerWarning": "Hii inasimamisha Docker Desktop na kumaliza kila kontena kwenye mashine hii. Mipangilio ya Docker huhifadhiwa kwanza.",
+  "settings.pruneDockerAndRestart": "Safisha na uanzishe Docker tena",
+  "settings.pruningDocker": "Inasafisha…",
+  "settings.dockerPruned": "Hifadhi za Docker zimesafishwa",
+  "settings.dockerPrunedBody": "{removed} zimeondolewa; {kept} zimebaki. Hifadhi: {backup}",
+  "settings.dockerNothingToPrune": "Hakuna hifadhi za zamani za Docker. Hakuna cha kusafisha.",
+  "settings.couldNotPruneDocker": "Imeshindwa kusafisha hifadhi za Docker"
 }

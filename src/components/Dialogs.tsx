@@ -22,6 +22,8 @@ import {
   type StartupMode,
   type PermissionRequestView,
   type ProjectView,
+  type DockerSharePrune,
+  type DockerShareReport,
   type ResourceLimits,
   type RemoteAccessSettings,
   type RemoteAccessView,
@@ -34,6 +36,7 @@ import {
   describeError,
   dismissToast,
   refreshProjects,
+  refreshDockerStatus,
   refreshSettings,
   renameProject,
   selectedProject,
@@ -1689,12 +1692,56 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
   const [apiKey, setApiKey] = createSignal("");
   const [apiKeyMasked, setApiKeyMasked] = createSignal<string | null>(null);
   const [apiKeyBusy, setApiKeyBusy] = createSignal(false);
+  const [dockerShares, setDockerShares] = createSignal<DockerShareReport | null>(null);
+  const [dockerPruneArmed, setDockerPruneArmed] = createSignal(false);
+  const [dockerPruneBusy, setDockerPruneBusy] = createSignal(false);
+  const [dockerPruneResult, setDockerPruneResult] = createSignal<DockerSharePrune | null>(null);
 
   async function refreshApiKeyStatus() {
     try {
       setApiKeyMasked(await api.defaultApiKeyStatus());
     } catch (error) {
       toast("error", t("settings.apiKeyCouldNotRead"), describeError(error));
+    }
+  }
+
+  async function loadDockerShares() {
+    try {
+      setDockerShares(await api.dockerShareReport());
+    } catch {
+      // No Docker Desktop share list on this platform. The section stays hidden.
+      setDockerShares(null);
+    }
+  }
+
+  async function pruneDocker() {
+    setDockerPruneBusy(true);
+    try {
+      const result = await api.pruneDockerShares();
+      setDockerPruneResult(result);
+      setDockerPruneArmed(false);
+      await loadDockerShares();
+      await refreshDockerStatus();
+      if (result.removed > 0) {
+        toast(
+          "ok",
+          t("settings.dockerPruned"),
+          t("settings.dockerPrunedBody", {
+            removed: result.removed,
+            kept: result.kept,
+            backup: result.backup,
+          }),
+        );
+      } else {
+        toast("info", t("settings.dockerNothingToPrune"));
+      }
+    } catch (error) {
+      toast("error", t("settings.couldNotPruneDocker"), describeError(error));
+      // A prune that stopped Docker and could not bring it back must leave the window
+      // saying so, rather than showing the state from before the click.
+      void refreshDockerStatus();
+    } finally {
+      setDockerPruneBusy(false);
     }
   }
 
@@ -1805,6 +1852,7 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
 
   onMount(() => {
     void checkUpdates();
+    void loadDockerShares();
     const unlisten = api.onUpdateProgress(setProgress);
     onCleanup(() => void unlisten.then((off) => off()).catch(() => undefined));
   });
@@ -2290,6 +2338,73 @@ export function SettingsDialog(props: { settings: AppSettings; onClose: () => vo
 
           <span class="hint">{t("settings.toolCheckHint")}</span>
         </div>
+
+        <Show when={dockerShares()}>
+          {(shares) => (
+            <div class="field">
+              <label>{t("settings.dockerMaintenance")}</label>
+              <span class="hint">{t("settings.dockerMaintenanceHint")}</span>
+              <div class="row-inline" style={{ "margin-top": "0.5rem" }}>
+                <span class="grow small">
+                  {t("settings.dockerShares", {
+                    configured: shares().configured,
+                    missing: shares().missing,
+                  })}
+                </span>
+                <Show
+                  when={dockerPruneArmed()}
+                  fallback={
+                    <button
+                      class="btn"
+                      disabled={shares().missing === 0 || dockerPruneBusy()}
+                      onClick={() => setDockerPruneArmed(true)}
+                    >
+                      {t("settings.pruneDockerShares")}
+                    </button>
+                  }
+                >
+                  <button
+                    class="btn btn-ghost"
+                    disabled={dockerPruneBusy()}
+                    onClick={() => setDockerPruneArmed(false)}
+                  >
+                    {t("common.cancel")}
+                  </button>
+                  <button
+                    class="btn btn-danger"
+                    disabled={dockerPruneBusy()}
+                    onClick={() => void pruneDocker()}
+                  >
+                    {dockerPruneBusy()
+                      ? t("settings.pruningDocker")
+                      : t("settings.pruneDockerAndRestart")}
+                  </button>
+                </Show>
+              </div>
+              <Show when={dockerPruneArmed()}>
+                <div class="callout callout-warn" style={{ "margin-top": "0.5rem" }}>
+                  {t("settings.pruneDockerWarning")}
+                </div>
+              </Show>
+              <Show when={shares().missing === 0 && !dockerPruneResult()}>
+                <span class="hint">{t("settings.dockerNothingToPrune")}</span>
+              </Show>
+              <Show when={dockerPruneResult()}>
+                {(result) => (
+                  <span class="hint">
+                    {result().removed === 0
+                      ? t("settings.dockerNothingToPrune")
+                      : t("settings.dockerPrunedBody", {
+                          removed: result().removed,
+                          kept: result().kept,
+                          backup: result().backup,
+                        })}
+                  </span>
+                )}
+              </Show>
+            </div>
+          )}
+        </Show>
       </div>
     </Modal>
   );

@@ -21,6 +21,8 @@ import type {
   DecisionPayload,
   DeepCodeMode,
   DockerStatus,
+  DockerSharePrune,
+  DockerShareReport,
   EffortView,
   GitImportResult,
   GrantView,
@@ -76,6 +78,19 @@ export const dockerStatus = () => call<DockerStatus>("docker_status");
  */
 export const restartDockerRuntime = () =>
   call<void>("restart_docker_runtime", { confirmed: true });
+
+/** Docker Desktop's host file-sharing list; `null` when this platform has no such list. */
+export const dockerShareReport = () =>
+  call<DockerShareReport | null>("docker_share_report");
+
+/**
+ * Remove stale Docker Desktop shares.
+ *
+ * The backend stops Docker Desktop, backs up its settings, removes only missing paths, and
+ * restarts the engine. `confirmed` is the operator's second click in Settings.
+ */
+export const pruneDockerShares = () =>
+  call<DockerSharePrune>("prune_docker_shares", { confirmed: true });
 
 export const startupError = () => call<string | null>("startup_error");
 export const revealDataDir = () => call<string>("reveal_data_dir");

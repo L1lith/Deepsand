@@ -254,6 +254,24 @@ pub struct BlockedEgressView {
     pub reason: String,
 }
 
+/// Docker Desktop's host file-sharing list, as Settings shows it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DockerShareReportView {
+    pub configured: usize,
+    pub existing: usize,
+    pub missing: usize,
+}
+
+/// What a prune removed, and where its backup is.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DockerSharePruneView {
+    pub removed: usize,
+    pub kept: usize,
+    pub backup: String,
+}
+
 /// One of Deepsand's containers, as the Activity panel shows it.
 ///
 /// Only containers Deepsand created appear here, and `abandoned_reason` is a code rather than a

@@ -809,5 +809,16 @@
   "settings.apiKeyCouldNotSave": "Не удалось сохранить ключ API",
   "settings.apiKeyCouldNotRemove": "Не удалось удалить ключ API",
   "app.openWithCode": "Открыть в Code",
-  "app.couldNotOpenWithCode": "Не удалось открыть в Code"
+  "app.couldNotOpenWithCode": "Не удалось открыть в Code",
+  "settings.dockerMaintenance": "Общие папки Docker Desktop",
+  "settings.dockerMaintenanceHint": "Устаревшие записи замедляют монитор общих файлов Docker Desktop. Очистка удаляет только пути, которых больше нет, предварительно создав резервную копию настроек Docker.",
+  "settings.dockerShares": "{configured} настроено, {missing} устарело",
+  "settings.pruneDockerShares": "Очистить устаревшие папки",
+  "settings.pruneDockerWarning": "Docker Desktop будет остановлен, а все контейнеры на этой машине — завершены. Сначала создаётся резервная копия настроек Docker.",
+  "settings.pruneDockerAndRestart": "Очистить и перезапустить Docker",
+  "settings.pruningDocker": "Очистка…",
+  "settings.dockerPruned": "Общие папки Docker очищены",
+  "settings.dockerPrunedBody": "Удалено {removed}; сохранено {kept}. Резервная копия: {backup}",
+  "settings.dockerNothingToPrune": "Устаревших общих папок Docker нет. Очищать нечего.",
+  "settings.couldNotPruneDocker": "Не удалось очистить общие папки Docker"
 }

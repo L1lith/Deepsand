@@ -809,5 +809,16 @@
   "settings.apiKeyCouldNotSave": "APIキーを保存できませんでした",
   "settings.apiKeyCouldNotRemove": "API キーを削除できませんでした",
   "app.openWithCode": "Code で開く",
-  "app.couldNotOpenWithCode": "Code で開けませんでした"
+  "app.couldNotOpenWithCode": "Code で開けませんでした",
+  "settings.dockerMaintenance": "Docker Desktop の共有",
+  "settings.dockerMaintenanceHint": "古いエントリは Docker Desktop のファイル共有ウォッチャーを遅くします。整理では存在しないパスだけを削除し、先に Docker の設定をバックアップします。",
+  "settings.dockerShares": "設定 {configured} 件、古い {missing} 件",
+  "settings.pruneDockerShares": "古い共有を整理",
+  "settings.pruneDockerWarning": "Docker Desktop を停止し、このマシン上のすべてのコンテナを終了します。Docker の設定は先にバックアップされます。",
+  "settings.pruneDockerAndRestart": "整理して Docker を再起動",
+  "settings.pruningDocker": "整理中…",
+  "settings.dockerPruned": "Docker の共有を整理しました",
+  "settings.dockerPrunedBody": "{removed} 件削除、{kept} 件保持。バックアップ: {backup}",
+  "settings.dockerNothingToPrune": "古い Docker の共有はありません。整理するものはありません。",
+  "settings.couldNotPruneDocker": "Docker の共有を整理できませんでした"
 }

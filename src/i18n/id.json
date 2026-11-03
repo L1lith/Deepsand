@@ -809,5 +809,16 @@
   "settings.apiKeyCouldNotSave": "Tidak dapat menyimpan kunci API",
   "settings.apiKeyCouldNotRemove": "Tidak dapat menghapus kunci API",
   "app.openWithCode": "Buka dengan Code",
-  "app.couldNotOpenWithCode": "Tidak dapat membuka dengan Code"
+  "app.couldNotOpenWithCode": "Tidak dapat membuka dengan Code",
+  "settings.dockerMaintenance": "Berbagi Docker Desktop",
+  "settings.dockerMaintenanceHint": "Entri lama memperlambat pemantau berbagi file Docker Desktop. Pembersihan hanya menghapus jalur yang sudah tidak ada, setelah mencadangkan pengaturan Docker.",
+  "settings.dockerShares": "{configured} dikonfigurasi, {missing} lama",
+  "settings.pruneDockerShares": "Bersihkan berbagi lama",
+  "settings.pruneDockerWarning": "Ini menghentikan Docker Desktop dan mengakhiri setiap kontainer di mesin ini. Pengaturan Docker dicadangkan terlebih dahulu.",
+  "settings.pruneDockerAndRestart": "Bersihkan dan mulai ulang Docker",
+  "settings.pruningDocker": "Membersihkan…",
+  "settings.dockerPruned": "Berbagi Docker dibersihkan",
+  "settings.dockerPrunedBody": "{removed} dihapus; {kept} dipertahankan. Cadangan: {backup}",
+  "settings.dockerNothingToPrune": "Tidak ada berbagi Docker lama. Tidak ada yang perlu dibersihkan.",
+  "settings.couldNotPruneDocker": "Tidak dapat membersihkan berbagi Docker"
 }

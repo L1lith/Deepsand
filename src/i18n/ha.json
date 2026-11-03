@@ -809,5 +809,16 @@
   "settings.apiKeyCouldNotSave": "Ba za a iya ajiye maɓallin API ba",
   "settings.apiKeyCouldNotRemove": "An kasa cire maɓallin API",
   "app.openWithCode": "Buɗe da Code",
-  "app.couldNotOpenWithCode": "An kasa buɗewa da Code"
+  "app.couldNotOpenWithCode": "An kasa buɗewa da Code",
+  "settings.dockerMaintenance": "Rabawa na Docker Desktop",
+  "settings.dockerMaintenanceHint": "Tsofaffin shigarwa suna jinkirta mai lura da raba fayil na Docker Desktop. Tsaftacewa yana cire hanyoyin da babu su, bayan an ajiye saitunan Docker.",
+  "settings.dockerShares": "{configured} an saita, {missing} tsofaffi",
+  "settings.pruneDockerShares": "Tsaftace tsofaffin rabawa",
+  "settings.pruneDockerWarning": "Wannan yana dakatar da Docker Desktop kuma yana kawo ƙarshen kowane kwantena a wannan na'ura. Ana ajiye saitunan Docker da farko.",
+  "settings.pruneDockerAndRestart": "Tsaftace kuma sake kunna Docker",
+  "settings.pruningDocker": "Ana tsaftacewa…",
+  "settings.dockerPruned": "An tsaftace rabawar Docker",
+  "settings.dockerPrunedBody": "An cire {removed}; an ajiye {kept}. Ajiya: {backup}",
+  "settings.dockerNothingToPrune": "Babu tsofaffin rabawar Docker. Babu abin tsaftacewa.",
+  "settings.couldNotPruneDocker": "An kasa tsaftace rabawar Docker"
 }

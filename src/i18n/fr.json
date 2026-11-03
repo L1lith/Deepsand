@@ -809,5 +809,16 @@
   "settings.apiKeyCouldNotSave": "Impossible d'enregistrer la clé API",
   "settings.apiKeyCouldNotRemove": "Impossible de supprimer la clé API",
   "app.openWithCode": "Ouvrir avec Code",
-  "app.couldNotOpenWithCode": "Impossible d’ouvrir avec Code"
+  "app.couldNotOpenWithCode": "Impossible d’ouvrir avec Code",
+  "settings.dockerMaintenance": "Partages Docker Desktop",
+  "settings.dockerMaintenanceHint": "Les entrées obsolètes ralentissent le surveillant de partage de fichiers de Docker Desktop. Le nettoyage ne supprime que les chemins qui n'existent plus, après une sauvegarde des réglages de Docker.",
+  "settings.dockerShares": "{configured} configurés, {missing} obsolètes",
+  "settings.pruneDockerShares": "Nettoyer les partages obsolètes",
+  "settings.pruneDockerWarning": "Cela arrête Docker Desktop et termine tous les conteneurs de cette machine. Les réglages de Docker sont sauvegardés d'abord.",
+  "settings.pruneDockerAndRestart": "Nettoyer et redémarrer Docker",
+  "settings.pruningDocker": "Nettoyage…",
+  "settings.dockerPruned": "Partages Docker nettoyés",
+  "settings.dockerPrunedBody": "{removed} supprimés ; {kept} conservés. Sauvegarde : {backup}",
+  "settings.dockerNothingToPrune": "Aucun partage Docker obsolète. Rien à nettoyer.",
+  "settings.couldNotPruneDocker": "Impossible de nettoyer les partages Docker"
 }

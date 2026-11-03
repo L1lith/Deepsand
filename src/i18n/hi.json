@@ -809,5 +809,16 @@
   "settings.apiKeyCouldNotSave": "एपीआई कुंजी सहेजी नहीं जा सकी",
   "settings.apiKeyCouldNotRemove": "एपीआई कुंजी नहीं हटाई जा सकी",
   "app.openWithCode": "Code के साथ खोलें",
-  "app.couldNotOpenWithCode": "Code में नहीं खोल सके"
+  "app.couldNotOpenWithCode": "Code में नहीं खोल सके",
+  "settings.dockerMaintenance": "Docker Desktop शेयर",
+  "settings.dockerMaintenanceHint": "पुरानी प्रविष्टियाँ Docker Desktop के फ़ाइल-शेयरिंग वॉचर को धीमा करती हैं। प्रूनिंग केवल उन पथों को हटाती है जो अब मौजूद नहीं हैं, और पहले Docker की सेटिंग्स का बैकअप लेती है।",
+  "settings.dockerShares": "{configured} कॉन्फ़िगर, {missing} पुराने",
+  "settings.pruneDockerShares": "पुराने शेयर प्रून करें",
+  "settings.pruneDockerWarning": "यह Docker Desktop को रोकता है और इस मशीन पर हर कंटेनर को समाप्त करता है। Docker की सेटिंग्स पहले बैकअप की जाती हैं।",
+  "settings.pruneDockerAndRestart": "प्रून करें और Docker पुनः आरंभ करें",
+  "settings.pruningDocker": "प्रून हो रहा है…",
+  "settings.dockerPruned": "Docker शेयर प्रून हो गए",
+  "settings.dockerPrunedBody": "{removed} हटाए गए; {kept} रखे गए। बैकअप: {backup}",
+  "settings.dockerNothingToPrune": "कोई पुराना Docker शेयर नहीं। प्रून करने के लिए कुछ नहीं।",
+  "settings.couldNotPruneDocker": "Docker शेयर प्रून नहीं हो सके"
 }

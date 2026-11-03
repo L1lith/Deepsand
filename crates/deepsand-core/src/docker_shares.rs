@@ -16,6 +16,7 @@ use serde_json::Value;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
+use crate::docker::Docker;
 use crate::{Result, SandboxError};
 
 /// One entry in Docker Desktop's `FilesharingDirectories` list.
@@ -195,6 +196,103 @@ pub fn restore(backup: &Path, settings_path: &Path) -> Result<()> {
         ))
     })?;
     write_bytes_atomically(settings_path, &bytes)
+}
+
+/// Prune while managing Docker Desktop's lifecycle.
+///
+/// This is the orchestration shared by `deepsandctl docker-shares --prune` and the Settings
+/// action. Docker Desktop is stopped only when something is stale, and restarted only if it was
+/// running before. If it does not come back, the error names the backup so the share list can be
+/// restored.
+pub fn prune_with_desktop(docker: &Docker) -> Result<Option<PruneOutcome>> {
+    let report = read()?;
+    if report.missing_count() == 0 {
+        return Ok(None);
+    }
+
+    let status = docker.try_run_within(&desktop_args("status"), Docker::START_LEASH);
+    let was_running = status.as_deref().map(desktop_is_up).unwrap_or(false);
+    if status.is_none()
+        && docker
+            .try_run_within(&["version".to_string()], Docker::START_LEASH)
+            .is_some()
+    {
+        return Err(SandboxError::Other(anyhow::anyhow!(
+            "Docker Desktop is answering but `docker desktop status` did not; \
+             quit Docker Desktop manually and try again"
+        )));
+    }
+
+    if was_running {
+        docker.run_within(&desktop_args("stop"), Docker::COMMAND_TIMEOUT)?;
+        if !wait_for_desktop_stopped(docker) {
+            return Err(SandboxError::Other(anyhow::anyhow!(
+                "Docker Desktop did not stop; the share list was not changed"
+            )));
+        }
+    }
+
+    let outcome = prune(&report)?;
+
+    if was_running {
+        if let Err(err) = docker.run_within(&desktop_args("start"), Docker::COMMAND_TIMEOUT) {
+            let backup = outcome
+                .as_ref()
+                .map(|outcome| outcome.backup.display().to_string())
+                .unwrap_or_else(|| "(no changes were written)".to_string());
+            return Err(SandboxError::Other(anyhow::anyhow!(
+                "Docker Desktop did not restart after pruning ({err}); \
+                 the share list backup is {backup}"
+            )));
+        }
+        if !wait_for_engine(docker) {
+            let backup = outcome
+                .as_ref()
+                .map(|outcome| outcome.backup.display().to_string())
+                .unwrap_or_else(|| "(no changes were written)".to_string());
+            return Err(SandboxError::Other(anyhow::anyhow!(
+                "Docker Desktop started but the engine did not answer; \
+                 the share list backup is {backup}"
+            )));
+        }
+    }
+
+    Ok(outcome)
+}
+
+fn desktop_args(command: &str) -> Vec<String> {
+    vec!["desktop".to_string(), command.to_string()]
+}
+
+fn desktop_is_up(status: &str) -> bool {
+    status.lines().any(|line| {
+        let line = line.trim();
+        line.starts_with("Status") && (line.contains("running") || line.contains("starting"))
+    })
+}
+
+fn wait_for_desktop_stopped(docker: &Docker) -> bool {
+    for _ in 0..40 {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let status = docker.try_run_within(&desktop_args("status"), Docker::START_LEASH);
+        if !status.as_deref().map(desktop_is_up).unwrap_or(false) {
+            return true;
+        }
+    }
+    false
+}
+
+fn wait_for_engine(docker: &Docker) -> bool {
+    for _ in 0..90 {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        if docker
+            .try_run_within(&["version".to_string()], Docker::START_LEASH)
+            .is_some()
+        {
+            return true;
+        }
+    }
+    false
 }
 
 fn shares_from(root: &Value) -> Result<Vec<ShareEntry>> {

@@ -809,5 +809,16 @@
   "settings.apiKeyCouldNotSave": "የኤፒአይ ቁልፉን ማስቀመጥ አልተቻለም",
   "settings.apiKeyCouldNotRemove": "የኤፒአይ ቁልፉን ማስወገድ አልተቻለም",
   "app.openWithCode": "በCode ክፈት",
-  "app.couldNotOpenWithCode": "በCode መክፈት አልተቻለም"
+  "app.couldNotOpenWithCode": "በCode መክፈት አልተቻለም",
+  "settings.dockerMaintenance": "የDocker Desktop አጋራቶች",
+  "settings.dockerMaintenanceHint": "የቆዩ ግቤቶች የDocker Desktop የፋይል ማጋራት ክትትልን ይቀንሳሉ። ማጽዳት የሌሉ መንገዶችን ብቻ ያስወግዳል፣ በመጀመሪያ የDocker ቅንብሮችን በምትኬ ያስቀምጣል።",
+  "settings.dockerShares": "{configured} ተዋቅሯል፣ {missing} ያረጀ",
+  "settings.pruneDockerShares": "ያረጁ አጋራቶችን አጽዳ",
+  "settings.pruneDockerWarning": "ይህ Docker Desktopን ያቆማል እና በዚህ ማሽን ላይ ያሉትን ሁሉንም ኮንቴይነሮች ያበቃል። የDocker ቅንብሮች በመጀመሪያ በምትኬ ይቀመጣሉ።",
+  "settings.pruneDockerAndRestart": "አጽዳ እና Dockerን እንደገና አስጀምር",
+  "settings.pruningDocker": "በማጽዳት ላይ…",
+  "settings.dockerPruned": "የDocker አጋራቶች ተጸድተዋል",
+  "settings.dockerPrunedBody": "{removed} ተወግዷል፤ {kept} ተቀምጧል። ምትኬ፦ {backup}",
+  "settings.dockerNothingToPrune": "ያረጁ የDocker አጋራቶች የሉም። ለማጽዳት ምንም የለም።",
+  "settings.couldNotPruneDocker": "የDocker አጋራቶችን ማጽዳት አልተቻለም"
 }

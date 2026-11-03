@@ -826,5 +826,16 @@
   "tools.tool.nix.label": "Nix",
   "tools.tool.nix.description": "Nix with flakes. Gives reproducible per-project toolchains, at the cost of a large image and a slower first build.",
   "app.openWithCode": "Open with Code",
-  "app.couldNotOpenWithCode": "Could not open in Code"
+  "app.couldNotOpenWithCode": "Could not open in Code",
+  "settings.dockerMaintenance": "Docker Desktop shares",
+  "settings.dockerMaintenanceHint": "Stale entries slow Docker Desktop's file-sharing watcher. Pruning removes only paths that no longer exist, after backing up Docker's settings.",
+  "settings.dockerShares": "{configured} configured, {missing} stale",
+  "settings.pruneDockerShares": "Prune stale shares",
+  "settings.pruneDockerWarning": "This stops Docker Desktop and ends every container on this machine. Docker's settings are backed up first.",
+  "settings.pruneDockerAndRestart": "Prune and restart Docker",
+  "settings.pruningDocker": "Pruning…",
+  "settings.dockerPruned": "Docker shares pruned",
+  "settings.dockerPrunedBody": "Removed {removed}; {kept} kept. Backup: {backup}",
+  "settings.dockerNothingToPrune": "No stale Docker shares. Nothing to prune.",
+  "settings.couldNotPruneDocker": "Could not prune Docker shares"
 }

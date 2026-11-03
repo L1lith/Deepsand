@@ -809,5 +809,16 @@
   "settings.apiKeyCouldNotSave": "API 키를 저장할 수 없습니다.",
   "settings.apiKeyCouldNotRemove": "API 키를 삭제할 수 없습니다.",
   "app.openWithCode": "Code로 열기",
-  "app.couldNotOpenWithCode": "Code로 열 수 없습니다"
+  "app.couldNotOpenWithCode": "Code로 열 수 없습니다",
+  "settings.dockerMaintenance": "Docker Desktop 공유",
+  "settings.dockerMaintenanceHint": "오래된 항목은 Docker Desktop의 파일 공유 감시자를 느리게 합니다. 정리는 더 이상 존재하지 않는 경로만 제거하며, 먼저 Docker 설정을 백업합니다.",
+  "settings.dockerShares": "{configured}개 구성됨, {missing}개 오래됨",
+  "settings.pruneDockerShares": "오래된 공유 정리",
+  "settings.pruneDockerWarning": "Docker Desktop을 중지하고 이 컴퓨터의 모든 컨테이너를 종료합니다. Docker 설정은 먼저 백업됩니다.",
+  "settings.pruneDockerAndRestart": "정리하고 Docker 재시작",
+  "settings.pruningDocker": "정리 중…",
+  "settings.dockerPruned": "Docker 공유 정리됨",
+  "settings.dockerPrunedBody": "{removed}개 제거, {kept}개 유지. 백업: {backup}",
+  "settings.dockerNothingToPrune": "오래된 Docker 공유가 없습니다. 정리할 항목이 없습니다.",
+  "settings.couldNotPruneDocker": "Docker 공유를 정리할 수 없습니다"
 }

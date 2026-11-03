@@ -809,5 +809,16 @@
   "settings.apiKeyCouldNotSave": "无法保存 API 密钥",
   "settings.apiKeyCouldNotRemove": "无法删除 API 密钥",
   "app.openWithCode": "用 Code 打开",
-  "app.couldNotOpenWithCode": "无法用 Code 打开"
+  "app.couldNotOpenWithCode": "无法用 Code 打开",
+  "settings.dockerMaintenance": "Docker Desktop 共享目录",
+  "settings.dockerMaintenanceHint": "过时条目会拖慢 Docker Desktop 的文件共享监视器。清理只删除已不存在的路径，并会先备份 Docker 的设置。",
+  "settings.dockerShares": "已配置 {configured} 个，过时 {missing} 个",
+  "settings.pruneDockerShares": "清理过时共享",
+  "settings.pruneDockerWarning": "这会停止 Docker Desktop 并结束此机器上的所有容器。Docker 的设置会先备份。",
+  "settings.pruneDockerAndRestart": "清理并重启 Docker",
+  "settings.pruningDocker": "正在清理…",
+  "settings.dockerPruned": "Docker 共享已清理",
+  "settings.dockerPrunedBody": "已删除 {removed} 个；保留 {kept} 个。备份：{backup}",
+  "settings.dockerNothingToPrune": "没有过时的 Docker 共享，无需清理。",
+  "settings.couldNotPruneDocker": "无法清理 Docker 共享"
 }

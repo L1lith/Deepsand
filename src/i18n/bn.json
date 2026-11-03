@@ -809,5 +809,16 @@
   "settings.apiKeyCouldNotSave": "API কী সংরক্ষণ করা যায়নি",
   "settings.apiKeyCouldNotRemove": "API কী সরানো যায়নি",
   "app.openWithCode": "Code দিয়ে খুলুন",
-  "app.couldNotOpenWithCode": "Code দিয়ে খোলা যায়নি"
+  "app.couldNotOpenWithCode": "Code দিয়ে খোলা যায়নি",
+  "settings.dockerMaintenance": "Docker Desktop শেয়ার",
+  "settings.dockerMaintenanceHint": "পুরোনো এন্ট্রি Docker Desktop-এর ফাইল-শেয়ারিং মনিটরকে ধীর করে। পরিষ্কার করা শুধু সেই পথগুলো সরায় যেগুলো আর নেই, আগে Docker-এর সেটিংস ব্যাকআপ করে।",
+  "settings.dockerShares": "{configured} কনফিগার করা, {missing} পুরোনো",
+  "settings.pruneDockerShares": "পুরোনো শেয়ার পরিষ্কার করুন",
+  "settings.pruneDockerWarning": "এটি Docker Desktop বন্ধ করে এবং এই মেশিনের সব কন্টেইনার শেষ করে। Docker-এর সেটিংস আগে ব্যাকআপ করা হয়।",
+  "settings.pruneDockerAndRestart": "পরিষ্কার করুন এবং Docker পুনরায় চালু করুন",
+  "settings.pruningDocker": "পরিষ্কার হচ্ছে…",
+  "settings.dockerPruned": "Docker শেয়ার পরিষ্কার হয়েছে",
+  "settings.dockerPrunedBody": "{removed} সরানো হয়েছে; {kept} রাখা হয়েছে। ব্যাকআপ: {backup}",
+  "settings.dockerNothingToPrune": "কোনো পুরোনো Docker শেয়ার নেই। পরিষ্কার করার কিছু নেই।",
+  "settings.couldNotPruneDocker": "Docker শেয়ার পরিষ্কার করা যায়নি"
 }

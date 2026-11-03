@@ -355,6 +355,20 @@ export interface ProjectView {
   pendingRequests: number;
 }
 
+/** Docker Desktop's host file-sharing list, as Settings shows it. */
+export interface DockerShareReport {
+  configured: number;
+  existing: number;
+  missing: number;
+}
+
+/** What a Docker share prune removed, and where its backup is. */
+export interface DockerSharePrune {
+  removed: number;
+  kept: number;
+  backup: string;
+}
+
 /**
  * The size of the selected project's folder on disk.
  *

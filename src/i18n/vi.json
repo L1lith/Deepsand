@@ -809,5 +809,16 @@
   "settings.apiKeyCouldNotSave": "Không thể lưu khóa API",
   "settings.apiKeyCouldNotRemove": "Không thể xóa khóa API",
   "app.openWithCode": "Mở bằng Code",
-  "app.couldNotOpenWithCode": "Không thể mở bằng Code"
+  "app.couldNotOpenWithCode": "Không thể mở bằng Code",
+  "settings.dockerMaintenance": "Thư mục chia sẻ Docker Desktop",
+  "settings.dockerMaintenanceHint": "Các mục cũ làm chậm trình theo dõi chia sẻ tệp của Docker Desktop. Dọn dẹp chỉ xóa những đường dẫn không còn tồn tại, sau khi sao lưu cài đặt Docker.",
+  "settings.dockerShares": "{configured} đã cấu hình, {missing} cũ",
+  "settings.pruneDockerShares": "Dọn các mục chia sẻ cũ",
+  "settings.pruneDockerWarning": "Thao tác này dừng Docker Desktop và kết thúc mọi container trên máy này. Cài đặt Docker được sao lưu trước.",
+  "settings.pruneDockerAndRestart": "Dọn và khởi động lại Docker",
+  "settings.pruningDocker": "Đang dọn…",
+  "settings.dockerPruned": "Đã dọn các mục chia sẻ Docker",
+  "settings.dockerPrunedBody": "Đã xóa {removed}; giữ {kept}. Sao lưu: {backup}",
+  "settings.dockerNothingToPrune": "Không có mục chia sẻ Docker cũ. Không có gì để dọn.",
+  "settings.couldNotPruneDocker": "Không thể dọn các mục chia sẻ Docker"
 }

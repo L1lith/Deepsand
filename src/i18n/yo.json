@@ -809,5 +809,16 @@
   "settings.apiKeyCouldNotSave": "Ko le fi bọtini API pamọ",
   "settings.apiKeyCouldNotRemove": "Ko le yọ bọtini API kuro",
   "app.openWithCode": "Ṣí pẹ̀lú Code",
-  "app.couldNotOpenWithCode": "Kò le ṣí i pẹ̀lú Code"
+  "app.couldNotOpenWithCode": "Kò le ṣí i pẹ̀lú Code",
+  "settings.dockerMaintenance": "Àwọn ìpín Docker Desktop",
+  "settings.dockerMaintenanceHint": "Àwọn ìforúkọsílẹ̀ àtijọ́ máa ń fa ìdarí pínpín fáìlì Docker Desktop lọ́wọ́. Ìmọ́tọ́ máa ń yọ àwọn ọ̀nà tí kò sí mọ́, lẹ́yìn àkọsílẹ̀ ètò Docker.",
+  "settings.dockerShares": "{configured} ti ṣètò, {missing} àtijọ́",
+  "settings.pruneDockerShares": "Mọ́ àwọn ìpín àtijọ́",
+  "settings.pruneDockerWarning": "Èyí máa dá Docker Desktop dúró, yóò sì fòpin sí gbogbo kọ́ńtéínà lórí ẹ̀rọ yìí. A máa kọ́kọ́ ṣe àkọsílẹ̀ ètò Docker.",
+  "settings.pruneDockerAndRestart": "Mọ́ kí o sì tún Docker bẹ̀rẹ̀",
+  "settings.pruningDocker": "Ń mọ́…",
+  "settings.dockerPruned": "A ti mọ́ àwọn ìpín Docker",
+  "settings.dockerPrunedBody": "A yọ {removed}; a pa {kept} mọ́. Àkọsílẹ̀: {backup}",
+  "settings.dockerNothingToPrune": "Kò sí ìpín Docker àtijọ́. Kò sí nǹkan láti mọ́.",
+  "settings.couldNotPruneDocker": "A kò lè mọ́ àwọn ìpín Docker"
 }

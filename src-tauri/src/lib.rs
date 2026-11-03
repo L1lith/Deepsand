@@ -614,6 +614,10 @@ pub fn run() {
             // catalogue by id. Desktop-only for the same reason as the two reveal commands.
             commands::open_tool_homepage,
             commands::startup_error,
+            // Reports and prunes Docker Desktop's host file-sharing list. The prune stops
+            // Docker Desktop, so it is desktop-only and absent from the remote command table.
+            commands::docker_share_report,
+            commands::prune_docker_shares,
             // Ends every container on the machine, so it is desktop-only like the updater
             // commands and absent from the remote command table for the same reason: a
             // remote client must not be able to end containers on the host it reached.

@@ -809,5 +809,16 @@
   "settings.apiKeyCouldNotSave": "No se pudo guardar la clave API",
   "settings.apiKeyCouldNotRemove": "No se pudo eliminar la clave API",
   "app.openWithCode": "Abrir con Code",
-  "app.couldNotOpenWithCode": "No se pudo abrir con Code"
+  "app.couldNotOpenWithCode": "No se pudo abrir con Code",
+  "settings.dockerMaintenance": "Recursos compartidos de Docker Desktop",
+  "settings.dockerMaintenanceHint": "Las entradas obsoletas ralentizan el monitor de archivos compartidos de Docker Desktop. La limpieza solo elimina las rutas que ya no existen y antes hace una copia de la configuración de Docker.",
+  "settings.dockerShares": "{configured} configuradas, {missing} obsoletas",
+  "settings.pruneDockerShares": "Limpiar recursos obsoletos",
+  "settings.pruneDockerWarning": "Esto detiene Docker Desktop y finaliza todos los contenedores de esta máquina. La configuración de Docker se copia primero.",
+  "settings.pruneDockerAndRestart": "Limpiar y reiniciar Docker",
+  "settings.pruningDocker": "Limpiando…",
+  "settings.dockerPruned": "Recursos de Docker limpiados",
+  "settings.dockerPrunedBody": "Se eliminaron {removed}; se conservaron {kept}. Copia: {backup}",
+  "settings.dockerNothingToPrune": "No hay recursos de Docker obsoletos. Nada que limpiar.",
+  "settings.couldNotPruneDocker": "No se pudieron limpiar los recursos de Docker"
 }

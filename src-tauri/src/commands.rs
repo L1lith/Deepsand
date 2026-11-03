@@ -6043,6 +6043,83 @@ fn runtime_context_dir() -> Option<PathBuf> {
     deepsand_core::seccomp::runtime_dir()
 }
 
+/// Count Docker Desktop's configured host shares and the stale ones, for Settings.
+///
+/// `None` means this platform has no Docker Desktop share list (or it cannot be read), so the
+/// Settings section hides itself rather than offering a button that cannot work.
+#[tauri::command]
+pub fn docker_share_report() -> CmdResult<Option<DockerShareReportView>> {
+    match deepsand_core::docker_shares::read() {
+        Ok(report) => Ok(Some(DockerShareReportView {
+            configured: report.configured_count(),
+            existing: report.existing_count(),
+            missing: report.missing_count(),
+        })),
+        Err(err) => {
+            tracing::warn!(%err, "Docker share report unavailable");
+            Ok(None)
+        }
+    }
+}
+
+/// Remove stale Docker Desktop shares from Settings.
+///
+/// `confirmed` is the operator's second click, after the warning that this stops Docker Desktop
+/// and ends every container. The orchestration is shared with `deepsandctl docker-shares
+/// --prune`, and the settings file is backed up before it is rewritten. Desktop-only, and absent
+/// from the remote command table for the same reason as the Docker restart.
+#[tauri::command]
+pub async fn prune_docker_shares(
+    app: AppHandle,
+    confirmed: bool,
+) -> CmdResult<DockerSharePruneView> {
+    if !confirmed {
+        return Err(
+            "pruning Docker Desktop shares stops Docker Desktop and ends every container, so it has to be confirmed by the operator"
+                .to_string(),
+        );
+    }
+
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = tauri::Manager::state::<AppState>(&handle);
+        prune_docker_shares_impl(&state)
+    })
+    .await
+    .map_err(|err| format!("the Docker share prune could not be completed: {err}"))?
+}
+
+pub fn prune_docker_shares_impl(state: &AppState) -> CmdResult<DockerSharePruneView> {
+    let report = deepsand_core::docker_shares::read().map_err(fail)?;
+    if report.missing_count() == 0 {
+        return Ok(DockerSharePruneView {
+            removed: 0,
+            kept: report.existing_count(),
+            backup: String::new(),
+        });
+    }
+
+    let docker = state.docker().map_err(fail)?;
+    match deepsand_core::docker_shares::prune_with_desktop(&docker) {
+        Ok(Some(outcome)) => {
+            state
+                .runtime_wedged
+                .store(false, std::sync::atomic::Ordering::SeqCst);
+            Ok(DockerSharePruneView {
+                removed: outcome.removed.len(),
+                kept: outcome.kept,
+                backup: outcome.backup.display().to_string(),
+            })
+        }
+        Ok(None) => Ok(DockerSharePruneView {
+            removed: 0,
+            kept: report.existing_count(),
+            backup: String::new(),
+        }),
+        Err(err) => Err(fail(err)),
+    }
+}
+
 /// Restart Docker's engine, including the WSL2 distro it runs in on Windows, and wait
 /// until a container can actually start again.
 ///

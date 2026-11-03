@@ -809,5 +809,16 @@
   "settings.apiKeyCouldNotSave": "تعذر حفظ مفتاح API",
   "settings.apiKeyCouldNotRemove": "تعذر إزالة مفتاح API",
   "app.openWithCode": "فتح باستخدام Code",
-  "app.couldNotOpenWithCode": "تعذّر الفتح باستخدام Code"
+  "app.couldNotOpenWithCode": "تعذّر الفتح باستخدام Code",
+  "settings.dockerMaintenance": "مشاركات Docker Desktop",
+  "settings.dockerMaintenanceHint": "الإدخالات القديمة تبطئ مراقب مشاركة الملفات في Docker Desktop. التنظيف يزيل فقط المسارات التي لم تعد موجودة، بعد نسخ إعدادات Docker احتياطياً.",
+  "settings.dockerShares": "{configured} مُهيأة، {missing} قديمة",
+  "settings.pruneDockerShares": "نظّف المشاركات القديمة",
+  "settings.pruneDockerWarning": "سيؤدي هذا إلى إيقاف Docker Desktop وإنهاء كل حاوية على هذا الجهاز. تُنسخ إعدادات Docker احتياطياً أولاً.",
+  "settings.pruneDockerAndRestart": "نظّف وأعد تشغيل Docker",
+  "settings.pruningDocker": "جارٍ التنظيف…",
+  "settings.dockerPruned": "تم تنظيف مشاركات Docker",
+  "settings.dockerPrunedBody": "أُزيل {removed}؛ أُبقي {kept}. النسخة الاحتياطية: {backup}",
+  "settings.dockerNothingToPrune": "لا توجد مشاركات Docker قديمة. لا شيء لتنظيفه.",
+  "settings.couldNotPruneDocker": "تعذّر تنظيف مشاركات Docker"
 }
