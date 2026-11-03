@@ -50,6 +50,10 @@ const SHIPPED: &[(&str, &[u8])] = &[
         include_bytes!("../../../runtime/bin/patch-deepcode-mentions.mjs"),
     ),
     (
+        "bin/patch-deepcode-footer.mjs",
+        include_bytes!("../../../runtime/bin/patch-deepcode-footer.mjs"),
+    ),
+    (
         "bin/zero-breach.sh",
         include_bytes!("../../../runtime/bin/zero-breach.sh"),
     ),
@@ -167,9 +171,10 @@ pub fn audit(dir: &Path) -> Vec<Damage> {
 /// files would report "patched" for the half-state that `repair` can create -- it restores
 /// missing files from the binary, including these scripts, while a Dockerfile that *differs* is
 /// deliberately left alone.
-pub const TUI_PATCHES: [(&str, &str); 2] = [
+pub const TUI_PATCHES: [(&str, &str); 3] = [
     ("ink-viewport-repaint", "patch-deepcode-ink.mjs --apply"),
     ("mention-index-deferred", "patch-deepcode-mentions.mjs --apply"),
+    ("process-footer-single-line", "patch-deepcode-footer.mjs --apply"),
 ];
 
 /// Which of [`TUI_PATCHES`] the tree on disk would actually apply.
@@ -412,7 +417,7 @@ mod damage_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// The tree this repository builds from applies both TUI patches. Read from the artifact,
+    /// The tree this repository builds from applies every TUI patch. Read from the artifact,
     /// not from a copy: a Dockerfile that loses a `--apply` line while its script stays behind
     /// builds an image that looks patched and behaves like the bug, and this is the only test
     /// that looks at both halves together.
@@ -421,7 +426,7 @@ mod damage_tests {
     /// directory, where no `runtime/` resolves, and the subject here is the file in the
     /// repository, not whichever tree the running process would pick.
     #[test]
-    fn the_runtime_tree_this_build_ships_applies_both_tui_patches() {
+    fn the_runtime_tree_this_build_ships_applies_every_tui_patch() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime");
         assert_eq!(
             tui_patches(&dir),
@@ -456,12 +461,19 @@ mod damage_tests {
     /// What an installed build from before the patches looks like from the outside: no scripts,
     /// no Dockerfile lines -- and the only sentence an operator needs is which patches are gone.
     #[test]
-    fn a_tree_from_a_build_before_the_patches_reports_both_missing() {
+    fn a_tree_from_a_build_before_the_patches_reports_all_missing() {
         let dir = scratch("stale");
         std::fs::write(dir.join("Dockerfile"), "FROM node:22-bookworm-slim\n").unwrap();
 
         let missing = missing_tui_patches(&dir);
-        assert_eq!(missing, vec!["ink-viewport-repaint", "mention-index-deferred"]);
+        assert_eq!(
+            missing,
+            vec![
+                "ink-viewport-repaint",
+                "mention-index-deferred",
+                "process-footer-single-line"
+            ]
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

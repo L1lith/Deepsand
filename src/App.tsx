@@ -117,7 +117,9 @@ export default function App() {
   const project = () => selectedProject();
   // The same state the terminal's button reads, so the two cannot disagree about whether a
   // run is in flight -- which they did, and that is why one of them could be left greyed out.
-  const busy = () => store.sessionBusy === project()?.id;
+  // `project.starting` covers the starts no button asked for: the automatic restart and the
+  // resume-on-launch hold the backend's start lock while `sessionBusy` is still null.
+  const busy = () => store.sessionBusy === project()?.id || project()?.starting === true;
 
   /**
    * The selected project's folder size.

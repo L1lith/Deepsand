@@ -92,11 +92,11 @@ pub fn outdated(
     version: &str,
     data_dir: &Path,
 ) -> Option<Option<String>> {
-    let installed = docker.image_label(image, cli::CLI_VERSION_LABEL);
+    let installed = docker.image_label_within(image, cli::CLI_VERSION_LABEL, Docker::START_LEASH);
     if !cli::needs_refresh(installed.as_deref(), Some(version)) {
         return None;
     }
-    if let Some(id) = docker.image_id(image) {
+    if let Some(id) = docker.image_id_within(image, Docker::START_LEASH) {
         if cli::is_unverifiable(&cli::cache_dir(data_dir), &id) {
             tracing::warn!(
                 image,
@@ -127,7 +127,7 @@ pub async fn refresh(
     // The id before the build: comparing it afterwards is how "the build produced a new image"
     // is told apart from "the build failed and the old image is still here". Only the first of
     // those means the image genuinely cannot report its version.
-    let before = docker.image_id(image);
+    let before = docker.image_id_within(image, Docker::START_LEASH);
     if let Err(err) = crate::commands::build_runtime_image_impl(
         app,
         state,
@@ -184,7 +184,7 @@ pub async fn refresh(
             // stopped). Saying "the image was rebuilt" there is how a failed patch read as a
             // working rebuild with a stale CLI, which sent the operator looking in the wrong
             // place.
-            let after = docker.image_id(image);
+            let after = docker.image_id_within(image, Docker::START_LEASH);
             let rebuilt = after != before;
             if rebuilt {
                 if let Some(id) = &after {

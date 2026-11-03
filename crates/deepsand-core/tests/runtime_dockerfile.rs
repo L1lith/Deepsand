@@ -798,7 +798,9 @@ fn the_deepcode_layer_applies_and_verifies_the_ink_overflow_patch() {
         "the patch check runs before the apply: it would verify the unpatched copy"
     );
     assert!(
-        text.contains("deepsand.deepcode.patch=\"ink-viewport-repaint,mention-index-deferred\""),
+        text.contains(
+            "deepsand.deepcode.patch=\"ink-viewport-repaint,mention-index-deferred,process-footer-single-line\""
+        ),
         "the image has to record which patches it carries, so an auditor can tell"
     );
 }
@@ -838,6 +840,43 @@ fn the_deepcode_layer_defers_the_mention_index_until_after_the_first_frame() {
         ink < apply,
         "the Ink patch runs first, so a renderer shape it does not know stops the build before a \
          second patch begins"
+    );
+}
+
+/// While a Bash tool runs, the CLI's busy footer is `(elapsed) <the whole command>`. A heredoc
+/// makes that footer taller than the terminal, and because the prompt input is rendered just
+/// above the footer, the renderer's one-viewport slice shows the footer's tail and pushes the
+/// input off the top of the screen -- a wall of shell script with no input box and no visible
+/// way to interrupt. `runtime/bin/patch-deepcode-footer.mjs` collapses the command to one line
+/// and puts `esc to interrupt` before it.
+///
+/// Its self-test is structural, so it runs before the apply; the semantic half is inside that
+/// self-test and compiles the patched function from the text that will be written.
+#[test]
+fn the_deepcode_layer_keeps_the_busy_footer_to_one_line() {
+    let text = dockerfile();
+    let self_test = text
+        .find("patch-deepcode-footer.mjs --self-test")
+        .expect("the footer patch has to prove its decision rule before touching the CLI");
+    let apply = text
+        .find("patch-deepcode-footer.mjs --apply")
+        .expect("the DeepCode layer has to keep the busy footer to one line");
+    let check = text
+        .find("patch-deepcode-footer.mjs --check")
+        .expect("the DeepCode layer has to verify the footer patch it applied");
+
+    assert!(
+        self_test < apply && apply < check,
+        "the footer patch runs self-test, apply, then check; a check before the apply verifies \
+         the unpatched copy"
+    );
+    let mentions = text
+        .find("patch-deepcode-mentions.mjs --apply")
+        .expect("the mention patch is applied too");
+    assert!(
+        mentions < apply,
+        "the footer patch runs after the earlier patches, so an unknown renderer or mention \
+         shape stops the build before a third patch begins"
     );
 }
 

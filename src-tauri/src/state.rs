@@ -99,6 +99,10 @@ pub struct ProjectView {
     /// Derived, for the sidebar and header.
     pub container_name: String,
     pub running: bool,
+    /// Whether a start is in flight, whether a button or the automatic restart asked for it.
+    /// Read from `AppState::is_starting`, so the buttons cannot look idle while `begin_start`
+    /// holds the project.
+    pub starting: bool,
     /// Whether this process has this project's sandbox frozen, which it does while a permission
     /// dialog is open so the agent cannot work ahead of the decision. From memory rather than
     /// from Docker: this is on the path of every project list, and an inspect per project there
@@ -113,6 +117,7 @@ impl ProjectView {
     pub fn new(
         project: &Project,
         running: bool,
+        starting: bool,
         paused: bool,
         grant_count: usize,
         pending_requests: usize,
@@ -139,6 +144,7 @@ impl ProjectView {
             blocked_hosts: project.blocked_hosts.clone(),
             container_name: project.container_name(),
             running,
+            starting,
             paused,
             workspace_exists: std::path::Path::new(&project.root_dir).is_dir(),
             grant_count,
@@ -187,6 +193,9 @@ pub struct PathCheck {
 pub struct SessionStatus {
     pub project_id: String,
     pub running: bool,
+    /// Whether a start is in flight. Separate from `running` because a start that is still
+    /// gathering the image, volume or credentials is not a session yet.
+    pub starting: bool,
     pub command_line: Option<String>,
     pub container_name: String,
     pub network_mode: String,

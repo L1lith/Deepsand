@@ -31,7 +31,8 @@ npm run app:dev         # app with hot reload
 | `npm run test:bridge` | 55 checks of the MCP bridge against a simulated spool |
 | `npm run test:ink-patch` | the Ink renderer patch's own claims: applying it twice, refusing a shape it does not know, and — against a fake terminal — one viewport per repaint, no scrollback wipe, no scrolling, nothing lost. Also run at image build time; part of `npm test` so it cannot rot |
 | `npm run test:mentions-patch` | the mention-index patch's claims: applying it twice, refusing a shape it does not know, and — running the scanner out of the file being patched — real source found, `.github` found, a vendored `.toolchain` and a hidden symlink not. Also run at image build time (after the apply, because it measures the result) |
-| `npm test` | the four suites above, in order |
+| `npm run test:footer-patch` | the busy-footer patch's claims: applying it twice, refusing a shape it does not know, and — compiling the patched function from the text that will be written — a 40-line command comes out as one line. Also run at image build time |
+| `npm test` | every suite above, in order |
 | `npm run build` | `tsc --noEmit` + `vite build` (frontend typecheck) |
 | `npm run runtime:build` | build and tag the sandbox image |
 | `npm run runtime:icons` | regenerate `src-tauri/icons` from `assets/icon.png` |
@@ -78,6 +79,7 @@ npm run app:dev         # app with hot reload
 | `runtime/` | Everything that runs **inside** the container. |
 | `runtime/bin/patch-deepcode-ink.mjs` | Disables Ink's overflow/fullscreen clear (which wipes the scrollback and rewrites the whole conversation) at image build time. |
 | `runtime/bin/patch-deepcode-mentions.mjs` | Builds the `@`-mention index after the first frame instead of during it, and skips hidden directories. |
+| `runtime/bin/patch-deepcode-footer.mjs` | Collapses a running command to one footer line and keeps `esc to interrupt` visible, so a heredoc cannot push the prompt input off the screen. |
 
 ## The invariants
 
@@ -418,6 +420,18 @@ These are load-bearing. Breaking one is how this project gets a CVE.
   never settling, and a backend that never answers must not be able to lock the operator out. A
   disabled button says what it is waiting for ("Starting…"): a grey button with no text cannot
   be told apart from a broken one.
+
+  **Two starts do not come through `sessionOperation`.** The automatic restart after an
+  unexpected exit and the resume-on-launch both call `start_session_impl` from the backend. That
+  used to mean `begin_start` held the project while the buttons looked idle: pressing Run got
+  "this project is already starting", with nothing on screen saying a start was in flight, and a
+  daemon that had stopped answering could hold the lock for the full `COMMAND_TIMEOUT`. Now the
+  start path announces `starting` and then `running`/`stopped` on `session://status`,
+  `ProjectView.starting` and `SessionStatus.starting` are read from `AppState::is_starting`, both
+  Run buttons treat `project.starting` as busy, and a failed background start carries its error
+  in the same event so it is not a silent dead end. The start path's Docker calls also take
+  `START_LEASH` (15 s) instead of `COMMAND_TIMEOUT`: a start that cannot talk to Docker must fail
+  and release the lock, not sit in front of the operator for two minutes.
 * **Anything signed with the API key happens in the app, never in the window.** The model list
   is fetched in `src-tauri` with the project's resolved credentials, and the frontend receives
   ids and names -- never a key, not even masked. The cache that keeps the list between projects
@@ -902,7 +916,21 @@ These are load-bearing. Breaking one is how this project gets a CVE.
   never having an index), so a changed CLI fails the build rather than shipping a session whose
   `@` completion silently does nothing. `--self-test` runs the scanner *out of the file being
   patched* against a temporary tree, which is why the Dockerfile runs `--apply`, `--check`, then
-  `--self-test` for this patch and the reverse order for the Ink one.
+  `--self-test` for this patch and the reverse order for the Ink one (the footer patch's
+  self-test is structural, so it runs before its apply).
+
+  **A running command is shown in the prompt footer, so it has to be one line.**
+  `buildProcessLoadingText` returns `(elapsed) ${first.command}` -- the whole command, newlines
+  included -- and `PromptInput` renders it as the busy footer above the prompt. A Bash call with
+  a 30-line heredoc therefore becomes a 30-line footer. The footer is taller than the terminal,
+  the live frame is taller than the viewport, and the renderer keeps the last screenful: the
+  footer's tail. The prompt input, rendered just above the footer, is pushed off the top of the
+  screen, and upstream's `esc to interrupt` hint is in the branch that only runs when there is no
+  loading text, so the operator sees a wall of shell script with no way to interrupt.
+  `runtime/bin/patch-deepcode-footer.mjs` collapses whitespace in the command before the footer
+  is built and moves `esc to interrupt` in front of it. It is a third CLI patch, with the same
+  fail-closed rules as the other two; its self-test compiles the patched function from the text
+  that will be written and asserts a 40-line command becomes one line.
 
   **A slow mount is the cause, and it is measurable from the host.** `MSYS2_ARG_CONV_EXCL='*'
   docker run --rm -v "<project>:/w:ro" alpine sh -c 'time find /w -type f | wc -l'` answers it

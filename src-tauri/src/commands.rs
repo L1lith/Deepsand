@@ -182,6 +182,7 @@ pub fn docker_status_watched(state: &AppState) -> CmdResult<DockerStatus> {
 
 fn project_view(state: &impl AsAppState, project: &Project) -> ProjectView {
     let running = state.app_state().is_running(&project.id);
+    let starting = state.app_state().is_starting(&project.id);
     let store = store(state);
     let grant_count = store.active_grants(&project.id).len();
     drop(store);
@@ -192,7 +193,7 @@ fn project_view(state: &impl AsAppState, project: &Project) -> ProjectView {
         .filter(|request| request.project == project.id)
         .count();
     let paused = state.app_state().is_frozen(&project.id);
-    ProjectView::new(project, running, paused, grant_count, pending)
+    ProjectView::new(project, running, starting, paused, grant_count, pending)
 }
 
 #[tauri::command]
@@ -869,7 +870,7 @@ async fn await_image(
 ) -> std::result::Result<(), String> {
     use deepsand_core::docker::{image_wait_step, ImageWait};
 
-    if docker.image_present(&image) {
+    if docker.image_present_within(&image, Docker::START_LEASH) {
         return Ok(());
     }
     tauri::async_runtime::spawn_blocking(move || {
@@ -882,7 +883,12 @@ async fn await_image(
             let building = deepsand_core::docker::builds_in_flight()
                 .iter()
                 .any(|tag| tag == &image);
-            match image_wait_step(docker.image_present(&image), building, grace, &image) {
+            match image_wait_step(
+                docker.image_present_within(&image, Docker::START_LEASH),
+                building,
+                grace,
+                &image,
+            ) {
                 ImageWait::Ready => return Ok(()),
                 ImageWait::GiveUp(message) => return Err(message),
                 ImageWait::Wait => {}
@@ -932,7 +938,7 @@ async fn await_image_or_superseded(
 ) -> ImageWaitOutcome {
     use deepsand_core::docker::{image_wait_step, ImageWait};
 
-    if docker.image_present(&image) {
+    if docker.image_present_within(&image, Docker::START_LEASH) {
         return ImageWaitOutcome::Ready;
     }
     tauri::async_runtime::spawn_blocking(move || {
@@ -948,7 +954,12 @@ async fn await_image_or_superseded(
             let building = deepsand_core::docker::builds_in_flight()
                 .iter()
                 .any(|tag| tag == &image);
-            match image_wait_step(docker.image_present(&image), building, grace, &image) {
+            match image_wait_step(
+                docker.image_present_within(&image, Docker::START_LEASH),
+                building,
+                grace,
+                &image,
+            ) {
                 ImageWait::Ready => return ImageWaitOutcome::Ready,
                 ImageWait::GiveUp(message) => return ImageWaitOutcome::Failed(message),
                 ImageWait::Wait => {}
@@ -1050,7 +1061,7 @@ fn prepare_plan(
     let labelled = state.app_state().docker().ok();
     let label = labelled
         .as_ref()
-        .and_then(|docker| docker.image_label(&image, "deepsand.tools"));
+        .and_then(|docker| docker.image_label_within(&image, "deepsand.tools", Docker::START_LEASH));
     match label {
         Some(label) => {
             sandbox.tools = label
@@ -1074,7 +1085,7 @@ fn prepare_plan(
     // note has already been added above.
     if let Some(label) = labelled
         .as_ref()
-        .and_then(|docker| docker.image_label(&image, "deepsand.packages"))
+        .and_then(|docker| docker.image_label_within(&image, "deepsand.packages", Docker::START_LEASH))
     {
         sandbox.packages = label
             .split(',')
@@ -1203,7 +1214,7 @@ fn verify_seccomp_profile(
     profile: &Path,
 ) -> deepsand_core::Result<String> {
     let docker = state.docker()?;
-    let Some(image_id) = docker.image_id(image) else {
+    let Some(image_id) = docker.image_id_within(image, Docker::START_LEASH) else {
         // No image yet, so there is nothing to compare against. `start_session` builds the
         // image before it plans, so this is only reachable from an explicit preview.
         return Ok(String::new());
@@ -1343,6 +1354,7 @@ pub fn session_status_impl(state: &AppState, project_id: String) -> CmdResult<Se
         Some(live) => SessionStatus {
             project_id: project_id.clone(),
             running: true,
+            starting: state.is_starting(&project_id),
             command_line: Some(live.command_line.clone()),
             container_name: live.container_name.clone(),
             network_mode: live.network_mode.clone(),
@@ -1351,6 +1363,7 @@ pub fn session_status_impl(state: &AppState, project_id: String) -> CmdResult<Se
         None => SessionStatus {
             project_id: project_id.clone(),
             running: false,
+            starting: state.is_starting(&project_id),
             command_line: None,
             container_name: project.container_name(),
             network_mode: project.network.mode_str().to_string(),
@@ -1483,7 +1496,56 @@ pub async fn start_session_requested(
     start_session_impl(app, state, project_id, resume, without_tools).await
 }
 
+/// Start a session, telling the window first and last.
+///
+/// `start_session_requested` is not the only caller: the automatic restart after an unexpected
+/// exit and the resume-on-launch both come here directly. They used to be invisible, so
+/// `begin_start` held the project while every Run button looked idle, and a second click got
+/// "already starting" with no explanation. The window re-reads `ProjectView::starting` on this
+/// event, and a background failure carries its detail so it is not only a log line.
 pub async fn start_session_impl(
+    app: &AppHandle,
+    state: &AppState,
+    project_id: String,
+    resume: Option<bool>,
+    without_tools: bool,
+) -> CmdResult<SessionStatus> {
+    let _ = app.emit(
+        events::SESSION_STATUS,
+        serde_json::json!({ "projectId": project_id, "status": "starting" }),
+    );
+    let result =
+        start_session_impl_inner(app, state, project_id.clone(), resume, without_tools).await;
+    // Emitted after the inner function has returned, which is after `StartGuard` dropped: the
+    // project list read in response can no longer see `starting: true`. Emitting it before the
+    // guard dropped is the bug that left the buttons greyed out after a successful start.
+    let payload = match &result {
+        // A superseded start returns the newer attempt's status rather than an error, so the
+        // event is derived from what the session actually became, not from `Ok`.
+        Ok(status) if status.starting => {
+            serde_json::json!({ "projectId": project_id, "status": "starting" })
+        }
+        Ok(status) if status.running => {
+            serde_json::json!({ "projectId": project_id, "status": "running" })
+        }
+        Ok(_) => serde_json::json!({ "projectId": project_id, "status": "stopped" }),
+        // Losing the start lock to a start that is already running is not a failure the
+        // operator needs a box for: that start owns the event stream and will announce its own
+        // outcome. A toast here would say "could not start" about a sandbox that is coming up.
+        Err(err) if err.contains("already starting") => {
+            serde_json::json!({ "projectId": project_id, "status": "starting" })
+        }
+        Err(err) => serde_json::json!({
+            "projectId": project_id,
+            "status": "stopped",
+            "error": err,
+        }),
+    };
+    let _ = app.emit(events::SESSION_STATUS, payload);
+    result
+}
+
+async fn start_session_impl_inner(
     app: &AppHandle,
     state: &AppState,
     project_id: String,
@@ -1538,8 +1600,20 @@ pub async fn start_session_impl(
     let docker = state.docker().map_err(fail)?;
     tracing::info!("start: docker located");
     docker
-        .volume_create(&launch.volume)
-        .map_err(|err| format!("could not create the session volume: {err}"))?;
+        .volume_create_within(&launch.volume, Docker::START_LEASH)
+        .map_err(|err| {
+            let detail = err.to_string();
+            // A volume call that gave no answer is Docker, not this project. Remembering that is
+            // what makes `docker_status` offer the restart instead of leaving the operator with
+            // an error box and nothing to press.
+            if detail.contains("gave no answer within") {
+                state
+                    .app_state()
+                    .runtime_wedged
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+            format!("could not create the session volume: {detail}")
+        })?;
 
     // Started without waiting for the tools: the sandbox runs on the image with no tools in it,
     // and the image this project actually wants is built behind it. What arrives later is copied
@@ -1578,7 +1652,7 @@ if without_tools {
     // refusing: "run this project" plainly means "make it runnable", and the operator
     // should not have to discover a separate build button first.
         tracing::info!("start: checking the image");
-if !docker.image_present(&launch.image) {
+if !docker.image_present_within(&launch.image, Docker::START_LEASH) {
         // `build_runtime_image_impl` starts the build on its own thread and returns at once.
         // Treating that return as the build's outcome is what made a first Run look finished
         // while the image it was about to start did not exist yet: the runtime check below ran
@@ -1958,7 +2032,7 @@ if resolved.api_key.is_none() {
     // If that image is not there yet, the window is told, so a build that takes minutes looks
     // like a build instead of like a launch that has stopped. Paired: the second event, with
     // no image, clears it whether the wait worked or gave up.
-    let waiting = !docker.image_present(&launch.image);
+    let waiting = !docker.image_present_within(&launch.image, Docker::START_LEASH);
     if waiting {
         let _ = app.emit(
             events::BUILD_WAIT,
@@ -2047,6 +2121,7 @@ if resolved.api_key.is_none() {
         return Ok(SessionStatus {
             project_id,
             running: false,
+            starting: false,
             command_line: Some(command_line),
             container_name: launch.container_name,
             network_mode: launch.project.network.mode_str().to_string(),
@@ -2064,6 +2139,7 @@ if resolved.api_key.is_none() {
     Ok(SessionStatus {
         project_id,
         running: true,
+        starting: false,
         command_line: Some(command_line),
         container_name: launch.container_name,
         network_mode: launch.project.network.mode_str().to_string(),
@@ -6949,6 +7025,22 @@ mod early_input_tests {
             "taking the hold has to leave nothing behind"
         );
         drop(guard);
+    }
+
+    /// The window shows `ProjectView.starting` from this flag, and the automatic restart holds
+    /// it without ever setting the frontend's `sessionBusy`. That is why a background start used
+    /// to look like an idle project: these two buttons and the start lock disagreed.
+    #[test]
+    fn the_start_state_is_visible_for_as_long_as_the_backend_holds_it() {
+        let state = state("deepsand-start-state-test");
+        assert!(!state.is_starting("p"));
+        let guard = state.begin_start("p").expect("a start");
+        assert!(state.is_starting("p"));
+        drop(guard);
+        assert!(
+            !state.is_starting("p"),
+            "the guard drop has to clear the state the buttons read"
+        );
     }
 
     /// Holding is only for a start. A write with no session and no start still has nowhere to

@@ -54,8 +54,9 @@ export function TerminalPane() {
   let fit: FitAddon | undefined;
   // The button state lives in the store now: the header's Run and this one both act on the
   // same project, and when each kept its own copy a failed run could leave this one greyed
-  // out for good while the header's was fine.
-  const busy = () => store.sessionBusy === project()?.id;
+  // out for good while the header's was fine. `project.starting` also covers starts the buttons
+  // did not initiate, such as the automatic restart after an unexpected exit.
+  const busy = () => store.sessionBusy === project()?.id || project()?.starting === true;
 
   const project = () => selectedProject();
 

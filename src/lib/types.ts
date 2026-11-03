@@ -340,6 +340,12 @@ export interface ProjectView {
   containerName: string;
   running: boolean;
   /**
+   * Whether a start is in flight, including one the automatic restart asked for. Read from the
+   * backend rather than copied into the window, so the Run buttons cannot look idle while the
+   * start lock is held.
+   */
+  starting: boolean;
+  /**
    * Whether Deepsand has this project's sandbox frozen, which it does while a permission dialog
    * is open so the agent cannot work ahead of the decision.
    */
@@ -461,6 +467,8 @@ export interface PathCheck {
 export interface SessionStatus {
   projectId: string;
   running: boolean;
+  /** A start is in flight but has not registered a session yet. */
+  starting: boolean;
   commandLine: string | null;
   containerName: string;
   networkMode: string;

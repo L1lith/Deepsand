@@ -315,7 +315,26 @@ impl Docker {
     /// so. Bounded, a stuck command becomes a sentence that names it.
     pub const COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
+    /// The leash for one Docker call on the path that starts a sandbox.
+    ///
+    /// The start path holds `AppState::begin_start`, so a daemon that has stopped answering must
+    /// not keep a project "already starting" for the full `COMMAND_TIMEOUT`. This is the same
+    /// healthy-answer reasoning as `SHARING_PROBE_LEASH`: `volume inspect/create`, `image inspect`
+    /// and `image label` answer in well under a second when Docker is well, and a call that has
+    /// not answered by then is evidence about Docker, not about the project.
+    pub const START_LEASH: std::time::Duration = std::time::Duration::from_secs(15);
+
     fn run_raw(&self, args: &[OsString]) -> Result<std::process::Output> {
+        self.run_raw_within(args, Self::COMMAND_TIMEOUT)
+    }
+
+    /// The same, with a shorter leash. The command name is kept in the error so a timeout says
+    /// which Docker call was silent, not just that something was.
+    fn run_raw_within(
+        &self,
+        args: &[OsString],
+        limit: std::time::Duration,
+    ) -> Result<std::process::Output> {
         let mut cmd = self.command();
         cmd.args(args);
         let named = format!(
@@ -326,7 +345,7 @@ impl Docker {
                 .collect::<Vec<_>>()
                 .join(" ")
         );
-        wait_bounded(cmd, Self::COMMAND_TIMEOUT).map_err(|err| {
+        wait_bounded(cmd, limit).map_err(|err| {
             if err.starts_with("could not start") {
                 SandboxError::DockerUnavailable(format!(
                     "could not run {}: {err}. Is Docker Desktop running?",
@@ -343,8 +362,14 @@ impl Docker {
 
     /// Run and return trimmed stdout, failing on a non-zero exit status.
     pub fn run(&self, args: &[String]) -> Result<String> {
+        self.run_within(args, Self::COMMAND_TIMEOUT)
+    }
+
+    /// The same, with a shorter leash. This is for calls on the start path, where the operation
+    /// holds `begin_start` and a silent daemon must not look like a project that is still starting.
+    pub fn run_within(&self, args: &[String], limit: std::time::Duration) -> Result<String> {
         let os_args: Vec<OsString> = args.iter().map(OsString::from).collect();
-        let output = self.run_raw(&os_args)?;
+        let output = self.run_raw_within(&os_args, limit)?;
         if !output.status.success() {
             return Err(SandboxError::Docker {
                 command: format!("{} {}", self.program.display(), args.join(" ")),
@@ -705,15 +730,31 @@ impl Docker {
     }
 
     pub fn image_present(&self, tag: &str) -> bool {
-        self.try_run(&self.fmt(&["image", "inspect", tag, "--format", "{{.Id}}"]))
-            .is_some_and(|out| !out.is_empty())
+        self.image_present_within(tag, Self::COMMAND_TIMEOUT)
+    }
+
+    /// The same, with the start path's shorter leash.
+    pub fn image_present_within(&self, tag: &str, limit: std::time::Duration) -> bool {
+        self.try_run_within(
+            &self.fmt(&["image", "inspect", tag, "--format", "{{.Id}}"]),
+            limit,
+        )
+        .is_some_and(|out| !out.is_empty())
     }
 
     /// The image's content id. Changes on every rebuild, which makes it the right key for
     /// caching a check that is only valid for one build of one image.
     pub fn image_id(&self, tag: &str) -> Option<String> {
-        self.try_run(&self.fmt(&["image", "inspect", tag, "--format", "{{.Id}}"]))
-            .filter(|id| !id.is_empty())
+        self.image_id_within(tag, Self::COMMAND_TIMEOUT)
+    }
+
+    /// The same, with the start path's shorter leash.
+    pub fn image_id_within(&self, tag: &str, limit: std::time::Duration) -> Option<String> {
+        self.try_run_within(
+            &self.fmt(&["image", "inspect", tag, "--format", "{{.Id}}"]),
+            limit,
+        )
+        .filter(|id| !id.is_empty())
     }
 
     /// Read a file out of an image without starting a sandbox.
@@ -984,19 +1025,36 @@ impl Docker {
     }
 
     pub fn volume_create(&self, name: &str) -> Result<()> {
+        self.volume_create_within(name, Self::COMMAND_TIMEOUT)
+    }
+
+    /// The same, with the start path's shorter leash. `begin_start` is held across this call, so
+    /// a daemon that has stopped answering must not keep the project "already starting" for the
+    /// full command timeout.
+    pub fn volume_create_within(
+        &self,
+        name: &str,
+        limit: std::time::Duration,
+    ) -> Result<()> {
         if self
-            .try_run(&self.fmt(&["volume", "inspect", name, "--format", "{{.Name}}"]))
+            .try_run_within(
+                &self.fmt(&["volume", "inspect", name, "--format", "{{.Name}}"]),
+                limit,
+            )
             .is_some_and(|out| !out.is_empty())
         {
             return Ok(());
         }
-        self.run(&self.fmt(&[
-            "volume",
-            "create",
-            "--label",
-            LABEL_MANAGED,
-            name,
-        ]))
+        self.run_within(
+            &self.fmt(&[
+                "volume",
+                "create",
+                "--label",
+                LABEL_MANAGED,
+                name,
+            ]),
+            limit,
+        )
         .map(|_| ())
     }
 
@@ -1010,8 +1068,16 @@ impl Docker {
     }
 
     pub fn volume_exists(&self, name: &str) -> bool {
-        self.try_run(&self.fmt(&["volume", "inspect", name, "--format", "{{.Name}}"]))
-            .is_some_and(|out| out == name)
+        self.volume_exists_within(name, Self::COMMAND_TIMEOUT)
+    }
+
+    /// The same, with the start path's shorter leash.
+    pub fn volume_exists_within(&self, name: &str, limit: std::time::Duration) -> bool {
+        self.try_run_within(
+            &self.fmt(&["volume", "inspect", name, "--format", "{{.Name}}"]),
+            limit,
+        )
+        .is_some_and(|out| out == name)
     }
 
     /// Does the sandbox's session volume already hold a DeepCode session index?
@@ -1116,7 +1182,7 @@ impl Docker {
     }
 
     pub fn volume_has_session_index(&self, volume: &str, image: &str) -> bool {
-        if !self.volume_exists(volume) {
+        if !self.volume_exists_within(volume, Self::START_LEASH) {
             return false;
         }
         let mut args = self.fmt(&[
@@ -1386,8 +1452,21 @@ impl Docker {
     /// settings that requested the build. Those can have changed since, and a snapshot
     /// that contradicts the image is worse than no snapshot.
     pub fn image_label(&self, tag: &str, key: &str) -> Option<String> {
+        self.image_label_within(tag, key, Self::COMMAND_TIMEOUT)
+    }
+
+    /// The same, with the start path's shorter leash.
+    pub fn image_label_within(
+        &self,
+        tag: &str,
+        key: &str,
+        limit: std::time::Duration,
+    ) -> Option<String> {
         let template = format!("{{{{index .Config.Labels \"{key}\"}}}}");
-        let out = self.try_run(&self.fmt(&["image", "inspect", "-f", &template, tag]))?;
+        let out = self.try_run_within(
+            &self.fmt(&["image", "inspect", "-f", &template, tag]),
+            limit,
+        )?;
         let out = out.trim().to_string();
         if out.is_empty() || out == "<no value>" {
             None

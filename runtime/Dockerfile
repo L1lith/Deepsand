@@ -918,6 +918,12 @@ ENV PATH="/home/deepcode/.deepcode/bin:/home/deepcode/.cargo/bin:/home/deepcode/
 # before any real source was indexed. The patch starts that state empty (the mount effect three
 # lines below already fills it after the first frame) and skips hidden directories. See
 # bin/patch-deepcode-mentions.mjs.
+#
+# The third patch is the busy footer. While a Bash tool runs, the CLI puts the *whole command*
+# into the one-line footer above the prompt; a heredoc is therefore a 30-line footer, taller than
+# the terminal. The renderer's one-viewport rule then shows the footer's tail and the prompt input
+# is pushed off the top of the screen, with no visible way to interrupt. The patch collapses the
+# command to one line and keeps `esc to interrupt` before it. See bin/patch-deepcode-footer.mjs.
 # ---------------------------------------------------------------------------
 ARG DEEPCODE_REFRESH=0
 RUN --mount=type=cache,target=/root/.npm,sharing=locked \
@@ -941,7 +947,10 @@ RUN --mount=type=cache,target=/root/.npm,sharing=locked \
     node /usr/local/lib/deepsand/patch-deepcode-ink.mjs --check; \
     node /usr/local/lib/deepsand/patch-deepcode-mentions.mjs --apply; \
     node /usr/local/lib/deepsand/patch-deepcode-mentions.mjs --check; \
-    node /usr/local/lib/deepsand/patch-deepcode-mentions.mjs --self-test
+    node /usr/local/lib/deepsand/patch-deepcode-mentions.mjs --self-test; \
+    node /usr/local/lib/deepsand/patch-deepcode-footer.mjs --self-test; \
+    node /usr/local/lib/deepsand/patch-deepcode-footer.mjs --apply; \
+    node /usr/local/lib/deepsand/patch-deepcode-footer.mjs --check
 
 LABEL deepsand.tools="$INSTALL_TOOLS"
 # The packages the operator granted, which are already in APT_PACKAGES but not distinguishable
@@ -949,7 +958,7 @@ LABEL deepsand.tools="$INSTALL_TOOLS"
 # "approved, it will be installed" can check whether this image is the one with it in.
 LABEL deepsand.packages="$PROJECT_PACKAGES"
 LABEL deepsand.deepcode.refresh="$DEEPCODE_REFRESH"
-LABEL deepsand.deepcode.patch="ink-viewport-repaint,mention-index-deferred"
+LABEL deepsand.deepcode.patch="ink-viewport-repaint,mention-index-deferred,process-footer-single-line"
 # What was actually asked for, so the host can tell whether this image's CLI is still current
 # without starting a container to ask it. The host passes the version it resolved from npm and
 # compares it with this label on every start; when they differ it rebuilds this layer first.

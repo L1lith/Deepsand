@@ -421,7 +421,9 @@ export interface TerminalExit {
 }
 export interface SessionStatusEvent {
   projectId: string;
-  status: "running" | "stopped";
+  status: "running" | "stopped" | "starting";
+  /** Present when a start ended in failure, so a background start is not a silent dead end. */
+  error?: string;
 }
 
 export function onTerminalOutput(handler: (payload: TerminalOutput) => void): Promise<UnlistenFn> {

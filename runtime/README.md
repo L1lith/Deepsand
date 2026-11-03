@@ -15,6 +15,7 @@ runtime/
 │  ├─ zero-breach.sh             the spyware triage CLI, with the image's indicator sets
 │  ├─ patch-deepcode-ink.mjs     repaints one viewport where Ink rewrote the conversation
 │  ├─ patch-deepcode-mentions.mjs  builds the @-index after the first frame, not during it
+│  ├─ patch-deepcode-footer.mjs   keeps a running command to one footer line, input visible
 │  └─ deepsand-mcp-bridge.mjs    the API DeepCode asks permission through
 ├─ skills/
 │  ├─ deepsand-permissions/
@@ -154,6 +155,24 @@ empty forever). `--check` proves the installed copy carries both edits. `--self-
 scanner **from the file being patched** against a temporary tree: real source and
 `.github/workflows` are found, a 300-file `.toolchain` and a hidden symlink are not, hidden
 files still are, and the shipped noisy list still applies.
+
+## The busy-footer patch
+
+While a tool runs, the prompt's footer shows `loadingText`. For a Bash call, upstream builds
+that from `(elapsed) ${first.command}` -- the **whole** command, newlines included. A heredoc
+that is 30 lines long therefore becomes a 30-line footer. That footer is taller than the
+terminal, and because the prompt input is rendered just above it, the renderer's last-screenful
+rule shows the footer's tail and pushes the input off the top of the screen: a wall of shell
+script, no input box, and no `esc to interrupt` hint (upstream only shows that hint when there
+is no loading text).
+
+`bin/patch-deepcode-footer.mjs` collapses whitespace in the command before the footer is built,
+so the footer is one line regardless of the command's shape; the footer's existing
+`truncate-end` then truncates it horizontally. It also moves `esc to interrupt` in front of the
+command, so the way out stays visible when the command is truncated. `--apply` refuses a bundle
+whose `buildProcessLoadingText` or `busyStatusText` shape it does not recognise, and `--check`
+proves the installed copy carries both edits. `--self-test` compiles the patched function from
+the text that will be written and asserts that a 40-line command comes out as one line.
 
 ## The MCP bridge
 

@@ -492,8 +492,16 @@ export async function wireEvents(): Promise<() => void> {
       }
     }),
 
-    api.onSessionStatus(() => {
+    api.onSessionStatus((payload) => {
       void refreshProjects();
+      // A background start -- the automatic restart after an unexpected exit, or the
+      // resume-on-launch -- has no promise for the window to catch, so its failure arrives here.
+      // Re-reading Docker is the same rule as a failed manual operation: the answer may have
+      // changed, and the restart control is what the status probe draws.
+      if (payload.error) {
+        toast("error", t("terminal.startFailed"), payload.error);
+        void refreshDockerStatus();
+      }
     }),
 
     api.onBrokerRequest(async (request) => {
