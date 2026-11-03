@@ -51,6 +51,76 @@ function FolderIcon() {
   );
 }
 
+/** A clipboard glyph for the copy buttons beside the permission paths. */
+function CopyIcon() {
+  return (
+    <svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
+      <rect
+        x="5.4"
+        y="5.4"
+        width="7.8"
+        height="7.8"
+        rx="1.2"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.3"
+      />
+      <path
+        d="M10.6 5.4V4.1c0-.7-.6-1.3-1.3-1.3H4.1c-.7 0-1.3.6-1.3 1.3v5.2c0 .7.6 1.3 1.3 1.3h1.3"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.3"
+        stroke-linecap="round"
+      />
+    </svg>
+  );
+}
+
+/**
+ * Copy a path, with the same toast treatment the rest of the window uses.
+ *
+ * The path is data, not a sentence, so it is the toast body: the operator can see exactly what
+ * landed on the clipboard.
+ */
+async function copyPath(path: string) {
+  try {
+    await navigator.clipboard.writeText(path);
+    toast("ok", t("common.copied"), path);
+  } catch {
+    toast("warn", t("common.couldNotCopy"), path);
+  }
+}
+
+/**
+ * A path cell with a copy button and right-click-to-copy.
+ *
+ * The button is the discoverable control; right-click is the shortcut. It prevents the platform
+ * menu on purpose -- over this field the useful action is copying the path, and the field exists
+ * to be taken elsewhere.
+ */
+function CopyablePath(props: { path: string }) {
+  return (
+    <div
+      class="path-copy"
+      title={props.path}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        void copyPath(props.path);
+      }}
+    >
+      <span class="path-text">{props.path}</span>
+      <button
+        class="btn btn-icon"
+        title={t("common.copy")}
+        aria-label={t("common.copy")}
+        onClick={() => void copyPath(props.path)}
+      >
+        <CopyIcon />
+      </button>
+    </div>
+  );
+}
+
 export function PermissionsPanel() {
   const project = () => selectedProject();
 
@@ -499,8 +569,12 @@ export function PermissionsPanel() {
                         <FolderIcon />
                       </button>
                     </td>
-                    <td class="path">/workspace</td>
-                    <td class="path">{current().rootDir}</td>
+                    <td class="path">
+                      <CopyablePath path="/workspace" />
+                    </td>
+                    <td class="path">
+                      <CopyablePath path={current().rootDir} />
+                    </td>
                     <td>
                       <span class="badge badge-accent">{t("access.readWrite")}</span>
                     </td>
@@ -524,8 +598,12 @@ export function PermissionsPanel() {
                             <FolderIcon />
                           </button>
                         </td>
-                        <td class="path">{grant.containerPath}</td>
-                        <td class="path">{grant.hostPath}</td>
+                        <td class="path">
+                          <CopyablePath path={grant.containerPath} />
+                        </td>
+                        <td class="path">
+                          <CopyablePath path={grant.hostPath} />
+                        </td>
                         <td>
                           <span
                             class={

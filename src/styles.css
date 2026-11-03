@@ -862,6 +862,30 @@ td.path {
   word-break: break-all;
 }
 
+/* A path and its copy button: the text takes the remaining width, the button stays put at the
+   right even when the path wraps. */
+td.path .path-copy {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+td.path .path-copy .path-text {
+  flex: 1;
+  min-width: 0;
+  word-break: break-all;
+}
+
+td.path .path-copy .btn-icon {
+  flex: none;
+  opacity: 0.7;
+}
+
+td.path .path-copy:hover .btn-icon,
+td.path .path-copy .btn-icon:focus-visible {
+  opacity: 1;
+}
+
 .tag {
   font-family: var(--mono);
   background: var(--bg-input);
