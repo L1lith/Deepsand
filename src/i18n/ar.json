@@ -807,5 +807,7 @@
   "settings.apiKeyRemoved": "سيستخدم Deepsand تكوين المضيف أو تجاوز المشروع مرة أخرى.",
   "settings.apiKeyCouldNotRead": "لا يمكن قراءة مفتاح API",
   "settings.apiKeyCouldNotSave": "تعذر حفظ مفتاح API",
-  "settings.apiKeyCouldNotRemove": "تعذر إزالة مفتاح API"
+  "settings.apiKeyCouldNotRemove": "تعذر إزالة مفتاح API",
+  "app.openWithCode": "فتح باستخدام Code",
+  "app.couldNotOpenWithCode": "تعذّر الفتح باستخدام Code"
 }

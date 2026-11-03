@@ -807,5 +807,7 @@
   "settings.apiKeyRemoved": "Deepsand የአስተናጋጅ ውቅረትን ይጠቀማል ወይም አንድ ፕሮጀክት እንደገና ይሽራል።",
   "settings.apiKeyCouldNotRead": "የኤፒአይ ቁልፉን ማንበብ አልተቻለም",
   "settings.apiKeyCouldNotSave": "የኤፒአይ ቁልፉን ማስቀመጥ አልተቻለም",
-  "settings.apiKeyCouldNotRemove": "የኤፒአይ ቁልፉን ማስወገድ አልተቻለም"
+  "settings.apiKeyCouldNotRemove": "የኤፒአይ ቁልፉን ማስወገድ አልተቻለም",
+  "app.openWithCode": "በCode ክፈት",
+  "app.couldNotOpenWithCode": "በCode መክፈት አልተቻለም"
 }

@@ -807,5 +807,7 @@
   "settings.apiKeyRemoved": "Deepsand zai yi amfani da saitin mai watsa shiri ko kuma aikin zai sake sokewa.",
   "settings.apiKeyCouldNotRead": "An kasa karanta maɓallin API",
   "settings.apiKeyCouldNotSave": "Ba za a iya ajiye maɓallin API ba",
-  "settings.apiKeyCouldNotRemove": "An kasa cire maɓallin API"
+  "settings.apiKeyCouldNotRemove": "An kasa cire maɓallin API",
+  "app.openWithCode": "Buɗe da Code",
+  "app.couldNotOpenWithCode": "An kasa buɗewa da Code"
 }

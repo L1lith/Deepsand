@@ -807,5 +807,7 @@
   "settings.apiKeyRemoved": "Deepsand는 호스트 구성 또는 프로젝트 재정의를 다시 사용합니다.",
   "settings.apiKeyCouldNotRead": "API 키를 읽을 수 없습니다.",
   "settings.apiKeyCouldNotSave": "API 키를 저장할 수 없습니다.",
-  "settings.apiKeyCouldNotRemove": "API 키를 삭제할 수 없습니다."
+  "settings.apiKeyCouldNotRemove": "API 키를 삭제할 수 없습니다.",
+  "app.openWithCode": "Code로 열기",
+  "app.couldNotOpenWithCode": "Code로 열 수 없습니다"
 }

@@ -824,5 +824,7 @@
   "tools.tool.brew.label": "Homebrew",
   "tools.tool.brew.description": "Homebrew on Linux. Self-contained under the sandbox user's home.",
   "tools.tool.nix.label": "Nix",
-  "tools.tool.nix.description": "Nix with flakes. Gives reproducible per-project toolchains, at the cost of a large image and a slower first build."
+  "tools.tool.nix.description": "Nix with flakes. Gives reproducible per-project toolchains, at the cost of a large image and a slower first build.",
+  "app.openWithCode": "Open with Code",
+  "app.couldNotOpenWithCode": "Could not open in Code"
 }

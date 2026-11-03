@@ -247,6 +247,13 @@ export const renameProject = (projectId: string, name: string) =>
 export const revealProjectDir = (projectId: string) =>
   call<void>("reveal_project_dir", { projectId });
 
+/** Whether VS Code's `code` command is on PATH. */
+export const codeCommandAvailable = () => call<boolean>("code_command_available");
+
+/** Open a project's working directory in VS Code. */
+export const openProjectInCode = (projectId: string) =>
+  call<void>("open_project_in_code", { projectId });
+
 /** Open one shared directory in the machine's file manager. */
 export const revealGrantDir = (projectId: string, grantId: string) =>
   call<void>("reveal_grant_dir", { projectId, grantId });

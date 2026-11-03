@@ -807,5 +807,7 @@
   "settings.apiKeyRemoved": "Deepsand sẽ sử dụng lại cấu hình máy chủ hoặc ghi đè dự án.",
   "settings.apiKeyCouldNotRead": "Không thể đọc khóa API",
   "settings.apiKeyCouldNotSave": "Không thể lưu khóa API",
-  "settings.apiKeyCouldNotRemove": "Không thể xóa khóa API"
+  "settings.apiKeyCouldNotRemove": "Không thể xóa khóa API",
+  "app.openWithCode": "Mở bằng Code",
+  "app.couldNotOpenWithCode": "Không thể mở bằng Code"
 }

@@ -606,6 +606,10 @@ pub fn run() {
             // act on the wrong machine.
             commands::reveal_project_dir,
             commands::reveal_grant_dir,
+            // Runs the host's `code` command, so it is desktop-only for the same reason. The
+            // availability check decides whether the context menu offers it.
+            commands::code_command_available,
+            commands::open_project_in_code,
             // Opens the tool's project page in the machine's browser, resolved from the
             // catalogue by id. Desktop-only for the same reason as the two reveal commands.
             commands::open_tool_homepage,

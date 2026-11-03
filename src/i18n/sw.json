@@ -807,5 +807,7 @@
   "settings.apiKeyRemoved": "Deepsand itatumia usanidi wa seva pangishi au kubatilisha mradi tena.",
   "settings.apiKeyCouldNotRead": "Haikuweza kusoma ufunguo wa API",
   "settings.apiKeyCouldNotSave": "Haikuweza kuhifadhi ufunguo wa API",
-  "settings.apiKeyCouldNotRemove": "Haikuweza kuondoa ufunguo wa API"
+  "settings.apiKeyCouldNotRemove": "Haikuweza kuondoa ufunguo wa API",
+  "app.openWithCode": "Fungua kwa Code",
+  "app.couldNotOpenWithCode": "Imeshindwa kufungua kwa Code"
 }

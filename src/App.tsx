@@ -100,6 +100,8 @@ export default function App() {
   const [over, setOver] = createSignal<{ id: string; below: boolean } | null>(null);
   /** The right-click menu: which project it is about, and where the pointer opened it. */
   const [menu, setMenu] = createSignal<{ projectId: string; x: number; y: number } | null>(null);
+  /** Whether the host's `code` command is on PATH; the menu offers Open with Code only then. */
+  const [codeAvailable, setCodeAvailable] = createSignal(false);
   /** The project whose sidebar label is being edited, if any. */
   const [renaming, setRenaming] = createSignal<string | null>(null);
   const renamingProject = () => store.projects.find((entry) => entry.id === renaming()) ?? null;
@@ -209,6 +211,7 @@ export default function App() {
 
   onMount(() => {
     void bootstrap();
+    refreshCodeAvailability();
     let dispose: (() => void) | undefined;
     void wireEvents().then((fn) => {
       dispose = fn;
@@ -388,9 +391,23 @@ export default function App() {
     }
   }
 
+  function refreshCodeAvailability() {
+    void api
+      .codeCommandAvailable()
+      .then(setCodeAvailable)
+      .catch(() => setCodeAvailable(false));
+  }
+
   function openRoot(projectId: string) {
     setMenu(null);
     void revealProjectDir(projectId);
+  }
+
+  function openInCode(projectId: string) {
+    setMenu(null);
+    void api.openProjectInCode(projectId).catch((error) => {
+      toast("error", t("app.couldNotOpenWithCode"), describeError(error));
+    });
   }
 
   function beginRenameProject(projectId: string) {
@@ -465,13 +482,17 @@ export default function App() {
                     onPointerDown={(event) => beginDrag(event, entry.id)}
                     onContextMenu={(event) => {
                       event.preventDefault();
+                      // PATH can change while the app runs; ask again so installing VS Code
+                      // does not require a restart, and removing it does not leave a dead entry.
+                      refreshCodeAvailability();
                       // Clamped to the window, so right-clicking the bottom row does not open
                       // the menu off the edge of the screen.
                       setMenu({
                         projectId: entry.id,
                         x: Math.min(event.clientX, window.innerWidth - 200),
-                        // Two entries now, so the clamp leaves room for both.
-                        y: Math.min(event.clientY, window.innerHeight - 88),
+                        // Three possible entries; the VS Code row may appear after the
+                        // availability check answers.
+                        y: Math.min(event.clientY, window.innerHeight - 124),
                       });
                     }}
                   >
@@ -771,6 +792,11 @@ export default function App() {
               <button class="context-item" onClick={() => openRoot(open().projectId)}>
                 {t("app.openRoot")}
               </button>
+              <Show when={codeAvailable()}>
+                <button class="context-item" onClick={() => openInCode(open().projectId)}>
+                  {t("app.openWithCode")}
+                </button>
+              </Show>
               <button
                 class="context-item"
                 onClick={() => beginRenameProject(open().projectId)}

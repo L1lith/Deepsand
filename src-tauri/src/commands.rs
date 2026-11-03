@@ -6407,6 +6407,78 @@ pub fn reveal_project_dir(app: AppHandle, state: State<'_, AppState>, project_id
     open_in_file_manager(&app, &path)
 }
 
+/// Whether VS Code's `code` command is on PATH.
+///
+/// The window asks this before offering the menu item, and asks again whenever the menu opens, so
+/// installing VS Code does not require an app restart. Windows installs `code.cmd`, so `where` is
+/// the honest check: `Command::new("code")` would not resolve a `.cmd` through CreateProcess.
+#[tauri::command]
+pub fn code_command_available() -> bool {
+    code_command_available_impl()
+}
+
+fn code_command_available_impl() -> bool {
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        use std::os::windows::process::CommandExt as _;
+        std::process::Command::new("cmd")
+            .args(["/C", "where", "code"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    }
+    #[cfg(not(windows))]
+    {
+        std::process::Command::new("sh")
+            .args(["-c", "command -v code"])
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    }
+}
+
+/// Open a project's working directory in VS Code.
+///
+/// Like `reveal_project_dir`, the path is resolved from the project id and never accepted from
+/// the window: a view is not handed a general "run a host command against this path" primitive.
+/// The menu only offers this when `code_command_available` is true, but the command checks again
+/// because PATH can change between opening the menu and clicking it. Desktop-only, and absent
+/// from the remote command table.
+#[tauri::command]
+pub fn open_project_in_code(state: State<'_, AppState>, project_id: String) -> CmdResult<()> {
+    let path = store(&state).project(&project_id).map_err(fail)?.root_dir.clone();
+    open_in_code(&path)
+}
+
+fn open_in_code(path: &str) -> CmdResult<()> {
+    if !code_command_available_impl() {
+        return Err("the `code` command is not on PATH".to_string());
+    }
+
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        use std::os::windows::process::CommandExt as _;
+        std::process::Command::new("cmd")
+            .args(["/C", "code"])
+            .arg(path)
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map(|_| ())
+            .map_err(|err| format!("could not open {path} in VS Code: {err}"))
+    }
+    #[cfg(not(windows))]
+    {
+        std::process::Command::new("code")
+            .arg(path)
+            .spawn()
+            .map(|_| ())
+            .map_err(|err| format!("could not open {path} in VS Code: {err}"))
+    }
+}
+
 /// Open one shared directory in the machine's file manager.
 #[tauri::command]
 pub fn reveal_grant_dir(app: AppHandle, state: State<'_, AppState>, project_id: String, grant_id: String) -> CmdResult<()> {

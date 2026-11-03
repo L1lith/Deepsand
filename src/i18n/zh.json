@@ -807,5 +807,7 @@
   "settings.apiKeyRemoved": "Deepsand 将再次使用主机配置或项目覆盖。",
   "settings.apiKeyCouldNotRead": "无法读取 API 密钥",
   "settings.apiKeyCouldNotSave": "无法保存 API 密钥",
-  "settings.apiKeyCouldNotRemove": "无法删除 API 密钥"
+  "settings.apiKeyCouldNotRemove": "无法删除 API 密钥",
+  "app.openWithCode": "用 Code 打开",
+  "app.couldNotOpenWithCode": "无法用 Code 打开"
 }

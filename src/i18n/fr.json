@@ -807,5 +807,7 @@
   "settings.apiKeyRemoved": "Deepsand utilisera à nouveau la configuration de l'hôte ou un remplacement de projet.",
   "settings.apiKeyCouldNotRead": "Impossible de lire la clé API",
   "settings.apiKeyCouldNotSave": "Impossible d'enregistrer la clé API",
-  "settings.apiKeyCouldNotRemove": "Impossible de supprimer la clé API"
+  "settings.apiKeyCouldNotRemove": "Impossible de supprimer la clé API",
+  "app.openWithCode": "Ouvrir avec Code",
+  "app.couldNotOpenWithCode": "Impossible d’ouvrir avec Code"
 }

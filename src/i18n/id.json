@@ -807,5 +807,7 @@
   "settings.apiKeyRemoved": "Deepsand akan menggunakan konfigurasi host atau proyek override lagi.",
   "settings.apiKeyCouldNotRead": "Tidak dapat membaca kunci API",
   "settings.apiKeyCouldNotSave": "Tidak dapat menyimpan kunci API",
-  "settings.apiKeyCouldNotRemove": "Tidak dapat menghapus kunci API"
+  "settings.apiKeyCouldNotRemove": "Tidak dapat menghapus kunci API",
+  "app.openWithCode": "Buka dengan Code",
+  "app.couldNotOpenWithCode": "Tidak dapat membuka dengan Code"
 }

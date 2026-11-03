@@ -807,5 +807,7 @@
   "settings.apiKeyRemoved": "Deepsand はホスト構成またはプロジェクト オーバーライドを再度使用します。",
   "settings.apiKeyCouldNotRead": "APIキーを読み取れませんでした",
   "settings.apiKeyCouldNotSave": "APIキーを保存できませんでした",
-  "settings.apiKeyCouldNotRemove": "API キーを削除できませんでした"
+  "settings.apiKeyCouldNotRemove": "API キーを削除できませんでした",
+  "app.openWithCode": "Code で開く",
+  "app.couldNotOpenWithCode": "Code で開けませんでした"
 }

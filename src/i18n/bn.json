@@ -807,5 +807,7 @@
   "settings.apiKeyRemoved": "Deepsand হোস্ট কনফিগারেশন বা প্রজেক্ট ওভাররাইড ব্যবহার করবে।",
   "settings.apiKeyCouldNotRead": "API কী পড়তে পারেনি",
   "settings.apiKeyCouldNotSave": "API কী সংরক্ষণ করা যায়নি",
-  "settings.apiKeyCouldNotRemove": "API কী সরানো যায়নি"
+  "settings.apiKeyCouldNotRemove": "API কী সরানো যায়নি",
+  "app.openWithCode": "Code দিয়ে খুলুন",
+  "app.couldNotOpenWithCode": "Code দিয়ে খোলা যায়নি"
 }

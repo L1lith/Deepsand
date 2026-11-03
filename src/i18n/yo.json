@@ -807,5 +807,7 @@
   "settings.apiKeyRemoved": "Deepsand yoo lo iṣeto ile-iṣẹ tabi iṣẹ akanṣe lẹẹkansi.",
   "settings.apiKeyCouldNotRead": "Ko le ka bọtini API",
   "settings.apiKeyCouldNotSave": "Ko le fi bọtini API pamọ",
-  "settings.apiKeyCouldNotRemove": "Ko le yọ bọtini API kuro"
+  "settings.apiKeyCouldNotRemove": "Ko le yọ bọtini API kuro",
+  "app.openWithCode": "Ṣí pẹ̀lú Code",
+  "app.couldNotOpenWithCode": "Kò le ṣí i pẹ̀lú Code"
 }

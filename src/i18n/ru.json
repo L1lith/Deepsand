@@ -807,5 +807,7 @@
   "settings.apiKeyRemoved": "Deepsand снова будет использовать конфигурацию хоста или переопределение проекта.",
   "settings.apiKeyCouldNotRead": "Не удалось прочитать ключ API",
   "settings.apiKeyCouldNotSave": "Не удалось сохранить ключ API",
-  "settings.apiKeyCouldNotRemove": "Не удалось удалить ключ API"
+  "settings.apiKeyCouldNotRemove": "Не удалось удалить ключ API",
+  "app.openWithCode": "Открыть в Code",
+  "app.couldNotOpenWithCode": "Не удалось открыть в Code"
 }
