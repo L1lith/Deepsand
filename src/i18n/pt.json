@@ -791,6 +791,7 @@
   "tools.tool.nix.description": "Nix com flocos. Fornece conjuntos de ferramentas reproduzíveis por projeto, ao custo de uma imagem grande e de uma primeira construção mais lenta.",
   "docker.detailNotRunning": "Docker Desktop não está em execução. Inicie e tente novamente.",
   "docker.detailNoAnswer": "Docker Desktop está em execução, mas seu daemon não está respondendo. Pode demorar um minuto para aparecer após a inicialização; se continuar assim, reinicie Docker Desktop.",
+  "docker.detailNoMemory": "O Docker Desktop não conseguiu iniciar a VM porque esta máquina não tinha memória livre suficiente. Feche os aplicativos que consomem muita memória e inicie o Docker Desktop novamente.",
   "docker.detailDesktopLimited": "Docker Desktop detectado: o daemon é executado dentro de uma VM, portanto, opções de proteção limitadas estão disponíveis.",
   "settings.apiKey": "Chave de API",
   "settings.apiKeyHint": "Mantido no keystore do seu sistema operacional, nunca no arquivo de estado do Deepsand. A janela mostra apenas os últimos quatro caracteres. Entra em vigor na próxima vez que um sandbox for iniciado.",

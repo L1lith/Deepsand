@@ -5582,6 +5582,19 @@ pub fn build_runtime_image_impl(
     std::thread::spawn(move || {
         let app_for_log = AppHandle::clone(&app_handle);
         let image_for_event = image.clone();
+
+        // One build at a time, across every image, and taken *before* the log is opened: the
+        // log is one file for every image, so a second build that opened it first would truncate
+        // the output of the build still running. Two images' worth of apt/npm/cargo is also the
+        // memory peak that takes a three-gigabyte Docker Desktop VM down with it, and an engine
+        // that dies mid-build is indistinguishable from "Docker Desktop keeps crashing".
+        //
+        // The per-image claim above is a different rule: it stops two writers of one image, not
+        // two images at once. A build that has to wait says so, in its own log, rather than
+        // looking stuck.
+        let (_build_gate, waited_for_other_build) =
+            deepsand_core::docker::BUILD_GATE.acquire();
+
         // Truncated per build: the previous build's output is not context, it is noise. The
         // header names the build, so a log that was cut short is still identifiable, and
         // every line is flushed: the log's whole job is to survive the failure it describes.
@@ -5597,6 +5610,12 @@ pub fn build_runtime_image_impl(
                 }
             }
         };
+        if waited_for_other_build {
+            let line = "another image was building; this build waited for it to finish, so only \
+                        one build runs at a time and the Docker Desktop VM carries one at once";
+            write(line);
+            let _ = app_for_log.emit(events::BUILD_LOG, serde_json::json!({ "line": line }));
+        }
         if log.lock().map(|guard| guard.is_none()).unwrap_or(false) {
             let _ = app_for_log.emit(
                 events::BUILD_LOG,

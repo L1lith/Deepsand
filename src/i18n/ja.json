@@ -791,6 +791,7 @@
   "tools.tool.nix.description": "フレークを添えたニックス。イメージが大きくなり、最初のビルドが遅くなりますが、再現可能なプロジェクトごとのツールチェーンが提供されます。",
   "docker.detailNotRunning": "Docker Desktop は実行されていません。起動してもう一度試してください。",
   "docker.detailNoAnswer": "Docker Desktop は実行されていますが、デーモンが応答していません。起動してから起動するまでに 1 分ほどかかる場合があります。このままの場合はDocker Desktopを再起動してください。",
+  "docker.detailNoMemory": "このマシンの空きメモリが不足していたため、Docker Desktop は VM を起動できませんでした。メモリを多く使うアプリを閉じてから、Docker Desktop をもう一度起動してください。",
   "docker.detailDesktopLimited": "Docker Desktop が検出されました: デーモンは VM 内で実行されるため、使用できる強化オプションは限られています。",
   "settings.apiKey": "APIキー",
   "settings.apiKeyHint": "オペレーティング システムのキーストアに保存され、Deepsand の状態ファイルには保存されません。ウィンドウには最後の 4 文字のみが表示されます。次回サンドボックスが開始されるときに有効になります。",

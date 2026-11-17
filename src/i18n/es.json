@@ -791,6 +791,7 @@
   "tools.tool.nix.description": "Nix con hojuelas. Proporciona cadenas de herramientas reproducibles por proyecto, a costa de una imagen grande y una primera construcción más lenta.",
   "docker.detailNotRunning": "Docker Desktop no se está ejecutando. Inícialo y vuelve a intentarlo.",
   "docker.detailNoAnswer": "Docker Desktop se está ejecutando, pero su demonio no responde. Puede tardar un minuto en aparecer después de comenzar; Si permanece así, reinicie Docker Desktop.",
+  "docker.detailNoMemory": "Docker Desktop no pudo iniciar su VM porque esta máquina no tenía suficiente memoria libre. Cierra las aplicaciones que consumen mucha memoria y vuelve a iniciar Docker Desktop.",
   "docker.detailDesktopLimited": "Docker Desktop detectado: el demonio se ejecuta dentro de una máquina virtual, por lo que hay opciones de refuerzo limitadas disponibles.",
   "settings.apiKey": "clave API",
   "settings.apiKeyHint": "Se mantiene en el almacén de claves de su sistema operativo, nunca en el archivo de estado de Deepsand. La ventana sólo muestra los últimos cuatro caracteres. Entra en vigor la próxima vez que se inicie un sandbox.",

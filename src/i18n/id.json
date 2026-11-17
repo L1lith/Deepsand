@@ -791,6 +791,7 @@
   "tools.tool.nix.description": "Nix dengan serpihan. Memberikan rantai alat per proyek yang dapat direproduksi, dengan mengorbankan gambar yang besar dan pembuatan pertama yang lebih lambat.",
   "docker.detailNotRunning": "Docker Desktop tidak berjalan. Mulai dan coba lagi.",
   "docker.detailNoAnswer": "Docker Desktop sedang berjalan, namun daemonnya tidak menjawab. Diperlukan waktu beberapa menit untuk muncul setelah memulai; jika tetap seperti ini, restart Docker Desktop.",
+  "docker.detailNoMemory": "Docker Desktop tidak dapat memulai VM karena mesin ini tidak memiliki cukup memori kosong. Tutup aplikasi yang memakan banyak memori, lalu mulai Docker Desktop lagi.",
   "docker.detailDesktopLimited": "Docker Desktop terdeteksi: daemon berjalan di dalam VM, sehingga opsi pengerasan yang tersedia terbatas.",
   "settings.apiKey": "Kunci API",
   "settings.apiKeyHint": "Disimpan di keystore sistem operasi Anda, tidak pernah di file status Deepsand. Jendela hanya menampilkan empat karakter terakhir. Berlaku saat sandbox dimulai lagi.",

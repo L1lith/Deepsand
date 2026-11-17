@@ -791,6 +791,7 @@
   "tools.tool.nix.description": "带 flakes 的 Nix。可提供可复现的按项目工具链，代价是镜像较大且首次构建较慢。",
   "docker.detailNotRunning": "Docker Desktop 未运行。启动它并重试。",
   "docker.detailNoAnswer": "Docker Desktop 正在运行，但其守护进程没有响应。启动后可能需要一分钟才能出现；如果还是这样，请重新启动Docker Desktop。",
+  "docker.detailNoMemory": "Docker Desktop 无法启动其虚拟机，因为这台机器的可用内存不足。请关闭占用内存较多的应用程序，然后重新启动 Docker Desktop。",
   "docker.detailDesktopLimited": "检测到Docker Desktop：守护进程在虚拟机内运行，因此可用的强化选项有限。",
   "settings.apiKey": "API密钥",
   "settings.apiKeyHint": "保存在操作系统的密钥库中，而不是保存在 Deepsand 的状态文件中。该窗口仅显示最后四个字符。下次沙箱启动时生效。",

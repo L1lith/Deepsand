@@ -694,7 +694,16 @@ impl Docker {
             _ => {
                 // Asked only here: the extra call costs nothing on the path that matters, and
                 // this is the one case where the answer changes what to say.
-                status.detail = unreachable_detail(desktop_process_running()).to_string();
+                //
+                // An engine that died starting its VM leaves the reason in Docker Desktop's own
+                // log, and that reason decides what the operator should do. "Start it again" is
+                // the wrong advice when the start failed for want of three gigabytes, and it is
+                // what the operator already did once.
+                status.detail = if crate::docker_memory::engine_start_memory_failure().is_some() {
+                    OUT_OF_MEMORY_DETAIL.to_string()
+                } else {
+                    unreachable_detail(desktop_process_running()).to_string()
+                };
                 return status;
             }
         }
@@ -2102,6 +2111,16 @@ pub fn unreachable_detail(desktop_running: bool) -> &'static str {
     }
 }
 
+/// What to tell the operator when the daemon does not answer and Docker Desktop's own log says
+/// the engine never started because the VM could not get its RAM.
+///
+/// Fixed text, not a formatted one: it is translated in the window by prefix, and a sentence
+/// with a number in it would need a different key per number. The numbers belong in
+/// `deepsandctl doctor`, which is a terminal and is not translated.
+pub const OUT_OF_MEMORY_DETAIL: &str =
+    "Docker Desktop could not start its VM because this machine did not have enough free memory. \
+     Close memory-heavy applications, then start Docker Desktop again.";
+
 /// Whether the Docker Desktop application is running, asked only when the daemon did not answer.
 ///
 /// Windows and macOS only, and deliberately forgiving: a check that cannot run says "not
@@ -2291,6 +2310,84 @@ pub fn cancel_build(tag: &str) -> bool {
             true
         }
         None => false,
+    }
+}
+
+/// One build at a time, across every image.
+///
+/// `Docker::build` is where Deepsand spends memory: apt, npm and cargo all run inside Docker
+/// Desktop's VM, and two builds of *different* images used to run side by side. The per-image
+/// claim in the app is a different rule -- it stops two writers of one log, not two images'
+/// worth of compiler -- and the VM is sized for one build (Docker Desktop's default here is
+/// 3072 MB). A build that takes the engine down with it looks like Docker Desktop crashing,
+/// which is exactly what an operator cannot diagnose from the window.
+///
+/// The gate is held for the whole build, including its tool-cache copy. A second build waits
+/// and says so in its log rather than failing: it is usually a Run, and its image is being
+/// built by the build the operator started a moment earlier.
+#[derive(Default)]
+pub struct BuildGate {
+    inner: std::sync::Mutex<()>,
+}
+
+impl BuildGate {
+    /// Take the gate, reporting whether somebody else had it. The caller holds the returned
+    /// guard until the build is over; dropping it lets the next build in.
+    pub fn acquire(&self) -> (std::sync::MutexGuard<'_, ()>, bool) {
+        match self.inner.try_lock() {
+            Ok(guard) => (guard, false),
+            Err(std::sync::TryLockError::WouldBlock) => (
+                self.inner.lock().unwrap_or_else(|poisoned| poisoned.into_inner()),
+                true,
+            ),
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => (poisoned.into_inner(), false),
+        }
+    }
+
+    /// The non-blocking half of [`Self::acquire`], so the rule can be stated in a test without
+    /// a thread to wait for.
+    pub fn try_acquire(&self) -> Option<std::sync::MutexGuard<'_, ()>> {
+        self.inner.try_lock().ok()
+    }
+}
+
+/// The process-wide gate every build path holds.
+pub static BUILD_GATE: BuildGate = BuildGate {
+    inner: std::sync::Mutex::new(()),
+};
+
+#[cfg(test)]
+mod build_gate_tests {
+    use super::*;
+
+    #[test]
+    fn a_second_build_cannot_start_while_one_is_running() {
+        let gate = BuildGate::default();
+        let first = gate
+            .try_acquire()
+            .expect("the first build takes the gate");
+        assert!(
+            gate.try_acquire().is_none(),
+            "a second build must not run beside the first: two images' worth of apt, npm and \
+             cargo is what takes a small Docker Desktop VM down"
+        );
+        drop(first);
+        assert!(
+            gate.try_acquire().is_some(),
+            "the gate is free again when the build ends"
+        );
+    }
+
+    #[test]
+    fn the_process_wide_gate_is_one_gate() {
+        let held = BUILD_GATE
+            .try_acquire()
+            .expect("the process gate starts free");
+        assert!(
+            BUILD_GATE.try_acquire().is_none(),
+            "while the app's build gate is held, nothing else gets in"
+        );
+        drop(held);
     }
 }
 

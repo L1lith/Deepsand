@@ -791,6 +791,7 @@
   "tools.tool.nix.description": "Nix với vảy. Cung cấp các chuỗi công cụ có thể tái tạo cho mỗi dự án, với chi phí là hình ảnh lớn và bản dựng đầu tiên chậm hơn.",
   "docker.detailNotRunning": "Docker Desktop không chạy. Hãy bắt đầu và thử lại.",
   "docker.detailNoAnswer": "Docker Desktop đang chạy nhưng daemon của nó không phản hồi. Có thể mất một phút để xuất hiện sau khi bắt đầu; nếu nó vẫn như thế này, hãy khởi động lại Docker Desktop.",
+  "docker.detailNoMemory": "Docker Desktop không thể khởi động VM vì máy này không đủ bộ nhớ trống. Hãy đóng các ứng dụng tốn nhiều bộ nhớ, rồi khởi động lại Docker Desktop.",
   "docker.detailDesktopLimited": "Đã phát hiện Docker Desktop: daemon chạy bên trong VM, do đó, các tùy chọn tăng cường có giới hạn.",
   "settings.apiKey": "Khóa API",
   "settings.apiKeyHint": "Được giữ trong kho khóa của hệ điều hành của bạn, không bao giờ có trong tệp trạng thái của Deepsand. Cửa sổ chỉ hiển thị bốn ký tự cuối cùng. Có hiệu lực vào lần tiếp theo hộp cát khởi động.",

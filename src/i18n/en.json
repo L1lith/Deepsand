@@ -76,6 +76,7 @@
   "docker.restartConfirm": "Restart Docker Desktop",
   "docker.detailNotRunning": "Docker Desktop is not running. Start it and try again.",
   "docker.detailNoAnswer": "Docker Desktop is running, but its daemon is not answering. It can take a minute to come up after starting; if it stays like this, restart Docker Desktop.",
+  "docker.detailNoMemory": "Docker Desktop could not start its VM because this machine did not have enough free memory. Close memory-heavy applications, then start Docker Desktop again.",
   "docker.detailDesktopLimited": "Docker Desktop detected: the daemon runs inside a VM, so limited hardening options are available.",
 
   "format.unknown": "unknown",

@@ -791,6 +791,7 @@
   "tools.tool.nix.description": "플레이크가 있는 닉스. 큰 이미지와 느린 첫 번째 빌드를 희생하면서 재현 가능한 프로젝트별 툴체인을 제공합니다.",
   "docker.detailNotRunning": "Docker Desktop이 실행되고 있지 않습니다. 시작하고 다시 시도하십시오.",
   "docker.detailNoAnswer": "Docker Desktop이 실행 중이지만 해당 데몬이 응답하지 않습니다. 시작한 후 나타나는 데 1분 정도 걸릴 수 있습니다. 계속 이런 상태라면 Docker Desktop을 다시 시작하세요.",
+  "docker.detailNoMemory": "이 컴퓨터의 여유 메모리가 부족하여 Docker Desktop이 VM을 시작하지 못했습니다. 메모리를 많이 사용하는 앱을 닫은 다음 Docker Desktop을 다시 시작하세요.",
   "docker.detailDesktopLimited": "Docker Desktop 감지됨: 데몬이 VM 내부에서 실행되므로 제한된 강화 옵션을 사용할 수 있습니다.",
   "settings.apiKey": "API 키",
   "settings.apiKeyHint": "운영 체제의 키 저장소에 보관되며 Deepsand의 상태 파일에는 보관되지 않습니다. 창에는 마지막 4자만 표시됩니다. 다음에 샌드박스가 시작될 때 적용됩니다.",

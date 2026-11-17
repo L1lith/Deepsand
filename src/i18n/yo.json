@@ -791,6 +791,7 @@
   "tools.tool.nix.description": "Nix pẹlu flakes. O funni ni awọn ẹwọn irinṣẹ iṣẹ akanṣe ti o ṣee ṣe, ni idiyele ti aworan nla ati kikọ akọkọ ti o lọra.",
   "docker.detailNotRunning": "Docker Desktop ko nṣiṣẹ. Bẹrẹ ki o gbiyanju lẹẹkansi.",
   "docker.detailNoAnswer": "Docker Desktop n ṣiṣẹ, ṣugbọn daemon rẹ ko dahun. O le gba iṣẹju kan lati wa soke lẹhin ibẹrẹ; ti o ba duro bi eleyi, tun bẹrẹ Docker Desktop.",
+  "docker.detailNoMemory": "Docker Desktop kò leè bẹ̀rẹ̀ VM rẹ̀ nítorí ẹ̀rọ yìí kò ní ìrántí òmìnira tó. Pa àwọn ohun èlò tó ń gba ìrántí púpọ̀, kí o sì tún Docker Desktop bẹ̀rẹ̀.",
   "docker.detailDesktopLimited": "Docker Desktop ṣe awari: daemon n ṣiṣẹ inu VM kan, nitorinaa awọn aṣayan lile to lopin wa.",
   "settings.apiKey": "API bọtini",
   "settings.apiKeyHint": "Ti o wa ni ibi ipamọ bọtini ẹrọ ẹrọ rẹ, rara ni faili ipinlẹ Deepsand. Ferese nikan fihan awọn ohun kikọ mẹrin ti o kẹhin. Yoo ni ipa nigbamii ti apoti iyanrin ba bẹrẹ.",

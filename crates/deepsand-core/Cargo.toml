@@ -41,4 +41,4 @@ getrandom.workspace = true
 # File identity for hard-link deduplication. `std` exposes the inode on Unix but keeps the
 # Windows file index behind an unstable feature, so the one call that needs it is made here.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_SystemInformation"] }

@@ -24,6 +24,7 @@ pub mod covered;
 pub mod credentials;
 pub mod disk;
 pub mod docker;
+pub mod docker_memory;
 pub mod docker_shares;
 pub mod error;
 pub mod git;

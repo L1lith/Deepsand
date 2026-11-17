@@ -791,6 +791,7 @@
   "tools.tool.nix.description": "Nix avec des flocons. Fournit des chaînes d'outils reproductibles par projet, au prix d'une grande image et d'une première construction plus lente.",
   "docker.detailNotRunning": "Docker Desktop n'est pas en cours d'exécution. Démarrez-le et réessayez.",
   "docker.detailNoAnswer": "Docker Desktop est en cours d'exécution, mais son démon ne répond pas. Cela peut prendre une minute pour apparaître après le démarrage ; si cela reste comme ça, redémarrez Docker Desktop.",
+  "docker.detailNoMemory": "Docker Desktop n'a pas pu démarrer sa VM car cette machine n'avait pas assez de mémoire libre. Fermez les applications gourmandes en mémoire, puis redémarrez Docker Desktop.",
   "docker.detailDesktopLimited": "Docker Desktop détecté : le démon s'exécute dans une VM, les options de renforcement limitées sont donc disponibles.",
   "settings.apiKey": "Clé API",
   "settings.apiKeyHint": "Conservé dans le magasin de clés de votre système d'exploitation, jamais dans le fichier d'état de Deepsand. La fenêtre n'affiche que les quatre derniers caractères. Prend effet au prochain démarrage d’un bac à sable.",

@@ -653,6 +653,9 @@ export function dockerDetail(detail: string): string {
   if (detail.startsWith("Docker Desktop is running, but its daemon is not answering")) {
     return t("docker.detailNoAnswer");
   }
+  if (detail.startsWith("Docker Desktop could not start its VM")) {
+    return t("docker.detailNoMemory");
+  }
   if (detail.startsWith("Docker Desktop detected")) {
     return t("docker.detailDesktopLimited");
   }

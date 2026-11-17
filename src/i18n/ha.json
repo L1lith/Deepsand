@@ -791,6 +791,7 @@
   "tools.tool.nix.description": "Nix tare da flakes. Yana ba da sarƙoƙin kayan aiki na kowane-aiki, akan farashin babban hoto da a hankali ginawa na farko.",
   "docker.detailNotRunning": "Docker Desktop baya gudana. Fara shi kuma a sake gwadawa.",
   "docker.detailNoAnswer": "Docker Desktop yana gudana, amma daemon sa baya amsawa. Yana iya ɗaukar minti daya don fitowa bayan farawa; idan ta kasance haka, sake farawa Docker Desktop.",
+  "docker.detailNoMemory": "Docker Desktop ya kasa iya fara VM ɗinta saboda wannan na'ura ba ta da isasshiyar ƙwaƙwalwar ajiya. Rufe manhajoji masu cin ƙwaƙwalwar ajiya, sannan sake fara Docker Desktop.",
   "docker.detailDesktopLimited": "An gano Docker Desktop: daemon yana gudana a cikin VM, don haka akwai iyakantattun zaɓuɓɓukan tauraro.",
   "settings.apiKey": "API key",
   "settings.apiKeyHint": "Ajiye a cikin maɓallan tsarin aiki, ba a taɓa cikin fayil ɗin jihar Deepsand ba. Tagan kawai yana nuna haruffa huɗu na ƙarshe. Yana aiki na gaba lokacin da akwatin yashi ya fara.",

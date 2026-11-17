@@ -16,6 +16,7 @@
 use deepsand_core::broker::Broker;
 use deepsand_core::credentials;
 use deepsand_core::docker::Docker;
+use deepsand_core::docker_memory;
 use deepsand_core::docker_shares;
 use deepsand_core::model::*;
 use deepsand_core::policy::{self, MountKind, PlanInput};
@@ -136,12 +137,98 @@ NOTES
 /* doctor                                                                    */
 /* ------------------------------------------------------------------------- */
 
+/// Print what Docker Desktop's VM asks for, what this machine has, and what the last engine
+/// start said.
+///
+/// Printed before the Docker probe and kept separate from it, because the most useful thing on
+/// a machine where the engine will not start is exactly the information the engine cannot
+/// provide. The memory failure is in Docker Desktop's own log, and nothing else in Deepsand
+/// reads it.
+fn report_memory() {
+    let host = docker_memory::host_memory();
+    let desktop = docker_memory::docker_desktop_memory();
+    let vm_memory_mb = desktop.as_ref().and_then(|desktop| desktop.vm_memory_mb);
+
+    match host {
+        Some(host) => println!(
+            "host memory    : {} MB total, {} MB available, commit {} of {} MB",
+            host.total_mb, host.available_mb, host.commit_used_mb, host.commit_limit_mb
+        ),
+        None => println!("host memory    : UNKNOWN (the operating system did not report it)"),
+    }
+
+    match &desktop {
+        Some(desktop) => {
+            let backend = if desktop.hyperv { "Hyper-V" } else { "WSL" };
+            match desktop.vm_memory_mb {
+                Some(mb) => println!(
+                    "docker desktop : {backend} VM, {mb} MB RAM{}",
+                    desktop
+                        .swap_mb
+                        .map(|swap| format!(", {swap} MB swap"))
+                        .unwrap_or_default()
+                ),
+                None => println!(
+                    "docker desktop : {backend}, no VM memory setting in {}",
+                    desktop.settings_path.display()
+                ),
+            }
+        }
+        None => println!("docker desktop : memory settings not found"),
+    }
+
+    if let Some(host) = host {
+        match docker_memory::verdict(&host, vm_memory_mb) {
+            docker_memory::MemoryVerdict::Plenty => println!(
+                "memory now     : OK for a {} MB VM ({} MB free)",
+                vm_memory_mb.unwrap_or(0),
+                host.headroom_mb()
+            ),
+            docker_memory::MemoryVerdict::Tight => println!(
+                "memory now     : TIGHT for a {} MB VM ({} MB free; {} MB of margin is wanted)",
+                vm_memory_mb.unwrap_or(0),
+                host.headroom_mb(),
+                docker_memory::START_HEADROOM_MB
+            ),
+            docker_memory::MemoryVerdict::Insufficient => println!(
+                "memory now     : NOT ENOUGH for a {} MB VM ({} MB free) - close memory-heavy \
+                 applications before starting Docker Desktop",
+                vm_memory_mb.unwrap_or(0),
+                host.headroom_mb()
+            ),
+            docker_memory::MemoryVerdict::Unknown => {
+                println!("memory now     : not judged (no VM size to compare against)")
+            }
+        }
+    }
+
+    if let Some(failure) = docker_memory::engine_start_memory_failure() {
+        match (failure.vm_memory_mb, failure.at) {
+            (Some(mb), Some(at)) => println!(
+                "engine memory  : the last start failed: {mb} MB of VM RAM could not be supplied ({at})"
+            ),
+            (Some(mb), None) => println!(
+                "engine memory  : the last start failed: {mb} MB of VM RAM could not be supplied"
+            ),
+            (None, Some(at)) => println!(
+                "engine memory  : the last start failed for want of memory ({at})"
+            ),
+            (None, None) => println!("engine memory  : the last start failed for want of memory"),
+        }
+        println!("                 {}", failure.log_path.display());
+    }
+}
+
 fn cmd_doctor(data_dir: &Path) -> Result<()> {
     println!("deepsandctl {}", env!("CARGO_PKG_VERSION"));
     println!("data directory : {}", data_dir.display());
 
     let store = Store::load(data_dir.to_path_buf())?;
     println!("projects       : {}", store.projects().len());
+
+    // Before the probe: this is the half of "Docker will not start" that survives the daemon
+    // being absent, and it is what the window's message is derived from.
+    report_memory();
 
     let docker_status = match Docker::locate() {
         Ok(docker) => docker.probe(store.settings().image.as_str()),

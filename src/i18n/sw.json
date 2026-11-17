@@ -791,6 +791,7 @@
   "tools.tool.nix.description": "Nix na flakes. Hutoa minyororo ya zana zinazoweza kuzalishwa kwa kila mradi, kwa gharama ya picha kubwa na muundo wa kwanza polepole.",
   "docker.detailNotRunning": "Docker Desktop haifanyiki. Ianze na ujaribu tena.",
   "docker.detailNoAnswer": "Docker Desktop inaendesha, lakini daemon yake haijibu. Inaweza kuchukua dakika kuja baada ya kuanza; ikikaa hivi, anzisha upya Docker Desktop.",
+  "docker.detailNoMemory": "Docker Desktop haikuweza kuanzisha VM yake kwa sababu mashine hii haikuwa na memory ya kutosha iliyo huru. Funga programu zinazotumia memory nyingi, kisha anzisha Docker Desktop tena.",
   "docker.detailDesktopLimited": "Docker Desktop imegunduliwa: daemon huendesha ndani ya VM, kwa hivyo chaguzi chache za ugumu zinapatikana.",
   "settings.apiKey": "Kitufe cha API",
   "settings.apiKeyHint": "Imehifadhiwa katika hifadhi ya vitufe vya mfumo wako wa uendeshaji, kamwe katika faili ya hali ya Deepsand. Dirisha linaonyesha herufi nne za mwisho pekee. Itaanza kutumika wakati ujao sanduku la mchanga linapoanza.",
