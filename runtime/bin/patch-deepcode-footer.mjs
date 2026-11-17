@@ -22,6 +22,11 @@
  * recognise fails the build rather than shipping an image with the bug. Run `--check` after
  * `--apply`; the Dockerfile does both, and `--self-test` too.
  *
+ * The idle half of the footer is operator copy, not structure, so every wording this has been
+ * checked against is listed below -- 0.7.0 reworded it (`esc to interrupt · ctrl+c to cancel
+ * input` became `enter queue · esc interrupt`) without touching the branch this patch rewrites.
+ * An unrecognised wording still stops the build: it is a footer nobody has looked at.
+ *
  * Usage:
  *   node patch-deepcode-footer.mjs --apply [--file /path/to/cli.js]
  *   node patch-deepcode-footer.mjs --check [--file /path/to/cli.js]
@@ -51,14 +56,26 @@ const PATCHED_PROCESS_RETURN = `  /* ${PROCESS_MARKER}. A command with newlines 
   return command ? \`\${elapsed} \${command}\` : elapsed;`;
 
 /**
- * The footer line, exactly as shipped and as patched. `\\xB7` is the escaped middle dot the
- * bundle uses; it is written as two characters in the source and one on screen.
+ * The branch taken while a process runs. `esc to interrupt` has to be inside it, on the same
+ * line as the command: that is the whole point of the patch.
  */
-const BUSY_UPSTREAM =
-  "const busyStatusText = loadingText && loadingText.trim() ? `${loadingText}${processOrPasteHint}` : `esc to interrupt \\xB7 ctrl+c to cancel input${processOrPasteHint}`;";
+const BUSY_LOADING_BRANCH = "? `${loadingText}${processOrPasteHint}` :";
+const BUSY_LOADING_BRANCH_PATCHED = "? `esc to interrupt \\xB7 ${loadingText}${processOrPasteHint}` :";
 
-const BUSY_PATCHED =
-  "const busyStatusText = loadingText && loadingText.trim() ? `esc to interrupt \\xB7 ${loadingText}${processOrPasteHint}` : `esc to interrupt \\xB7 ctrl+c to cancel input${processOrPasteHint}`;";
+/**
+ * The footer line, exactly as shipped, for every wording this patch knows. `\\xB7` is the
+ * escaped middle dot the bundle uses; it is written as two characters in the source and one on
+ * screen. Only the loading branch is load-bearing, but the whole statement is matched so a
+ * wording nobody has checked still stops the build.
+ */
+const BUSY_UPSTREAM = [
+  "const busyStatusText = loadingText && loadingText.trim() ? `${loadingText}${processOrPasteHint}` : `esc to interrupt \\xB7 ctrl+c to cancel input${processOrPasteHint}`;",
+  "const busyStatusText = loadingText && loadingText.trim() ? `${loadingText}${processOrPasteHint}` : `enter queue \\xB7 esc interrupt${processOrPasteHint}`;",
+];
+
+const BUSY_PATCHED = BUSY_UPSTREAM.map((statement) =>
+  statement.replace(BUSY_LOADING_BRANCH, BUSY_LOADING_BRANCH_PATCHED),
+);
 
 function fail(message) {
   console.error(`deepsand: patch-deepcode-footer: ${message}`);
@@ -203,8 +220,8 @@ function inspect(source) {
     body,
     processUpstream: body.includes(UPSTREAM_PROCESS_RETURN),
     processPatched: body.includes(PROCESS_MARKER),
-    busyUpstream: source.includes(BUSY_UPSTREAM),
-    busyPatched: source.includes(BUSY_PATCHED),
+    busyUpstream: BUSY_UPSTREAM.some((statement) => source.includes(statement)),
+    busyPatched: BUSY_PATCHED.some((statement) => source.includes(statement)),
   };
 }
 
@@ -227,7 +244,8 @@ function apply(source) {
   }
 
   if (!state.busyPatched) {
-    next = next.replace(BUSY_UPSTREAM, BUSY_PATCHED);
+    const shipped = BUSY_UPSTREAM.find((statement) => next.includes(statement));
+    next = next.replace(shipped, shipped.replace(BUSY_LOADING_BRANCH, BUSY_LOADING_BRANCH_PATCHED));
     changed = true;
   }
 
@@ -254,63 +272,89 @@ function writeAtomically(file, contents) {
 
 // --------------------------------------------------------------------------- self-test
 
-const FIXTURE = [
-  "function buildProcessLoadingText(processes, now) {",
-  "  if (!processes || processes.size === 0) {",
-  "    return null;",
-  "  }",
-  "  const first = processes.values().next().value;",
-  "  if (!first) {",
-  "    return null;",
-  "  }",
-  UPSTREAM_PROCESS_RETURN,
-  "}",
-  "__name(buildProcessLoadingText, \"buildProcessLoadingText\");",
-  "function PromptInput() {",
-  "  const processOrPasteHint = \" \\xB7 ctrl+o view output\";",
-  `  ${BUSY_UPSTREAM}`,
-  "}",
-].join("\n");
+/** A bundle shaped like the one this patch runs against, around one shipped footer statement. */
+function fixture(busyStatement) {
+  return [
+    "function buildProcessLoadingText(processes, now) {",
+    "  if (!processes || processes.size === 0) {",
+    "    return null;",
+    "  }",
+    "  const first = processes.values().next().value;",
+    "  if (!first) {",
+    "    return null;",
+    "  }",
+    UPSTREAM_PROCESS_RETURN,
+    "}",
+    "__name(buildProcessLoadingText, \"buildProcessLoadingText\");",
+    "function PromptInput() {",
+    "  const processOrPasteHint = \" \\xB7 ctrl+o view output\";",
+    `  ${busyStatement}`,
+    "}",
+  ].join("\n");
+}
+
+/** 0.7.0 is the wording this build ships against; 0.6.0 and earlier used the other. */
+const FIXTURE = fixture(BUSY_UPSTREAM[1]);
+const FIXTURE_BEFORE_0_7 = fixture(BUSY_UPSTREAM[0]);
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
 function selfTest() {
-  let state = inspect(FIXTURE);
-  assert(state.processUpstream && !state.processPatched, "the fixture must start unpatched");
-  assert(state.busyUpstream && !state.busyPatched, "the fixture must carry the shipped footer");
+  // Every footer wording this patch knows must patch, and the idle copy it does not own -- the
+  // half 0.7.0 reworded -- has to come out the other side intact.
+  for (const [label, shipped, statement] of [
+    ["0.7.0", FIXTURE, BUSY_UPSTREAM[1]],
+    ["0.6.0", FIXTURE_BEFORE_0_7, BUSY_UPSTREAM[0]],
+  ]) {
+    const state = inspect(shipped);
+    assert(state.processUpstream && !state.processPatched, `${label}: the fixture must start unpatched`);
+    assert(state.busyUpstream && !state.busyPatched, `${label}: the fixture must carry the shipped footer`);
 
-  let passedUnpatched = false;
-  try {
-    verify(FIXTURE, "fixture", "fixture");
-    passedUnpatched = true;
-  } catch {}
-  assert(!passedUnpatched, "an unpatched fixture must not verify");
+    let passedUnpatched = false;
+    try {
+      verify(shipped, "fixture", label);
+      passedUnpatched = true;
+    } catch {}
+    assert(!passedUnpatched, `${label}: an unpatched fixture must not verify`);
 
-  const first = apply(FIXTURE);
-  assert(first.changed, "the first apply must change the fixture");
-  verify(first.source, "fixture", "fixture");
-  const second = apply(first.source);
-  assert(!second.changed && second.source === first.source, "a second apply must be a no-op");
-  assert(!first.source.includes(UPSTREAM_PROCESS_RETURN), "the upstream multi-line return survived");
-  assert(first.source.includes(BUSY_PATCHED), "the interrupt hint was not moved before the command");
-
-  let refused = false;
-  try {
-    apply(FIXTURE.replace("first.command", "first.cmd"));
-  } catch {
-    refused = true;
+    const first = apply(shipped);
+    assert(first.changed, `${label}: the first apply must change the fixture`);
+    verify(first.source, "fixture", label);
+    const second = apply(first.source);
+    assert(!second.changed && second.source === first.source, `${label}: a second apply must be a no-op`);
+    assert(!first.source.includes(UPSTREAM_PROCESS_RETURN), `${label}: the upstream multi-line return survived`);
+    assert(
+      BUSY_PATCHED.some((patched) => first.source.includes(patched)),
+      `${label}: the interrupt hint was not moved before the command`,
+    );
+    const idle = statement.slice(statement.indexOf(" : `") + 1);
+    assert(first.source.includes(idle), `${label}: the idle footer copy was rewritten`);
   }
-  assert(refused, "a footer shape this does not know must be refused");
+
+  // A footer shape this does not know is a footer nobody has looked at.
+  for (const [label, source] of [
+    ["an unknown process body", FIXTURE.replace("first.command", "first.cmd")],
+    ["an unknown idle footer", FIXTURE.replace("enter queue", "enter send")],
+  ]) {
+    let refused = false;
+    try {
+      apply(source);
+    } catch {
+      refused = true;
+    }
+    assert(refused, `${label} must be refused`);
+  }
 
   // Semantic: the patched function, compiled from the text that will be written, must turn a
   // 40-line command into one line. This is the bug the patch exists for, measured rather than
   // asserted in prose.
-  const range = functionRange(first.source, PROCESS_NAME);
+  const patched = apply(FIXTURE);
+  const range = functionRange(patched.source, PROCESS_NAME);
   const factory = new Function(
     "formatElapsedTime",
-    `${first.source.slice(range.declaration, range.end)}\nreturn ${PROCESS_NAME};`,
+    `${patched.source.slice(range.declaration, range.end)}\nreturn ${PROCESS_NAME};`,
   );
   const loading = factory(() => "3s");
   const command = Array.from({ length: 40 }, (_, index) => `line ${index}`).join("\n");
