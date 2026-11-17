@@ -10,7 +10,7 @@
  *    itself, which is what lets the container's TUI initialise at all.
  */
 
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -92,6 +92,29 @@ export function TerminalPane() {
    * takes over from it.
    */
   const [skipping, setSkipping] = createSignal(false);
+
+  /**
+   * Put text into the CLI's prompt as text.
+   *
+   * Not bracketed paste, and not xterm's paste either: this terminal is a ConPTY, and the
+   * console host consumes the `ESC[200~` / `ESC[201~` markers and the CRs between them. A
+   * block sent that way reaches the CLI as one concatenated line -- pasted `alpha\nbeta\ngamma`
+   * arrives as `alphabetagamma` -- or, with different timing, as one submit per line.
+   *
+   * What does survive is LF: the CLI's dispatcher splits control bytes out of a read and maps
+   * LF to Ctrl+J, which inserts a newline instead of submitting. So the block is normalised to
+   * LF and written as text, with the control characters the CLI's own paste path strips and
+   * tabs expanded the way it expands them. It also no longer depends on the terminal's copy of
+   * the bracketed-paste mode, which can be missing for a pane that attached late.
+   */
+  function pasteText(text: string) {
+    if (!term || !text) return;
+    const normalized = text
+      .replace(/\r\n?/g, "\n")
+      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "")
+      .replace(/\t/g, "    ");
+    if (normalized) term.input(normalized);
+  }
 
   onMount(() => {
     term = new Terminal({
@@ -202,6 +225,23 @@ export function TerminalPane() {
         return;
       }
 
+      // Shift+Enter is a newline, not a submit.
+      //
+      // A terminal cannot put "shift" into the byte Enter sends, so xterm sends the same CR
+      // for both and the CLI submits. The obvious encoding, CSI-u shift+return, is recognised
+      // by the CLI only when it is the whole read -- and ConPTY coalesces it with the text just
+      // typed, so in practice it is never alone: `abc` + the sequence in one read comes out as
+      // `abcdef`, with no newline anywhere. Ctrl+J is the same newline in the same input box,
+      // and the CLI's dispatcher splits control bytes out of a batch before parsing, so a bare
+      // LF survives being glued to the preceding text. This is the Ctrl+J path, sent as the
+      // byte a terminal would send for it.
+      if (key === "enter" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        term?.input("\n");
+        return;
+      }
+
       const isPaste =
         ((event.ctrlKey || event.metaKey) && !event.altKey && key === "v") ||
         (event.shiftKey && event.key === "Insert");
@@ -249,7 +289,7 @@ export function TerminalPane() {
       if (!text) return;
       event.preventDefault();
       event.stopPropagation();
-      term?.paste(text);
+      pasteText(text);
     };
     host.addEventListener("paste", onPaste, true);
 
@@ -391,7 +431,26 @@ export function TerminalPane() {
     void api.resizeSession(current.id, term.rows, term.cols).catch(() => undefined);
   }
 
-  // Re-attach when the selected project changes, clearing the old buffer.
+  /**
+   * Clear the pane without losing the modes the program set.
+   *
+   * `reset()` clears the DEC private modes along with the buffer and the parser. The program on
+   * the other side of the PTY asks for those once, when its prompt mounts, and cannot be asked
+   * again from here -- so a reset in the middle of a session silently turns them off, and the
+   * loss stays invisible until input is next encoded differently. Bracketed paste is the one
+   * that matters most: with it off xterm sends every pasted newline as Enter, so a pasted block
+   * arrives as one submitted message per line. Focus reporting is the other input-shaping mode
+   * the CLI asks for. Both are restored as xterm's own state; nothing is sent to the sandbox.
+   */
+  function resetKeepingInputModes() {
+    if (!term) return;
+    const bracketedPaste = term.modes.bracketedPasteMode;
+    const sendFocus = term.modes.sendFocusMode;
+    term.reset();
+    if (bracketedPaste) term.write("\x1b[?2004h");
+    if (sendFocus) term.write("\x1b[?1004h");
+  }
+
   /**
    * How many of the build's lines have been written to the terminal.
    *
@@ -420,8 +479,9 @@ export function TerminalPane() {
 
     if (!mirroring) {
       // A previous run's scrollback is not what this is about, and the tools being installed are
-      // the only thing worth reading until they are done.
-      term.reset();
+      // the only thing worth reading until they are done. The input modes are kept: a rebuild
+      // can start while a session is still attached, and the CLI will not ask for them again.
+      resetKeepingInputModes();
       term.writeln(`\x1b[2m${t("terminal.toolsTerminalLine")}\x1b[0m`);
       mirrored = 0;
       mirroring = true;
@@ -459,11 +519,23 @@ export function TerminalPane() {
     // recoloured. Assigning the theme is what makes Stop/Run and a project switch a way
     // back, rather than an app restart.
     term.options.theme = { ...TERMINAL_THEME };
-    term.reset();
+    // Keep the modes on a switch too: the project being switched to may already have a CLI
+    // running, and it asked for bracketed paste on a screen this reset is about to erase.
+    resetKeepingInputModes();
     if (!projectId) return;
 
     const detach = attachTerminal(projectId, (bytes) => term?.write(bytes));
     onCleanup(detach);
+
+    // A session that was already running asked for the input modes before this pane could
+    // hear it: a resume on launch, or a terminal that was reset after the CLI started. The
+    // program cannot ask twice, and bracketed paste is the one that decides whether a pasted
+    // block is one insertion or one Enter per line. `untrack` keeps this from becoming a
+    // dependency on the project list -- that is what made every refresh reset the pane.
+    if (untrack(() => project()?.running ?? false)) {
+      term.write("\x1b[?2004h");
+      term.write("\x1b[?1004h");
+    }
 
     // Ask the container to repaint by nudging the PTY size: a TUI re-renders on
     // SIGWINCH, which is how the operator sees their session again after a tab
@@ -641,10 +713,11 @@ export function TerminalPane() {
   /**
    * Read the clipboard and put it into the session.
    *
-   * Text is handed to xterm's paste rather than written straight to the session, so it is
-   * wrapped in the bracketed-paste markers the CLI asked for and arrives as one paste rather
-   * than as typing. A screenshot arrives as bytes with no path at all, so it becomes a file
-   * named for its type, is copied into the sandbox, and its sandbox path is typed.
+   * Text goes through `pasteText`, which sends the block as LF-terminated text: this terminal
+   * is a ConPTY, which does not carry the bracketed-paste markers through, so a marker-based
+   * paste arrives as one line or as one submit per line. A screenshot arrives as bytes with no
+   * path at all, so it becomes a file named for its type, is copied into the sandbox, and its
+   * sandbox path is typed.
    */
   async function pasteClipboard() {
     const current = project();
@@ -670,7 +743,7 @@ export function TerminalPane() {
         return;
       }
       if (text) {
-        term?.paste(text);
+        pasteText(text);
         return;
       }
       toast(
